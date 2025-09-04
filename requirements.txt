@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+slack-sdk
+python-dotenv
+pydantic
