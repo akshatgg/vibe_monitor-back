@@ -185,8 +185,8 @@ def receive_error(payload: ErrorPayload, background_tasks: BackgroundTasks):
             "status": "initial",
         }
 
-        # Start progressive updates in background
-        background_tasks.add_task(simulate_progressive_updates, error.error_group_id)
+        # Start progressive updates in background (commented out for now to avoid timeout)
+        # background_tasks.add_task(simulate_progressive_updates, error.error_group_id)
 
         return {"ok": True, "error_group_id": error.error_group_id, "ts": ts}
 
