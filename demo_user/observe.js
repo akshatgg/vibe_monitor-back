@@ -29,7 +29,3 @@ const sdk = new NodeSDK({
 // Start SDK
 sdk.start();
 
-console.log("✅ OpenTelemetry SDK started");
-console.log("📊 Metrics export interval: 5 seconds");
-console.log("🔍 Traces will be sent to: http://localhost:8000/v1/traces");
-console.log("📈 Metrics will be sent to: http://localhost:8000/v1/metrics");

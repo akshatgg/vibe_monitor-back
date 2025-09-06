@@ -23,16 +23,19 @@ const customFormat = ':method :url :status :res[content-length] - :response-time
 // Custom stream that sends to backend only
 const backendStream = {
   write: (message) => {
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      message: message.trim(),
+      source: 'morgan'
+    };
+    console.log("Sending to backend:", JSON.stringify(payload)); // Add this line
+    
     fetch('http://localhost:8000/v1/logs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: message.trim(),
-        source: 'morgan'
-      })
-    }).catch(() => {}); // Silent fail
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   }
 };
 
@@ -43,7 +46,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/boom", (req, res) => {
-  throw new Error("Something went wrong");
+  res.status(500).json({ error: "Something went wrong" });
 });
 
 app.get("/test", (req, res) => {
@@ -53,4 +56,6 @@ app.get("/test", (req, res) => {
   });
 });
 
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`demo_user running on http://localhost:${PORT}`);
+});

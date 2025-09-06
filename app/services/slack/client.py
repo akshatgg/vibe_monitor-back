@@ -1,10 +1,9 @@
 import os
-from fastapi import FastAPI
 from pydantic import BaseModel
 from slack_sdk import WebClient
 from dotenv import load_dotenv
 import asyncio
-from fastapi import FastAPI, BackgroundTasks
+import threading
 
 load_dotenv()
 
@@ -12,38 +11,9 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_CHANNEL = os.getenv("SLACK_DEFAULT_CHANNEL", "#general")
 
 slack_client = WebClient(token=SLACK_BOT_TOKEN)
-app = FastAPI()
 
 # In-memory store: error_group_id -> Slack message details
 message_store = {}
-
-
-
-# ....................Simulated Progressive Updates.....................#
-async def simulate_progressive_updates(error_group_id):
-    """Simulate the progressive AI analysis and investigation phases"""
-
-    # Wait a bit, then add AI Analysis phase
-    await asyncio.sleep(2)
-    ai_analysis_content = (
-        "🤖 *Analyzing Error*\n" "⏳ Finding commits and deployement causing this error"
-    )
-    update_message_section(
-        error_group_id, "ai_analysis", ai_analysis_content, "analyzing"
-    )
-
-    # Wait more, then add Investigation phase
-    await asyncio.sleep(3)
-    investigation_content = (
-        "🔍 *Investigating Root Cause*\n"
-        "⏳ Reading code repository...\n"
-        "⏳ Analyzing commit history...\n"
-        "⏳ Cross-referencing with logs..."
-    )
-    update_message_section(error_group_id, "ai_analysis", ai_analysis_content)
-    update_message_section(
-        error_group_id, "rca_investigation", investigation_content, "investigating"
-    )
 
 
 # ....................Message Builder.....................#
@@ -94,9 +64,35 @@ def update_message_section(error_group_id, section_name, content, new_status=Non
         return False
 
 
+# ....................Simulation in separate thread.....................#
+def simulate_progressive_updates_sync(error_group_id):
+    """Simulate the progressive AI analysis and investigation phases (sync version)"""
+    import time
+    
+    # Wait a bit, then add AI Analysis phase
+    time.sleep(2)
+    ai_analysis_content = (
+        "🤖 *Analyzing Error*\n" "⏳ Finding commits and deployement causing this error"
+    )
+    update_message_section(
+        error_group_id, "ai_analysis", ai_analysis_content, "analyzing"
+    )
+
+    # Wait more, then add Investigation phase
+    time.sleep(3)
+    investigation_content = (
+        "🔍 *Investigating Root Cause*\n"
+        "⏳ Reading code repository...\n"
+        "⏳ Analyzing commit history...\n"
+        "⏳ Cross-referencing with logs..."
+    )
+    update_message_section(error_group_id, "ai_analysis", ai_analysis_content)
+    update_message_section(
+        error_group_id, "rca_investigation", investigation_content, "investigating"
+    )
+
+
 # ------------------ Request Models ------------------ #
-
-
 class CodeLocation(BaseModel):
     file: str
     line: str
@@ -141,16 +137,8 @@ class RCAUpdatePayload(BaseModel):
     analysis: RCAAnalysis
 
 
-# ------------------ Endpoints ------------------ #
-
-@app.get("/")
-def health_check():
-    """Health check endpoint"""
-    return {"status": "ok"}
-
-
-@app.post("/error")
-def receive_error(payload: ErrorPayload, background_tasks: BackgroundTasks):
+# ------------------ Main Functions ------------------ #
+def receive_error(payload: ErrorPayload):
     """Receive new error and post initial Slack message"""
     error = payload.errors[0]  # pick first error for now
 
@@ -185,8 +173,13 @@ def receive_error(payload: ErrorPayload, background_tasks: BackgroundTasks):
             "status": "initial",
         }
 
-        # Start progressive updates in background (commented out for now to avoid timeout)
-        # background_tasks.add_task(simulate_progressive_updates, error.error_group_id)
+        # Start progressive updates in background thread
+        thread = threading.Thread(
+            target=simulate_progressive_updates_sync, 
+            args=(error.error_group_id,)
+        )
+        thread.daemon = True
+        thread.start()
 
         return {"ok": True, "error_group_id": error.error_group_id, "ts": ts}
 
@@ -195,7 +188,6 @@ def receive_error(payload: ErrorPayload, background_tasks: BackgroundTasks):
         return {"ok": False, "error": str(e)}
 
 
-@app.post("/rca_update")
 def rca_update(payload: RCAUpdatePayload):
     """Update Slack message with RCA results"""
     if payload.error_group_id not in message_store:
