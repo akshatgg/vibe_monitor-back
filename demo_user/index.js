@@ -1,4 +1,4 @@
-require("./tracing");
+require("./observe");
 
 const express = require("express");
 const morgan = require("morgan");
