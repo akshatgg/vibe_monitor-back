@@ -1,32 +1,60 @@
-import uvicorn
-import logging
-from app.clients.slack.client import app as slack_app
-from fastapi import FastAPI
-from app.otel_setup import setup_otel
-from app.routers import errors
+from fastapi import FastAPI, Request
+from datetime import datetime
+import json
+import os
+from app.services.slack.client import app as slack_app
 
-# Configure Python logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-main_app = FastAPI(title="Error Monitoring API")
+app = FastAPI()
+app.mount("/slack", slack_app)
+# File paths (they’ll be created if not present)
+LOGS_FILE = "data/logs.jsonl"
+TRACES_FILE = "data/traces.jsonl"
+METRICS_FILE = "data/metrics.jsonl"
 
-setup_otel(main_app)
+# Ensure files exist
+for f in [LOGS_FILE, TRACES_FILE, METRICS_FILE]:
+    if not os.path.exists(f):
+        open(f, "w").close()
 
-# Mount routers
-main_app.include_router(errors.router)
-main_app.mount("/slack", slack_app)
 
-@main_app.get("/test-error")
-def test_error():
-    logger.error("Test error from OTel", extra={
-        "code.filepath": "app/main.py",
-        "code.lineno": 22,
-        "code.function": "test_error",
-        "http.route": "/test-error",
-        "user.id": "test-user"
-    })
-    raise ValueError("This is a test error")
+def append_to_file(filepath: str, entry: dict):
+    """Helper to append a JSON line to a file."""
+    with open(filepath, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
-if __name__ == "__main__":
-    uvicorn.run("app.main:main_app", host="0.0.0.0", port=8000, reload=True)
+
+@app.post("/v1/traces")
+async def collect_traces(request: Request):
+    body = await request.body()
+    now = datetime.utcnow().isoformat()
+
+    trace_entry = {"timestamp": now, "raw": body.hex()[:200]}
+    append_to_file(TRACES_FILE, trace_entry)
+
+    print(f"📩 Stored trace (size={len(body)} bytes)")
+    return {"status": "ok"}
+
+
+@app.post("/v1/metrics")
+async def collect_metrics(request: Request):
+    body = await request.body()
+    now = datetime.utcnow().isoformat()
+
+    metric_entry = {"timestamp": now, "raw": body.hex()[:200]}
+    append_to_file(METRICS_FILE, metric_entry)
+
+    print(f"📊 Stored metric (size={len(body)} bytes)")
+    return {"status": "ok"}
+
+
+@app.post("/v1/logs")
+async def collect_logs(request: Request):
+    body = await request.body()
+    now = datetime.utcnow().isoformat()
+
+    log_entry = {"timestamp": now, "raw": body.hex()[:200]}
+    append_to_file(LOGS_FILE, log_entry)
+
+    print(f"📝 Stored log (size={len(body)} bytes)")
+    return {"status": "ok"}
