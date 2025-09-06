@@ -114,6 +114,7 @@ class ErrorItem(BaseModel):
     occurrence_count: int
     service: str
     environment: str
+    severity: str
     latest_occurrence: Occurrence
 
 
@@ -139,19 +140,31 @@ class RCAUpdatePayload(BaseModel):
 
 # ------------------ Main Functions ------------------ #
 def receive_error(payload: ErrorPayload):
-    """Receive new error and post initial Slack message"""
+    """Receive new error and post initial Slack message with enhanced format"""
     error = payload.errors[0]  # pick first error for now
 
+    # Format the enhanced error message
     error_details_text = (
-        f"🚨 *Error Detected*\n"
-        f"*Service:* {error.service}\n"
-        f"*Type:* {error.error_type}\n"
-        f"*Message:* {error.error_message}\n"
-        f"*Environment:* {error.environment}\n"
-        f"*Location:* {error.latest_occurrence.code_location.file}:"
-        f"{error.latest_occurrence.code_location.line} "
-        f"({error.latest_occurrence.code_location.function})"
+        f"**OTel Error Alert: {error.error_type}**\n"
+        f"**Service:** {error.service}\n"
+        f"**Environment:** {error.environment}\n"
+        f"**Occurrences:** {error.occurrence_count}\n"
+        f"**Severity:** {error.severity}\n\n"
+        f"**Error Message:**\n"
+        f"```\n{error.error_message}\n```\n\n"
+        f"**Endpoint:** {error.latest_occurrence.endpoint}\n"
+        f"**Trace ID:** `{error.latest_occurrence.request_id}`\n"
+        f"**User:** {error.latest_occurrence.user_id}\n"
+        f"**Timestamp:** {error.latest_occurrence.timestamp}"
     )
+
+    # Add trace context if available
+    if hasattr(error, 'trace_data') and error.trace_data:
+        error_details_text += f"\n**Trace Data:** Available"
+    
+    # Add metrics context if available  
+    if hasattr(error, 'metrics_data') and error.metrics_data:
+        error_details_text += f"\n**Metrics Data:** Available"
 
     try:
         response = slack_client.chat_postMessage(
@@ -171,6 +184,7 @@ def receive_error(payload: ErrorPayload):
                 "suggested_fixes": None,
             },
             "status": "initial",
+            "error_data": error  # Store full error data for later use
         }
 
         # Start progressive updates in background thread
