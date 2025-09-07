@@ -29,7 +29,6 @@ const backendStream = {
       message: message.trim(),
       source: 'morgan'
     };
-    console.log("Sending to backend:", JSON.stringify(payload)); // Add this line
     
     fetch('http://localhost:8000/v1/logs', {
       method: 'POST',

@@ -1,14 +1,17 @@
+# app/services/rca.py - Updated with Groq integration
 import uuid
 import json
 import re
 from datetime import datetime
-from app.services.slack.client import receive_error, ErrorPayload
+from app.services.slack.client import receive_error, ErrorPayload, rca_update, RCAUpdatePayload, RCAAnalysis
+from app.services.groq.analyzer import groq_analyzer
+import threading
 
 def extract_trace_id(log_message):
     """Extract trace ID from Morgan log message"""
     pattern = r'\[trace: ([a-f0-9]+)\]'
     match = re.search(pattern, log_message)
-    return match.group(1) if match else None
+    return match.group(1) if match else None 
 
 def extract_endpoint(log_message):
     """Extract endpoint from Morgan log message"""
@@ -142,8 +145,63 @@ def count_error_occurrences(error_type, timeframe_minutes=60):
     
     return count
 
+def perform_groq_analysis_async(error_group_id, error_data, trace_data, metrics_data):
+    """Perform Groq analysis in background thread and update Slack"""
+    try:
+        print(f"Starting Groq analysis for error group: {error_group_id}")
+        
+        # Perform Groq analysis
+        analysis_result = groq_analyzer.analyze_error(error_data, trace_data, metrics_data)
+        
+        # Create RCA update payload
+        rca_analysis = RCAAnalysis(
+            root_cause=analysis_result.root_cause,
+            files_involved=analysis_result.files_involved,
+            commit=analysis_result.commit,
+            author=analysis_result.author,
+            fix_steps=analysis_result.fix_steps
+        )
+        
+        rca_payload = RCAUpdatePayload(
+            error_group_id=error_group_id,
+            status="completed",
+            analysis=rca_analysis
+        )
+        
+        # Update Slack with real analysis results
+        result = rca_update(rca_payload)
+        
+        if result.get("ok"):
+            print(f"Successfully updated Slack with Groq analysis for {error_group_id}")
+        else:
+            print(f"Failed to update Slack: {result.get('error')}")
+            
+    except Exception as e:
+        print(f"Groq analysis failed for {error_group_id}: {e}")
+        
+        # Send fallback analysis
+        fallback_analysis = RCAAnalysis(
+            root_cause=f"Automated analysis failed: {str(e)}",
+            files_involved=["unknown"],
+            commit="unknown",
+            author="system",
+            fix_steps=[
+                "Review error logs manually",
+                "Check application health",
+                "Verify service dependencies"
+            ]
+        )
+        
+        fallback_payload = RCAUpdatePayload(
+            error_group_id=error_group_id,
+            status="completed",
+            analysis=fallback_analysis
+        )
+        
+        rca_update(fallback_payload)
+
 def send_error_to_slack(log_data, status_code, trace_id, endpoint):
-    """Send enhanced error to Slack with correlated data"""
+    """Send enhanced error to Slack with correlated data and trigger Groq analysis"""
     
     # Get additional context from traces and metrics
     trace_data = find_trace_data(trace_id) if trace_id else None
@@ -164,11 +222,14 @@ def send_error_to_slack(log_data, status_code, trace_id, endpoint):
     if trace_data:
         enhanced_message = f"Error detected in trace {trace_id}: {enhanced_message}"
     
+    # Generate unique error group ID
+    error_group_id = str(uuid.uuid4())
+    
     error_payload = {
         "error_count": 1,
         "group_count": 1,
         "errors": [{
-            "error_group_id": str(uuid.uuid4()),
+            "error_group_id": error_group_id,
             "error_type": error_type,
             "error_message": enhanced_message,
             "occurrence_count": occurrences,
@@ -194,14 +255,40 @@ def send_error_to_slack(log_data, status_code, trace_id, endpoint):
     error_model = ErrorPayload(**error_payload)
 
     try:
+        # Send initial error to Slack
         result = receive_error(error_model)
+        
+        if result.get("ok"):
+            # Start Groq analysis in background thread
+            # Prepare error data for Groq analysis
+            groq_error_data = {
+                "message": enhanced_message,
+                "error_type": error_type,
+                "endpoint": endpoint,
+                "status_code": status_code,
+                "timestamp": log_data.get("timestamp"),
+                "severity": severity,
+                "trace_id": trace_id
+            }
+            
+            # Start analysis thread
+            analysis_thread = threading.Thread(
+                target=perform_groq_analysis_async,
+                args=(error_group_id, groq_error_data, trace_data, metrics_data),
+                daemon=True
+            )
+            analysis_thread.start()
+            
+            print(f"Started Groq analysis thread for error group: {error_group_id}")
+            
         return result.get("ok", False)
+        
     except Exception as e:
         print(f"Failed to send error to Slack: {e}")
         return False
 
 def process_error(log_data):
-    """Main RCA service function - processes error log data with correlation"""
+    """Main RCA service function - processes error log data with correlation and AI analysis"""
     
     if "message" in log_data:
         status_code = extract_status_code(log_data["message"])
@@ -212,7 +299,7 @@ def process_error(log_data):
         
         success = send_error_to_slack(log_data, status_code, trace_id, endpoint)
         if success:
-            print("RCA Service completed successfully with enhanced data correlation")
+            print("RCA Service completed successfully with enhanced data correlation and Groq AI analysis")
         else:
             print("RCA Service completed with Slack notification failure")
     else:

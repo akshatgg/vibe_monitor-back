@@ -1,3 +1,4 @@
+# main.py - /home/irohanrajput/Desktop/work/vm-api/app/main.py
 from fastapi import FastAPI, Request, BackgroundTasks
 from datetime import datetime
 import json
@@ -34,6 +35,10 @@ def extract_status_code(log_message):
     pattern = r'\w+ /\S* (\d{3}) \d+ - [\d.]+ ms'
     match = re.search(pattern, log_message)
     return int(match.group(1)) if match else None
+
+@app.get("/health")
+async def health_check():
+    return ("FastAPI backend is running!")
 
 
 @app.post("/v1/traces")
@@ -77,7 +82,7 @@ async def collect_logs(request: Request):
         if "message" in log_data:
             status_code = extract_status_code(log_data["message"])
             
-            if status_code and status_code >= 400:
+            if status_code and status_code >= 400 and status_code !=404:
                 print("🚨 Error detected! Initiating RCA Service:main.py")
                 # print(f"ERROR DETECTED: Status {status_code}")
                 
