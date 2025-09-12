@@ -186,6 +186,19 @@ curl http://localhost:3001/boom            # Error request
 - Ensure .env file has valid API keys for full functionality
 - Use Docker Compose for consistent development environment
 - Monitor #troubleshooting channel for error notifications
+- To install a new package using poetry RUN
+
+```
+poetry add <package name>
+```
+- To remove a package
+```
+poetry remove <package name>
+```
+- To sync pyproject.toml with poetry.lock
+```
+poetry lock
+```
 
 ---
 
