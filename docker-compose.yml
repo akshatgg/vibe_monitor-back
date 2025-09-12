@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # FastAPI Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=dev
+      - API_BASE_URL=http://localhost:8000
+
+  # Development service with hot reload
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=dev
+      - API_BASE_URL=http://localhost:8001
+    volumes:
+      - .:/app
+    profiles:
+      - dev
