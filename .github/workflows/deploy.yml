@@ -12,7 +12,7 @@ env:
   AWS_REGION: us-west-1
   AWS_ACCOUNT_ID: 337502598894
   ECR_REPO: vm-api
-  ECR_URI: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+  ECR_URI: 337502598894.dkr.ecr.us-west-1.amazonaws.com
   ECS_CLUSTER: vm-prod
   ECS_SERVICE: vm-api-svc
   CONTAINER_NAME: app
