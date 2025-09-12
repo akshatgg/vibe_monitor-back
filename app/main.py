@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 import os
 import re
-from app.services.rca import process_error
+from app.incidents.service import process_error
 
 
 app = FastAPI()
