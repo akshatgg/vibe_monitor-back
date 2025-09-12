@@ -1,0 +1,70 @@
+name: Deploy to ECS (Fargate)
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-1
+  AWS_ACCOUNT_ID: 337502598894
+  ECR_REPO: vm-api
+  ECR_URI: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+  ECS_CLUSTER: vm-prod
+  ECS_SERVICE: vm-api-svc
+  CONTAINER_NAME: app
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GithubActionsEcsDeployer
+          role-session-name: gha-ecs-deploy
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+          | docker login --username AWS --password-stdin $ECR_URI
+
+      - name: Build and push image
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -t $ECR_URI/$ECR_REPO:$IMAGE_TAG .
+          docker push $ECR_URI/$ECR_REPO:$IMAGE_TAG
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Render task definition
+        run: |
+          sed "s|REPLACED_BY_CI|$IMAGE_TAG|g" taskdef.json > taskdef.rendered.json
+
+      - name: Register task definition
+        id: taskdef
+        run: |
+          REVISION_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://taskdef.rendered.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "REVISION_ARN=$REVISION_ARN" >> $GITHUB_ENV
+          echo "taskDefinitionArn=$REVISION_ARN" >> $GITHUB_OUTPUT
+
+      - name: Update service
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $REVISION_ARN \
+            --force-new-deployment
+
+      - name: Wait for service stability
+        run: |
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
