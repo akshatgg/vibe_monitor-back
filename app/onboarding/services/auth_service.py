@@ -1,5 +1,7 @@
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import httpx
 import os
 import json
@@ -9,30 +11,30 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-from ..models.models import User
+from ..models.models import User, RefreshToken
 from ..schemas.schemas import UserCreate, UserResponse
+from ...core.database import get_db
+from ...core.config import settings
 
 security = HTTPBearer()
 
 class AuthService:
     def __init__(self):
-        self.users_db = {}  # In-memory storage - replace with actual database
-        self.refresh_tokens_db = {}  # Store refresh tokens
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         
-        # JWT Configuration - use environment variables in production
-        self.SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-        self.ALGORITHM = "HS256"
-        self.ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
-        self.REFRESH_TOKEN_EXPIRE_DAYS = 30    # 30 days
+        # JWT Configuration from settings
+        self.SECRET_KEY = settings.JWT_SECRET_KEY
+        self.ALGORITHM = settings.JWT_ALGORITHM
+        self.ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        self.REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
         
     async def exchange_google_code(self, code: str) -> dict:
         """Exchange authorization code for access token"""
         token_url = "https://oauth2.googleapis.com/token"
         
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback")
+        client_id = settings.GOOGLE_CLIENT_ID
+        client_secret = settings.GOOGLE_CLIENT_SECRET
+        redirect_uri = settings.GOOGLE_REDIRECT_URI or "http://localhost:8000/api/v1/auth/google/callback"
         
         if not client_id or not client_secret:
             raise HTTPException(status_code=500, detail="Google OAuth not configured")
@@ -74,28 +76,28 @@ class AuthService:
             
             return user_data
     
-    async def create_or_get_user(self, google_id: str, name: str, email: str) -> UserResponse:
+    async def create_or_get_user(self, google_id: str, name: str, email: str, db: AsyncSession) -> UserResponse:
         """Create new user or return existing user"""
         # Check if user exists by email
-        existing_user = None
-        for user_id, user_data in self.users_db.items():
-            if user_data["email"] == email:
-                existing_user = user_data
-                break
+        result = await db.execute(select(User).where(User.email == email))
+        existing_user = result.scalar_one_or_none()
         
         if existing_user:
-            return UserResponse(**existing_user)
+            return UserResponse.model_validate(existing_user)
         
         # Create new user
         user_id = str(uuid.uuid4())
-        new_user = {
-            "id": user_id,
-            "name": name,
-            "email": email
-        }
+        new_user = User(
+            id=user_id,
+            name=name,
+            email=email
+        )
         
-        self.users_db[user_id] = new_user
-        return UserResponse(**new_user)
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        
+        return UserResponse.model_validate(new_user)
     
     def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None):
         """Create JWT access token"""
@@ -109,7 +111,7 @@ class AuthService:
         encoded_jwt = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
         return encoded_jwt
     
-    def create_refresh_token(self, data: dict):
+    async def create_refresh_token(self, data: dict, db: AsyncSession):
         """Create JWT refresh token"""
         to_encode = data.copy()
         expire = datetime.utcnow() + timedelta(days=self.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -117,13 +119,16 @@ class AuthService:
         
         refresh_token = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
         
-        # Store refresh token (in production, use database with expiry)
+        # Store refresh token in database
         user_id = data.get("sub")
         if user_id:
-            self.refresh_tokens_db[refresh_token] = {
-                "user_id": user_id,
-                "expires_at": expire
-            }
+            refresh_token_obj = RefreshToken(
+                token=refresh_token,
+                user_id=user_id,
+                expires_at=expire
+            )
+            db.add(refresh_token_obj)
+            await db.commit()
         
         return refresh_token
     
@@ -148,7 +153,7 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
     
-    async def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    async def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)) -> User:
         """Get current user from JWT token"""
         token = credentials.credentials
         
@@ -163,45 +168,58 @@ class AuthService:
             )
         
         # Get user from database
-        user_data = self.users_db.get(user_id)
-        if user_data is None:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found",
             )
         
-        return user_data
+        return user
     
-    async def refresh_access_token(self, refresh_token: str):
+    async def refresh_access_token(self, refresh_token_str: str, db: AsyncSession):
         """Generate new access token using refresh token"""
         # Verify refresh token
-        payload = self.verify_token(refresh_token, "refresh")
+        payload = self.verify_token(refresh_token_str, "refresh")
         user_id = payload.get("sub")
         
-        # Check if refresh token exists and is valid
-        if refresh_token not in self.refresh_tokens_db:
+        # Check if refresh token exists and is valid in database
+        result = await db.execute(select(RefreshToken).where(RefreshToken.token == refresh_token_str))
+        stored_token = result.scalar_one_or_none()
+        
+        if not stored_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token",
             )
         
-        stored_token = self.refresh_tokens_db[refresh_token]
-        if stored_token["user_id"] != user_id:
+        if stored_token.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token user mismatch",
             )
         
-        # Generate new access token
-        user_data = self.users_db.get(user_id)
-        if not user_data:
+        # Check if token has expired
+        if stored_token.expires_at < datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has expired",
+            )
+        
+        # Get user from database
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        
+        if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found",
             )
         
         new_access_token = self.create_access_token(
-            data={"sub": user_id, "email": user_data["email"]}
+            data={"sub": user_id, "email": user.email}
         )
         
         return {

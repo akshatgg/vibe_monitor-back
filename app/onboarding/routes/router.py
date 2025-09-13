@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 import os
 from urllib.parse import urlencode
 import uuid
 
-from ..schemas.schemas import UserResponse, GoogleOAuthToken
+from ..schemas.schemas import UserResponse, GoogleOAuthToken, RefreshTokenRequest
 from ..services.auth_service import AuthService
 from ...core.config import settings
+from ...core.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 auth_service = AuthService()
@@ -39,7 +41,7 @@ async def google_auth():
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, state: str = None):
+async def google_callback(code: str, state: str = None, db: AsyncSession = Depends(get_db)):
     """Handle Google OAuth callback"""
     try:
         # Exchange code for token
@@ -57,12 +59,13 @@ async def google_callback(code: str, state: str = None):
         user = await auth_service.create_or_get_user(
             google_id=google_id,
             name=user_info.get("name", ""),
-            email=user_info.get("email", "")
+            email=user_info.get("email", ""),
+            db=db
         )
         
         # Generate our own JWT tokens
         access_token = auth_service.create_access_token(data={"sub": user.id, "email": user.email})
-        refresh_token = auth_service.create_refresh_token(data={"sub": user.id, "email": user.email})
+        refresh_token = await auth_service.create_refresh_token(data={"sub": user.id, "email": user.email}, db=db)
         
         return {
             "user": user,
@@ -76,15 +79,15 @@ async def google_callback(code: str, state: str = None):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(user: dict = Depends(auth_service.get_current_user)):
+async def get_current_user_endpoint(user = Depends(auth_service.get_current_user)):
     """Get current authenticated user"""
-    return user
+    return UserResponse.model_validate(user)
 
 
 @router.post("/refresh")
-async def refresh_token(refresh_token: str):
+async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     """Refresh access token using refresh token"""
     try:
-        return await auth_service.refresh_access_token(refresh_token)
+        return await auth_service.refresh_access_token(request.refresh_token, db)
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token refresh failed: {str(e)}")
