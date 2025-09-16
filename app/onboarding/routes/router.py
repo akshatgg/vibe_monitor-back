@@ -70,12 +70,10 @@ async def google_callback(code: str, state: str = None, db: AsyncSession = Depen
         access_token = auth_service.create_access_token(data={"sub": user.id, "email": user.email})
         refresh_token = await auth_service.create_refresh_token(data={"sub": user.id, "email": user.email}, db=db)
         
-        return {
-            "user": user,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer"
-        }
+        # Redirect to frontend with tokens
+        frontend_url = settings.FRONTEND_URL
+        redirect_url = f"{frontend_url}/auth/callback?access_token={access_token}&refresh_token={refresh_token}"
+        return RedirectResponse(url=redirect_url)
         
     except HTTPException as he:
         # Re-raise HTTP exceptions as-is

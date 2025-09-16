@@ -33,6 +33,9 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key")
     API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
     
+    # Frontend URL for OAuth redirects
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
