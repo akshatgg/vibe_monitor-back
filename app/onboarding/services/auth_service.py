@@ -7,7 +7,7 @@ import os
 import json
 from typing import Dict, Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -97,15 +97,23 @@ class AuthService:
         await db.commit()
         await db.refresh(new_user)
         
+        # Create personal workspace for new user
+        from .workspace_service import WorkspaceService
+        workspace_service = WorkspaceService()
+        await workspace_service.create_personal_workspace(
+            user=new_user,
+            db=db
+        )
+        
         return UserResponse.model_validate(new_user)
     
     def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None):
         """Create JWT access token"""
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = datetime.now(timezone.utc) + timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
         
         to_encode.update({"exp": expire, "type": "access"})
         encoded_jwt = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
@@ -114,7 +122,7 @@ class AuthService:
     async def create_refresh_token(self, data: dict, db: AsyncSession):
         """Create JWT refresh token"""
         to_encode = data.copy()
-        expire = datetime.utcnow() + timedelta(days=self.REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(timezone.utc) + timedelta(days=self.REFRESH_TOKEN_EXPIRE_DAYS)
         to_encode.update({"exp": expire, "type": "refresh"})
         
         refresh_token = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
@@ -202,7 +210,7 @@ class AuthService:
             )
         
         # Check if token has expired
-        if stored_token.expires_at < datetime.utcnow():
+        if stored_token.expires_at < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token has expired",

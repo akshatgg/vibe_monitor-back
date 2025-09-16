@@ -1,5 +1,7 @@
 import os
+import json
 from dotenv import load_dotenv
+from typing import List
 
 # Load environment variables
 load_dotenv()
@@ -34,5 +36,25 @@ class Settings:
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+    
+    @property
+    def allowed_origins(self) -> List[str]:
+        """Get CORS allowed origins based on environment"""
+        if self.is_production:
+            # In production, use the ALLOWED_ORIGINS from env or default to production URL
+            allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+            if allowed_origins_env:
+                try:
+                    return json.loads(allowed_origins_env)
+                except json.JSONDecodeError:
+                    # Fallback if JSON parsing fails
+                    return ["https://vibemonitor.ai"]
+            return ["https://vibemonitor.ai"]
+        else:
+            # In development, allow both ports 3000 and 3001
+            return [
+                "http://localhost:3000",
+                "http://localhost:3001"
+            ]
 
 settings = Settings()

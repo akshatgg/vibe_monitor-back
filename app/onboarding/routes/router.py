@@ -22,10 +22,13 @@ async def google_auth():
     
     # Use settings instead of os.getenv
     client_id = settings.GOOGLE_CLIENT_ID
-    redirect_uri = settings.GOOGLE_REDIRECT_URI
+    redirect_uri = settings.GOOGLE_REDIRECT_URI or "http://localhost:8000/api/v1/auth/google/callback"
     
     if not client_id:
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
+    
+    if not redirect_uri:
+        raise HTTPException(status_code=500, detail="Google OAuth redirect URI not configured")
     
     params = {
         "client_id": client_id,
@@ -74,7 +77,14 @@ async def google_callback(code: str, state: str = None, db: AsyncSession = Depen
             "token_type": "bearer"
         }
         
+    except HTTPException as he:
+        # Re-raise HTTP exceptions as-is
+        raise he
     except Exception as e:
+        # Log the full error for debugging
+        import traceback
+        print(f"OAuth callback error: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=f"OAuth callback failed: {str(e)}")
 
 
