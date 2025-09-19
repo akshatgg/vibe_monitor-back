@@ -146,10 +146,11 @@ class WorkspaceService:
     
     async def discover_workspaces_for_user(
         self, 
+        user_id: str,
         user_email: str, 
         db: AsyncSession
     ) -> List[WorkspaceResponse]:
-        """Discover workspaces available to a user based on their email domain"""
+        """Discover workspaces available to a user based on their email domain (excludes workspaces they're already in)"""
         
         # Extract domain from user email
         domain = user_email.split('@')[1] if '@' in user_email else None
@@ -157,7 +158,21 @@ class WorkspaceService:
         if not domain:
             return []
         
-        return await self.get_visible_workspaces_by_domain(domain=domain, db=db)
+        # Get all visible workspaces for this domain
+        visible_workspaces = await self.get_visible_workspaces_by_domain(domain=domain, db=db)
+        
+        # Get workspaces where user is already a member
+        user_memberships_query = select(Membership.workspace_id).where(Membership.user_id == user_id)
+        result = await db.execute(user_memberships_query)
+        user_workspace_ids = {row[0] for row in result.fetchall()}
+        
+        # Filter out workspaces where user is already a member
+        discoverable_workspaces = [
+            ws for ws in visible_workspaces 
+            if ws.id not in user_workspace_ids
+        ]
+        
+        return discoverable_workspaces
     
     async def update_workspace_visibility(
         self, 

@@ -84,9 +84,10 @@ async def discover_workspaces_for_current_user(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Discover workspaces available to the current user based on their email domain"""
+    """Discover workspaces available to the current user based on their email domain (excludes workspaces they're already in)"""
     try:
         workspaces = await workspace_service.discover_workspaces_for_user(
+            user_id=current_user.id,
             user_email=current_user.email,
             db=db
         )
@@ -94,22 +95,6 @@ async def discover_workspaces_for_current_user(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to discover workspaces: {str(e)}")
 
-
-@router.get("/discover/{domain}", response_model=List[WorkspaceResponse])
-async def discover_workspaces_by_domain(
-    domain: str,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Discover workspaces visible to users with the given domain"""
-    try:
-        workspaces = await workspace_service.get_visible_workspaces_by_domain(
-            domain=domain,
-            db=db
-        )
-        return workspaces
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to discover workspaces: {str(e)}")
 
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
