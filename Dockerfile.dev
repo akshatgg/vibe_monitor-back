@@ -1,0 +1,32 @@
+# Dockerfile.dev
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Set Poetry environment variables for optimal Docker performance
+ENV PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.7.1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_VIRTUALENVS_IN_PROJECT=false \
+    POETRY_CACHE_DIR=/tmp/.cache
+
+# Install system dependencies and Poetry
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && pip install "poetry==$POETRY_VERSION"
+
+# Copy dependency files first (for layer caching optimization)
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies (this layer will be cached unless dependencies change)
+RUN poetry install --no-root && pip install debugpy
+
+# Copy application code (this layer changes most frequently)
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+

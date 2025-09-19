@@ -11,7 +11,7 @@
       "name": "app",
       "image": "337502598894.dkr.ecr.us-west-1.amazonaws.com/vm-api:REPLACED_BY_CI",
       "essential": true,
-      "portMappings": [{"containerPort": 8000, "protocol":"tcp"}],
+      "portMappings": [{"containerPort": 8000, "protocol":"tcp"},{"containerPort": 4317, "protocol":"tcp"}],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {

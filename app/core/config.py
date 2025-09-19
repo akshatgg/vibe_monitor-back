@@ -1,23 +1,50 @@
-import os
+import json
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Database Configuration (Cloud-ready)
-    CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST")
-    CLICKHOUSE_PORT: int = int(os.getenv("CLICKHOUSE_PORT"))
-    CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER")
-    CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
-    CLICKHOUSE_DATABASE: str = os.getenv("CLICKHOUSE_DATABASE", "vm_api_db")
-    CLICKHOUSE_SECURE: bool = os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true"
+    # Environment
+    ENVIRONMENT: str = "development"
+
+    # Database (ClickHouse)
+    CLICKHOUSE_HOST: str
+    CLICKHOUSE_PORT: int
+    CLICKHOUSE_USER: str
+    CLICKHOUSE_PASSWORD: str = ""
+    CLICKHOUSE_DATABASE: str = "vm_api_db"
+    CLICKHOUSE_SECURE: bool = False
+
+    # Supabase (for production)
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_SERVICE_KEY: Optional[str] = None
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: Optional[str] = None
+
+    # JWT Settings
+    JWT_SECRET_KEY: str = "your-super-secret-jwt-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # Other settings
+    SECRET_KEY: str = "your-secret-key"
+    API_BASE_URL: str = "http://localhost:8000"
+
+    # Frontend URL for OAuth redirects
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # OpenTelemetry Configuration
-    OTEL_GRPC_PORT: int = int(os.getenv("OTEL_GRPC_PORT", "4317"))
-    OTEL_HTTP_PORT: int = int(os.getenv("OTEL_HTTP_PORT", "4318"))
+    OTEL_GRPC_PORT: int = 4317
+    OTEL_HTTP_PORT: int = 4318
 
     # Batch Processing Configuration
-    LOG_BATCH_SIZE: int = int(os.getenv("LOG_BATCH_SIZE", "1000"))
-    LOG_BATCH_TIMEOUT: int = int(os.getenv("LOG_BATCH_TIMEOUT", "2"))
+    LOG_BATCH_SIZE: int = 1000
+    LOG_BATCH_TIMEOUT: int = 2
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
@@ -28,6 +55,33 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+
+    # --------- Properties ---------
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def allowed_origins(self) -> List[str]:
+        """Get CORS allowed origins based on environment"""
+        if self.is_production:
+            allowed_origins_env = self._get_env_list("ALLOWED_ORIGINS")
+            return allowed_origins_env or ["https://vibemonitor.ai"]
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+        ]
+
+    def _get_env_list(self, key: str) -> Optional[List[str]]:
+        """Helper to parse env var list (JSON or comma-separated)."""
+        raw_val = self.__dict__.get(key) or None
+        if not raw_val:
+            return None
+        try:
+            # Try JSON list first
+            return json.loads(raw_val) if raw_val.startswith("[") else raw_val.split(",")
+        except Exception:
+            return None
 
 
 settings = Settings()
