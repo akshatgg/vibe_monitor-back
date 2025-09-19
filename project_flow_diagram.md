@@ -220,20 +220,19 @@ Settings:
 ## Key Integration Points
 
 ### OTEL Collector → FastAPI Connection
-- **File**: `/home/irohanrajput/Desktop/work/vm-api/app/main.py`
+- **File**: `app/main.py`
 - **Line**: 22 - `await otel_collector_server.start()`
 - **Port**: 4317 (configurable via OTEL_GRPC_PORT)
 - **Protocol**: gRPC with OTLP (OpenTelemetry Protocol)
 
 ### Batch Processor Integration
-- **File**: `/home/irohanrajput/Desktop/work/vm-api/app/main.py`
+- **File**: `app/main.py`
 - **Line**: 19 - `await batch_processor.start()`
 - **Connection**: Line 53 in otel_collector.py - `await batch_processor.add_log(log_entry)`
 
 ### ClickHouse Integration
-- **File**: `/home/irohanrajput/Desktop/work/vm-api/app/ingestion/batch_processor.py`
+- **File**: `app/ingestion/batch_processor.py`
 - **Line**: 86 - `await clickhouse_service.store_logs_batch(logs_to_process)`
-
 ## Application Lifecycle
 
 ### Startup Sequence
