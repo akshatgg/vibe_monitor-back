@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import uuid
+from fastapi import HTTPException
 
 from ..models.models import Workspace, Membership, User, Role
 from ..schemas.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceWithMembership
@@ -18,12 +19,25 @@ class WorkspaceService:
     ) -> WorkspaceResponse:
         """Create a new workspace and assign the creator as owner"""
         
+        # Get user info to extract domain if needed
+        user_result = await db.execute(select(User).where(User.id == owner_user_id))
+        user = user_result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Auto-set domain if visible_to_org is True and no domain provided
+        domain = workspace_data.domain
+        if workspace_data.visible_to_org and not domain:
+            user_email = user.email
+            domain = user_email.split('@')[1] if '@' in user_email else None
+        
         # Create workspace
         workspace_id = str(uuid.uuid4())
         new_workspace = Workspace(
             id=workspace_id,
             name=workspace_data.name,
-            domain=workspace_data.domain,
+            domain=domain,
             visible_to_org=workspace_data.visible_to_org
         )
         
@@ -129,6 +143,67 @@ class WorkspaceService:
         workspaces = result.scalars().all()
         
         return [WorkspaceResponse.model_validate(ws) for ws in workspaces]
+    
+    async def discover_workspaces_for_user(
+        self, 
+        user_email: str, 
+        db: AsyncSession
+    ) -> List[WorkspaceResponse]:
+        """Discover workspaces available to a user based on their email domain"""
+        
+        # Extract domain from user email
+        domain = user_email.split('@')[1] if '@' in user_email else None
+        
+        if not domain:
+            return []
+        
+        return await self.get_visible_workspaces_by_domain(domain=domain, db=db)
+    
+    async def update_workspace_visibility(
+        self, 
+        workspace_id: str, 
+        user_id: str, 
+        visible_to_org: bool, 
+        db: AsyncSession
+    ) -> WorkspaceResponse:
+        """Update workspace visibility and auto-set domain if needed"""
+        
+        # First verify user is owner of the workspace
+        membership_query = select(Membership).options(
+            selectinload(Membership.workspace),
+            selectinload(Membership.user)
+        ).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user_id,
+            Membership.role == Role.OWNER
+        )
+        
+        result = await db.execute(membership_query)
+        membership = result.scalar_one_or_none()
+        
+        if not membership:
+            raise HTTPException(
+                status_code=403, 
+                detail="Only workspace owners can update visibility settings"
+            )
+        
+        workspace = membership.workspace
+        
+        # If setting visible_to_org to True, auto-set domain from owner's email
+        if visible_to_org and not workspace.domain:
+            user_email = membership.user.email
+            domain = user_email.split('@')[1] if '@' in user_email else None
+            workspace.domain = domain
+        
+        # If setting visible_to_org to False, optionally clear domain (keep for now)
+        # This allows users to keep domain set even when not visible to org
+        
+        workspace.visible_to_org = visible_to_org
+        
+        await db.commit()
+        await db.refresh(workspace)
+        
+        return WorkspaceResponse.model_validate(workspace)
     
     async def create_personal_workspace(
         self, 

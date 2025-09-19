@@ -31,6 +31,11 @@ class WorkspaceCreate(BaseModel):
     visible_to_org: bool = False
 
 
+class WorkspaceUpdate(BaseModel):
+    name: Optional[str] = None
+    visible_to_org: Optional[bool] = None
+
+
 class WorkspaceResponse(BaseModel):
     id: str
     name: str
