@@ -97,32 +97,38 @@ class ClickHouseClient:
         try:
             client = self.get_client()
 
-            # Build INSERT statement manually to avoid clickhouse-connect issues with Map columns
-            values_list = []
+            # Prepare data for insertion using clickhouse-connect's proper methods
+            data_rows = []
             for log in logs:
-                # Escape strings for SQL
-                def escape_sql_string(s):
-                    return s.replace("'", "\\'").replace("\\", "\\\\") if s else ""
+                row = [
+                    log['id'],
+                    log['workspace_id'],
+                    log['client_id'],
+                    log['timestamp_ms'],
+                    log['severity_text'],
+                    log['severity_number'],
+                    log['body'],
+                    log.get('resource_attributes', {}),
+                    log.get('log_attributes', {}),
+                    log.get('trace_id', ''),
+                    log.get('span_id', ''),
+                    log.get('endpoint', ''),
+                    log.get('service_name', ''),
+                    log.get('service_version', '')
+                ]
+                data_rows.append(row)
 
-                # Convert maps to ClickHouse format
-                resource_attrs = "{" + ",".join([f"'{k}':'{escape_sql_string(str(v))}'" for k, v in log.get("resource_attributes", {}).items()]) + "}"
-                log_attrs = "{" + ",".join([f"'{k}':'{escape_sql_string(str(v))}'" for k, v in log.get("log_attributes", {}).items()]) + "}"
+            # Use the proper insert method with column names
+            client.insert(
+                'logs',
+                data_rows,
+                column_names=[
+                    'id', 'workspace_id', 'client_id', 'timestamp_ms', 'severity_text',
+                    'severity_number', 'body', 'resource_attributes', 'log_attributes',
+                    'trace_id', 'span_id', 'endpoint', 'service_name', 'service_version'
+                ]
+            )
 
-                values = f"""({log['id']}, '{escape_sql_string(log['workspace_id'])}', '{escape_sql_string(log['client_id'])}',
-                          {log['timestamp_ms']}, '{escape_sql_string(log['severity_text'])}', {log['severity_number']},
-                          '{escape_sql_string(log['body'])}', {resource_attrs}, {log_attrs},
-                          '{escape_sql_string(log.get('trace_id', ''))}', '{escape_sql_string(log.get('span_id', ''))}',
-                          '{escape_sql_string(log.get('endpoint', ''))}', '{escape_sql_string(log.get('service_name', ''))}',
-                          '{escape_sql_string(log.get('service_version', ''))}')"""
-                values_list.append(values)
-
-            insert_query = """
-            INSERT INTO logs (id, workspace_id, client_id, timestamp_ms, severity_text,
-                             severity_number, body, resource_attributes, log_attributes,
-                             trace_id, span_id, endpoint, service_name, service_version)
-            VALUES """ + ",".join(values_list)
-
-            client.command(insert_query)
             logger.info(f"Inserted {len(logs)} logs successfully")
             return True
         except Exception as e:

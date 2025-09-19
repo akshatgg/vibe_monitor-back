@@ -5,8 +5,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Database Configuration (Cloud-ready)
     CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST")
-    CLICKHOUSE_PORT: int = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-    CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
+    CLICKHOUSE_PORT: int = int(os.getenv("CLICKHOUSE_PORT"))
+    CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER")
     CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
     CLICKHOUSE_DATABASE: str = os.getenv("CLICKHOUSE_DATABASE", "vm_api_db")
     CLICKHOUSE_SECURE: bool = os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true"

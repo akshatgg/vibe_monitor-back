@@ -6,6 +6,7 @@ from collections import defaultdict
 from app.core.config import settings
 from app.services.clickhouse.models import LogEntry
 from app.services.clickhouse.service import clickhouse_service
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,8 @@ class LogBatchProcessor:
         try:
             success = await clickhouse_service.store_logs_batch(logs_to_process)
             if success:
-                logger.info(f"Successfully flushed batch {batch_key} with {len(logs_to_process)} logs")
+                india_time = datetime.now().astimezone().strftime("%H:%M:%S")
+                logger.info(f"Successfully flushed batch {batch_key} with {len(logs_to_process)} logs at {india_time} (IST)")
             else:
                 logger.error(f"Failed to flush batch {batch_key}, re-queuing logs")
                 self.batches[batch_key].extend(logs_to_process)

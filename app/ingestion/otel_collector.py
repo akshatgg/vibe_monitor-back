@@ -23,7 +23,7 @@ class OTelLogCollectorService(logs_service_pb2_grpc.LogsServiceServicer):
         self.executor = ThreadPoolExecutor(max_workers=10)
 
     async def Export(self, request, context):
-        print(request.resource_logs)
+        print("⚽ resource received")
         try:
             log_entries = []
 
