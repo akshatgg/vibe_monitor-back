@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # FastAPI Application
+  vm-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql://postgres:postgres@supabase-db:5432/postgres
+    depends_on:
+      - supabase-db
+    networks:
+      - app-network
+
+  # Supabase Database (PostgreSQL)
+  supabase-db:
+    image: supabase/postgres:15.1.0.117
+    ports:
+      - "54322:5432"  # Expose on different port to avoid conflicts
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  # Supabase Studio (Web UI)
+  supabase-studio:
+    image: supabase/studio:20240326-5e5586d
+    ports:
+      - "3000:3000"
+    environment:
+      # Direct database connection
+      DEFAULT_ORGANIZATION_NAME: "Local Development"
+      DEFAULT_PROJECT_NAME: "VM API"
+      
+      # Database connection details
+      POSTGRES_PASSWORD: postgres
+      
+      # Connection URL that Studio will use
+      DATABASE_URL: postgresql://postgres:postgres@supabase-db:5432/postgres
+      
+      # Studio specific settings
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_REST_URL: http://supabase-kong:8000/rest/v1/
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+    depends_on:
+      - supabase-db
+      - supabase-meta
+    networks:
+      - app-network
+
+  # Supabase Meta (required for Studio)
+  supabase-meta:
+    image: supabase/postgres-meta:v0.83.2
+    ports:
+      - "8080:8080"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: postgres
+    depends_on:
+      - supabase-db
+    networks:
+      - app-network
+
+  # Supabase Kong (API Gateway - simplified version)
+  supabase-kong:
+    image: kong:3.4.2
+    ports:
+      - "8002:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    volumes:
+      - ./kong.yml:/kong.yml
+    depends_on:
+      - supabase-db
+      - supabase-meta
+    networks:
+      - app-network
+
+volumes:
+  supabase_db_data:
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,42 @@
+_format_version: "3.0"
+
+services:
+  - name: meta
+    url: http://supabase-meta:8080
+    routes:
+      - name: meta
+        paths:
+          - /pg
+
+  - name: database-rest
+    url: http://supabase-db:5432
+    routes:
+      - name: database-rest
+        paths:
+          - /rest
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - HEAD
+        - PATCH
+      headers:
+        - Accept
+        - Authorization
+        - Content-Type
+        - X-Requested-With
+        - Range
+        - apikey
+        - x-client-info
+      exposed_headers:
+        - Content-Range
+      credentials: true
+      max_age: 3600
