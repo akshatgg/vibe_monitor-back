@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from app.api.routers.routers import api_router
 from app.core.database import init_database
 from app.core.config import settings
-from app.ingestion.router import router as ingestion_router
+from app.query.router import router as query_router
 from app.ingestion.batch_processor import batch_processor
 from app.ingestion.otel_collector import otel_collector_server
 
@@ -82,8 +82,8 @@ app.add_middleware(
 )
 
 # Include all API routes
-app.include_router(api_router, prefix="/api/v1")
-app.include_router(ingestion_router, prefix=settings.API_V1_PREFIX)
+app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(query_router, prefix=f"{settings.API_V1_PREFIX}/query")
 
 @app.get("/health")
 async def health_check():

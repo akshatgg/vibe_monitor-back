@@ -3,10 +3,10 @@ from typing import Optional, List
 from app.ingestion.schemas import LogQueryRequest, LogQueryResponse, IngestionStatsResponse
 from app.ingestion.service import ingestion_service
 
-router = APIRouter(prefix="/ingestion", tags=["ingestion"])
+router = APIRouter(prefix="", tags=["query_clickhouse"])
 
 
-@router.post("/query", response_model=LogQueryResponse)
+@router.post("/", response_model=LogQueryResponse)
 async def query_logs(
     workspace_id: str = Body(..., description="Workspace ID"),
     start_time_ms: Optional[int] = Body(None, description="Start time in milliseconds"),
@@ -41,7 +41,7 @@ async def query_logs(
         raise HTTPException(status_code=500, detail=f"Failed to query logs: {str(e)}")
 
 
-@router.get("/query/time-range", response_model=LogQueryResponse)
+@router.get("/time-range", response_model=LogQueryResponse)
 async def query_logs_by_time_range(
     workspace_id: str = Query(..., description="Workspace ID"),
     start_time_ms: int = Query(..., description="Start time in milliseconds"),
@@ -115,41 +115,7 @@ async def search_logs(
         raise HTTPException(status_code=500, detail=f"Failed to search logs: {str(e)}")
 
 
-@router.get("/logs/sorted", response_model=LogQueryResponse)
-async def get_sorted_logs(
-    workspace_id: str = Query(..., description="Workspace ID"),
-    sort_order: str = Query("desc", description="Sort order by timestamp (asc/desc)"),
-    start_time_ms: Optional[int] = Query(None, description="Start time in milliseconds"),
-    end_time_ms: Optional[int] = Query(None, description="End time in milliseconds"),
-    severity_filter: Optional[str] = Query(None, description="Comma-separated severity levels"),
-    search_query: Optional[str] = Query(None, description="Search text in log body"),
-    client_id: Optional[str] = Query(None, description="Filter by specific client ID"),
-    endpoint: Optional[str] = Query(None, description="Filter by endpoint"),
-    limit: int = Query(1000, ge=1, le=10000, description="Maximum number of logs to return"),
-    offset: int = Query(0, ge=0, description="Number of logs to skip"),
-):
-    try:
-        if sort_order not in ["asc", "desc"]:
-            raise HTTPException(status_code=400, detail="sort_order must be 'asc' or 'desc'")
 
-        severity_list = severity_filter.split(",") if severity_filter else None
-
-        request = LogQueryRequest(
-            workspace_id=workspace_id,
-            start_time_ms=start_time_ms,
-            end_time_ms=end_time_ms,
-            severity_filter=severity_list,
-            search_query=search_query,
-            client_id=client_id,
-            endpoint=endpoint,
-            limit=limit,
-            offset=offset,
-            sort_order=sort_order,
-        )
-
-        return await ingestion_service.query_logs(request)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get sorted logs: {str(e)}")
 
 
 @router.get("/stats", response_model=IngestionStatsResponse)
