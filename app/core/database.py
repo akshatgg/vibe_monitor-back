@@ -10,13 +10,14 @@ from .config import settings
 def get_database_url() -> str:
     """Get database URL based on environment"""
     if settings.is_production:
-        # Production: Use DATABASE_URL (should point to Supabase PostgreSQL)
-        if not settings.DATABASE_URL:
-            raise ValueError("DATABASE_URL is required for production environment")
-        # Convert postgresql:// to postgresql+asyncpg:// for async driver
-        url = settings.DATABASE_URL
-        if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://")
+        # Production: Use Supabase hosted database URL
+        if not settings.SUPABASE_DATABASE_URL:
+            raise ValueError("SUPABASE_DATABASE_URL is required for production environment")
+        
+        # Convert postgresql:// to postgresql+asyncpg:// for async driver if needed
+        url = settings.SUPABASE_DATABASE_URL
+        if url.startswith("postgresql://") or url.startswith("postgres://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://").replace("postgres://", "postgresql+asyncpg://")
         return url
         
     else:

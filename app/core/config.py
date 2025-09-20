@@ -7,10 +7,13 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
 
+    # Database
+    DATABASE_URL: Optional[str] = None
+    
     # Database (ClickHouse)
-    CLICKHOUSE_HOST: str
-    CLICKHOUSE_PORT: int
-    CLICKHOUSE_USER: str
+    CLICKHOUSE_HOST: Optional[str] = None
+    CLICKHOUSE_PORT: Optional[int] = None
+    CLICKHOUSE_USER: Optional[str] = None
     CLICKHOUSE_PASSWORD: str = ""
     CLICKHOUSE_DATABASE: str = "vm_api_db"
     CLICKHOUSE_SECURE: bool = False
@@ -19,6 +22,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: Optional[str] = None
     SUPABASE_ANON_KEY: Optional[str] = None
     SUPABASE_SERVICE_KEY: Optional[str] = None
+    SUPABASE_DATABASE_URL: Optional[str] = None
 
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
