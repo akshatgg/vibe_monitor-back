@@ -1,20 +1,19 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
 
-import logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routers.routers import api_router
-from app.core.database import init_database
 from app.core.config import settings
-from app.ingestion.router import router as ingestion_router
+from app.core.database import init_database
 from app.ingestion.batch_processor import batch_processor
 from app.ingestion.otel_collector import otel_collector_server
+from app.ingestion.service import ingestion_service
+from app.query.router import router as query_router
+
 
 # Load environment variables
 load_dotenv()
@@ -69,7 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    lifespan=lifespan,
+    lifespan=lifespan,  
 )
 
 # Add CORS middleware
@@ -82,10 +81,28 @@ app.add_middleware(
 )
 
 # Include all API routes
-app.include_router(api_router, prefix="/api/v1")
-app.include_router(ingestion_router, prefix=settings.API_V1_PREFIX)
+app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(query_router, prefix=f"{settings.API_V1_PREFIX}/query")
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "message": "FastAPI backend is running!"}
-
+    try:
+        stats = await ingestion_service.get_ingestion_stats()
+        return {
+            "fastAPI server": {
+                "status":"healthy"
+            },
+            "clickhouse": {
+                "status": "healthy" if stats.clickhouse_health else "unhealthy",
+                "connected": stats.clickhouse_health
+            },
+            "otel": {
+                "collector_status": stats.otel_collector_status,
+                "batch_processor": {
+                    "running": stats.batch_processor_stats.get("running", False),
+                    "pending_logs": stats.batch_processor_stats.get("total_pending_logs", 0),
+                }
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
