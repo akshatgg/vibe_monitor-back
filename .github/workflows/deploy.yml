@@ -48,7 +48,23 @@ jobs:
 
       - name: Render task definition
         run: |
-          sed "s|REPLACED_BY_CI|$IMAGE_TAG|g" taskdef.json > taskdef.rendered.json
+          sed "s|REPLACED_BY_CI|$IMAGE_TAG|g" taskdef.json | \
+          sed "s|ENVIRONMENT_PLACEHOLDER|${{ vars.ENVIRONMENT }}|g" | \
+          sed "s|SUPABASE_URL_PLACEHOLDER|${{ vars.SUPABASE_URL }}|g" | \
+          sed "s|SUPABASE_ANON_KEY_PLACEHOLDER|${{ secrets.SUPABASE_ANON_KEY }}|g" | \
+          sed "s|SUPABASE_SERVICE_KEY_PLACEHOLDER|${{ secrets.SUPABASE_SERVICE_KEY }}|g" | \
+          sed "s|API_BASE_URL_PLACEHOLDER|${{ vars.API_BASE_URL }}|g" | \
+          sed "s|CLICKHOUSE_HOST_PLACEHOLDER|${{ vars.CLICKHOUSE_HOST }}|g" | \
+          sed "s|CLICKHOUSE_PASSWORD_PLACEHOLDER|${{ secrets.CLICKHOUSE_PASSWORD }}|g" | \
+          sed "s|CLICKHOUSE_DATABASE_PLACEHOLDER|${{ vars.CLICKHOUSE_DATABASE }}|g" | \
+          sed "s|CLICKHOUSE_SECURE_PLACEHOLDER|${{ vars.CLICKHOUSE_SECURE }}|g" | \
+          sed "s|CLICKHOUSE_PORT_PLACEHOLDER|${{ vars.CLICKHOUSE_PORT }}|g" | \
+          sed "s|CLICKHOUSE_USER_PLACEHOLDER|${{ vars.CLICKHOUSE_USER }}|g" | \
+          sed "s|GOOGLE_CLIENT_ID_PLACEHOLDER|${{ vars.GOOGLE_CLIENT_ID }}|g" | \
+          sed "s|GOOGLE_CLIENT_SECRET_PLACEHOLDER|${{ secrets.GOOGLE_CLIENT_SECRET }}|g" | \
+          sed "s|GOOGLE_REDIRECT_URI_PLACEHOLDER|${{ vars.GOOGLE_REDIRECT_URI }}|g" | \
+          sed "s|ALLOWED_ORIGINS_PLACEHOLDER|${{ vars.ALLOWED_ORIGINS }}|g" \
+          > taskdef.rendered.json
 
       - name: Register task definition
         id: taskdef
