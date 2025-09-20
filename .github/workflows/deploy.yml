@@ -51,6 +51,7 @@ jobs:
           sed "s|REPLACED_BY_CI|$IMAGE_TAG|g" taskdef.json | \
           sed "s|ENVIRONMENT_PLACEHOLDER|${{ vars.ENVIRONMENT }}|g" | \
           sed "s|SUPABASE_URL_PLACEHOLDER|${{ vars.SUPABASE_URL }}|g" | \
+          sed "s|SUPABASE_DATABASE_URL_PLACEHOLDER|${{vars.SUPABASE_DATABASE_URL}} |g" | \
           sed "s|SUPABASE_ANON_KEY_PLACEHOLDER|${{ secrets.SUPABASE_ANON_KEY }}|g" | \
           sed "s|SUPABASE_SERVICE_KEY_PLACEHOLDER|${{ secrets.SUPABASE_SERVICE_KEY }}|g" | \
           sed "s|API_BASE_URL_PLACEHOLDER|${{ vars.API_BASE_URL }}|g" | \
