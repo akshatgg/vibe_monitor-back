@@ -172,14 +172,6 @@ class AuthService:
         await db.commit()
         await db.refresh(new_user)
         
-        # Create personal workspace for new user
-        from .workspace_service import WorkspaceService
-        workspace_service = WorkspaceService()
-        await workspace_service.create_personal_workspace(
-            user=new_user,
-            db=db
-        )
-        
         return UserResponse.model_validate(new_user)
     
     def create_access_token(self, data: Dict[str, str], expires_delta: Optional[timedelta] = None) -> str:

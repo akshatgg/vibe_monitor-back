@@ -4,6 +4,7 @@ from typing import List
 
 from ..schemas.schemas import (
     WorkspaceCreate, 
+    WorkspaceUpdate,
     WorkspaceResponse, 
     WorkspaceWithMembership
 )
@@ -78,18 +79,47 @@ async def get_workspace(
         raise HTTPException(status_code=400, detail=f"Failed to get workspace: {str(e)}")
 
 
-@router.get("/discover/{domain}", response_model=List[WorkspaceResponse])
-async def discover_workspaces_by_domain(
-    domain: str,
+@router.get("/discover", response_model=List[WorkspaceResponse])
+async def discover_workspaces_for_current_user(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Discover workspaces visible to users with the given domain"""
+    """Discover workspaces available to the current user based on their email domain (excludes workspaces they're already in)"""
     try:
-        workspaces = await workspace_service.get_visible_workspaces_by_domain(
-            domain=domain,
+        workspaces = await workspace_service.discover_workspaces_for_user(
+            user_id=current_user.id,
+            user_email=current_user.email,
             db=db
         )
         return workspaces
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to discover workspaces: {str(e)}")
+
+
+
+@router.patch("/{workspace_id}", response_model=WorkspaceResponse)
+async def update_workspace(
+    workspace_id: str,
+    workspace_update: WorkspaceUpdate,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update workspace settings (only owners can update visibility)"""
+    try:
+        # Handle visibility update with auto-domain setting
+        if workspace_update.visible_to_org is not None:
+            workspace = await workspace_service.update_workspace_visibility(
+                workspace_id=workspace_id,
+                user_id=current_user.id,
+                visible_to_org=workspace_update.visible_to_org,
+                db=db
+            )
+            return workspace
+        
+        # For other updates (like name), you can extend this logic
+        raise HTTPException(status_code=400, detail="No valid updates provided")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to update workspace: {str(e)}")
