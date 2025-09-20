@@ -1,4 +1,9 @@
-# main.py - /home/irohanrajput/Desktop/work/vm-api/app/main.py
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -7,19 +12,65 @@ from contextlib import asynccontextmanager
 from app.api.routers.routers import api_router
 from app.core.database import init_database
 from app.core.config import settings
+from app.ingestion.router import router as ingestion_router
+from app.ingestion.batch_processor import batch_processor
+from app.ingestion.otel_collector import otel_collector_server
 
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize database
-    await init_database()
-    yield
-    # Shutdown: Clean up if needed
-    pass
+    """Unified lifespan manager for all application services"""
+    logger.info("Starting VM API application...")
 
-app = FastAPI(lifespan=lifespan, title="VM API", version="0.1.0")
+    try:
+        # Initialize database
+        await init_database()
+        logger.info("Database initialized")
+
+        # Start batch processor
+        await batch_processor.start()
+        logger.info("Batch processor started")
+
+        # Start OpenTelemetry collector
+        await otel_collector_server.start()
+        logger.info("OpenTelemetry collector started")
+
+        logger.info("All services started successfully")
+        yield
+
+    except Exception as e:
+        logger.error(f"Failed to start services: {e}")
+        raise
+    finally:
+        logger.info("Shutting down VM API application...")
+
+        try:
+            # Stop batch processor
+            await batch_processor.stop()
+            logger.info("Batch processor stopped")
+
+            # Stop OpenTelemetry collector
+            await otel_collector_server.stop()
+            logger.info("OpenTelemetry collector stopped")
+
+            logger.info("All services stopped successfully")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+
+
+# Create FastAPI application
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    lifespan=lifespan,
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -32,6 +83,7 @@ app.add_middleware(
 
 # Include all API routes
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(ingestion_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/health")
 async def health_check():
