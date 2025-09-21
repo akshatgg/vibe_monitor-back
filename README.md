@@ -80,7 +80,6 @@ git rebase dev   # or git merge dev
 cp .env.template .env
 
 # 2. Edit .env with your credentials:
-# GROQ_API_KEY=your_groq_api_key_here
 # SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
 # SLACK_DEFAULT_CHANNEL=#troubleshooting
 ```
