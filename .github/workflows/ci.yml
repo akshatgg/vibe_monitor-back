@@ -56,13 +56,17 @@ jobs:
       - run: poetry add --dev ruff
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Ruff lint (with suggestions)
+        env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run ruff check --output-format=github . \
-            | reviewdog -f=github-check -name="ruff" -reporter=github-pr-suggest -level=error
+            | reviewdog -f=github-check -name="ruff" -reporter=github-pr-review -level=error
       - name: Ruff format check (with suggestions)
+        env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
         run: |
           poetry run ruff format --check --diff --quiet \
-            | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-suggest -level=error
+            | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-review -level=error
 
   mypy:
     name: Mypy (type checking)
@@ -83,6 +87,8 @@ jobs:
       - run: poetry add --dev mypy
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run mypy with reviewdog
+        env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run mypy . --show-column-numbers --pretty \
             | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning
@@ -106,6 +112,8 @@ jobs:
       - run: poetry add --dev bandit
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run bandit with reviewdog
+        env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run bandit -r . -f json \
             | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error
@@ -129,6 +137,8 @@ jobs:
       - run: poetry add --dev pip-audit
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run pip-audit with reviewdog
+        env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run pip-audit --format json \
             | reviewdog -f=pip-audit -name="pip-audit" -reporter=github-pr-check -level=error
@@ -139,5 +149,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: zricethezav/gitleaks-action@v2
+        env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         with:
           args: detect --source . --no-git -v
