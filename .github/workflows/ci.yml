@@ -127,7 +127,7 @@ jobs:
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          poetry run bandit -r . -f json \
+          poetry run bandit -r . -x .venv,venv,build,dist,tests -f json \
             | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error
 
   # dependency-scan:
@@ -161,9 +161,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: zricethezav/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         with:
-          args: detect --source . --no-git --redact -v
+          args: directory . --redact -v
