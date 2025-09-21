@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Other settings
-    SECRET_KEY: str = "your-secret-key"
+    SECRET_KEY: str
     API_BASE_URL: str = "http://localhost:8000"
 
     # Frontend URL for OAuth redirects
