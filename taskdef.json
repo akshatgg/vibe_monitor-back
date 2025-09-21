@@ -20,8 +20,24 @@
           "awslogs-stream-prefix": "ecs"
         }
       },
-      "environment": [
-        {"name":"ENV","value":"prod"}
+      "secrets": [
+        {"name": "ENVIRONMENT", "valueFrom": "/vm-api/environment"},
+        {"name": "API_BASE_URL", "valueFrom": "/vm-api/api-base-url"},
+        {"name": "JWT_SECRET_KEY", "valueFrom": "/vm-api/jwt-secret-key"},
+        {"name": "SUPABASE_DATABASE_URL", "valueFrom": "/vm-api/supabase-database-url"},
+        {"name": "GOOGLE_CLIENT_ID", "valueFrom": "/vm-api/google-client-id"},
+        {"name": "GOOGLE_CLIENT_SECRET", "valueFrom": "/vm-api/google-client-secret"},
+        {"name": "ALLOWED_ORIGINS", "valueFrom": "/vm-api/allowed-origins"},
+        {"name": "CLICKHOUSE_DATABASE", "valueFrom": "/vm-api/clickhouse-database"},
+        {"name": "CLICKHOUSE_HOST", "valueFrom": "/vm-api/clickhouse-host"},
+        {"name": "CLICKHOUSE_PORT", "valueFrom": "/vm-api/clickhouse-port"},
+        {"name": "CLICKHOUSE_SECURE", "valueFrom": "/vm-api/clickhouse-secure"},
+        {"name": "CLICKHOUSE_USER", "valueFrom": "/vm-api/clickhouse-user"},
+        {"name": "GOOGLE_CLIENT_ID", "valueFrom": "/vm-api/google-client-id"},
+        {"name": "GOOGLE_REDIRECT_URI", "valueFrom": "/vm-api/google-redirect-uri"},
+        {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api/supabase-anon-key"},
+        {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api/supabase-service-key"},
+        {"name": "CLICKHOUSE_PASSWORD", "valueFrom": "/vm-api/clickhouse-password"}
       ]
     }
   ]
