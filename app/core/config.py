@@ -37,8 +37,6 @@ class Settings(BaseSettings):
     # Other settings
     API_BASE_URL: str = "http://localhost:8000"
 
-    # Frontend URL for OAuth redirects
-    FRONTEND_URL: str = "http://localhost:3000"
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
