@@ -37,7 +37,11 @@
         {"name": "GOOGLE_REDIRECT_URI", "valueFrom": "/vm-api/google-redirect-uri"},
         {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api/supabase-anon-key"},
         {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api/supabase-service-key"},
-        {"name": "CLICKHOUSE_PASSWORD", "valueFrom": "/vm-api/clickhouse-password"}
+        {"name": "CLICKHOUSE_PASSWORD", "valueFrom": "/vm-api/clickhouse-password"},
+        {"name": "OTEL_GRPC_PORT", "valueFrom": "/vm-api/otel-grpc-port"},
+        {"name": "OTEL_HTTP_PORT", "valueFrom": "/vm-api/otel-http-port"},
+        {"name": "LOG_BATCH_SIZE", "valueFrom": "/vm-api/log-batch-size"},
+        {"name": "LOG_BATCH_TIMEOUT", "valueFrom": "/vm-api/log-batch-timeout"}
       ]
     }
   ]
