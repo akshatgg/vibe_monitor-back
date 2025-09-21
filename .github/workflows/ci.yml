@@ -1,15 +1,15 @@
 name: CI
 
-on:
-  push:
-    branches:
-      - "**"        
+on:      
   pull_request:
     branches:
-      - "**"
+      - "main"
+  push:
+    branches:
+      - "main"
 
 jobs:
-  tests:
+  Setup:
     name: Setup
     runs-on: ubuntu-latest
     strategy:
