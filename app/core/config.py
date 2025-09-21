@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     CLICKHOUSE_SECURE: bool = False
 
     # Supabase (for production)
-    SUPABASE_URL: Optional[str] = None
     SUPABASE_ANON_KEY: Optional[str] = None
     SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_DATABASE_URL: Optional[str] = None
@@ -30,17 +29,14 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: Optional[str] = None
 
     # JWT Settings
-    JWT_SECRET_KEY: str = "your-super-secret-jwt-key-change-in-production"
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Other settings
-    SECRET_KEY: str = "your-secret-key"
     API_BASE_URL: str = "http://localhost:8000"
 
-    # Frontend URL for OAuth redirects
-    FRONTEND_URL: str = "http://localhost:3000"
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
