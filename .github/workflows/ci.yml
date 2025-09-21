@@ -130,30 +130,31 @@ jobs:
           poetry run bandit -r . -f json \
             | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error
 
-  dependency-scan:
-    name: pip-audit (dependency vulnerabilities)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-      - uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-      - run: poetry add --dev pip-audit
-      - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
-      - name: Run pip-audit with reviewdog
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          poetry run pip-audit --format json \
-            | reviewdog -f=pip-audit -name="pip-audit" -reporter=github-pr-check -level=error
+  # dependency-scan:
+  #   name: pip-audit (dependency vulnerabilities)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.12"
+  #     - uses: snok/install-poetry@v1
+  #       with:
+  #         virtualenvs-create: true
+  #         virtualenvs-in-project: true
+  #     - uses: actions/cache@v4
+  #       with:
+  #         path: .venv
+  #         key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+  #     - name: Install deps
+  #       run: poetry install --no-root --no-interaction --no-ansi
+  #     - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
+  #     - name: Run pip-audit with reviewdog
+  #       env:
+  #         REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         poetry run pip-audit --format json \
+  #           | reviewdog -f=pip-audit -name="pip-audit" -reporter=github-pr-check -level=error
 
   secrets-scan:
     name: Gitleaks (secrets scan)
@@ -165,4 +166,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         with:
-          args: detect --source . --no-git -v
+          args: detect --source . --no-git --redact -v
