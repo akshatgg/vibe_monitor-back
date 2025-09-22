@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Set Poetry environment variables for optimal Docker performance
 ENV PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=1.7.1 \
+    POETRY_VERSION=2.1.4 \
     POETRY_VIRTUALENVS_CREATE=false \
     POETRY_VIRTUALENVS_IN_PROJECT=false \
     POETRY_CACHE_DIR=/tmp/.cache
