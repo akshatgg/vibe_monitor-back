@@ -90,6 +90,9 @@ class AuthService:
             
             if response.status_code != 200:
                 error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                #print(f"Google OAuth Error: Status {response.status_code}")
+                #print(f"Google OAuth Error Response: {response.text}")
+                #print(f"Google OAuth Error Data: {error_data}")
                 raise HTTPException(
                     status_code=400, 
                     detail=f"Failed to exchange code for token: {error_data.get('error_description', response.text)}"

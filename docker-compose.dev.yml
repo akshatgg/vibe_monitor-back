@@ -11,6 +11,8 @@ services:
     volumes:
       - .:/app
       - /app/__pycache__
+    env_file:
+      - .env
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://postgres:postgres@supabase-db:5432/postgres

@@ -29,7 +29,7 @@ def run_oauth_callback(code, state):
     
     # URL encode the parameters
     code_encoded = code.replace("/", "%2F")
-    redirect_uri_encoded = "http%3A%2F%2Flocalhost%3A8000"
+    redirect_uri_encoded = "http%3A%2F%2Flocalhost%3A8000%2F"
     
     curl_cmd = [
         "curl",
