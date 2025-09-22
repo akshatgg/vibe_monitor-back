@@ -46,8 +46,6 @@ engine = create_async_engine(
     max_overflow=20 if settings.is_production else 10,  # Max connections beyond pool_size
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
-        "statement_cache_size": 0,  # Disable prepared statements for pgbouncer compatibility
-        "prepared_statement_cache_size": 0,  # Additional safeguard
         "server_settings": {
             "application_name": "vm-api",
         },
