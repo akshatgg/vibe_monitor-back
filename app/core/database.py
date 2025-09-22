@@ -49,6 +49,7 @@ engine = create_async_engine(
         "server_settings": {
             "application_name": "vm-api",
         },
+        "statement_cache_size": 0,
     },
 )
 
