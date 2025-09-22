@@ -1,19 +1,28 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Use Python 3.12 slim image
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Set Poetry environment variables for optimal Docker performance
+ENV PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.7.1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_VIRTUALENVS_IN_PROJECT=false \
+    POETRY_CACHE_DIR=/tmp/.cache
 
-# Copy requirements file
-COPY requirements.txt .
+# Install system dependencies and Poetry
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && pip install "poetry==$POETRY_VERSION"
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy poetry files (for layer caching optimization)
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies (this layer will be cached unless dependencies change)
+RUN poetry install --only=main --no-root
 
 # Copy application code
 COPY app/ ./app/
