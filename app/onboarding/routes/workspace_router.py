@@ -123,3 +123,28 @@ async def update_workspace(
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update workspace: {str(e)}")
+
+
+@router.delete("/{workspace_id}")
+async def delete_workspace(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a workspace (only owners can delete)"""
+    try:
+        success = await workspace_service.delete_workspace(
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+            db=db
+        )
+        
+        if success:
+            return {"message": "Workspace deleted successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to delete workspace")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete workspace: {str(e)}")
