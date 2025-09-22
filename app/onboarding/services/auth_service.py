@@ -300,7 +300,12 @@ class AuthService:
             data={"sub": user_id, "email": user.email}
         )
         
+        # Calculate expiration time
+        expire_time = datetime.now(timezone.utc) + timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
+        
         return {
             "access_token": new_access_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "expires_at": expire_time.isoformat(),
+            "expires_in": self.ACCESS_TOKEN_EXPIRE_MINUTES * 60  # seconds
         }
