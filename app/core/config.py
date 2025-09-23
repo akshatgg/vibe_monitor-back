@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     API_BASE_URL: str = None
 
     # CORS
-    ALLOWED_ORIGINS: str = None
+    ALLOWED_ORIGINS: list = []
 
     #LOG Level
     LOG_LEVEL: str = None
