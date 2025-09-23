@@ -40,7 +40,8 @@
         {"name": "OTEL_GRPC_PORT", "valueFrom": "/vm-api/otel-grpc-port"},
         {"name": "OTEL_HTTP_PORT", "valueFrom": "/vm-api/otel-http-port"},
         {"name": "LOG_BATCH_SIZE", "valueFrom": "/vm-api/log-batch-size"},
-        {"name": "LOG_BATCH_TIMEOUT", "valueFrom": "/vm-api/log-batch-timeout"}
+        {"name": "LOG_BATCH_TIMEOUT", "valueFrom": "/vm-api/log-batch-timeout"},
+        {"name": "LOG_LEVEL", "valueFrom": "/vm-api/log-level"}
       ]
     }
   ]
