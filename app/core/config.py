@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Environment
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = None
 
     # Database
     DATABASE_URL: Optional[str] = None
@@ -35,8 +35,13 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Other settings
-    API_BASE_URL: str = "http://localhost:8000"
+    API_BASE_URL: str = None
 
+    # CORS
+    ALLOWED_ORIGINS: str = None
+
+    #LOG Level
+    LOG_LEVEL: str = None
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
@@ -60,17 +65,6 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
-
-    @property
-    def allowed_origins(self) -> List[str]:
-        """Get CORS allowed origins based on environment"""
-        if self.is_production:
-            allowed_origins_env = self._get_env_list("ALLOWED_ORIGINS")
-            return allowed_origins_env or ["https://vibemonitor.ai"]
-        return [
-            "http://localhost:3000",
-            "http://localhost:3001",
-        ]
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""
