@@ -40,7 +40,11 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: list = []
 
-    #LOG Level
+    # MAILGUN
+    MAILGUN_API_KEY: str = None
+    MAILGUN_DOMAIN_NAME: str = None
+
+    # Log Level
     LOG_LEVEL: str = None
 
     # OpenTelemetry Configuration
