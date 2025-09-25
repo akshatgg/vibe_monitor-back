@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: list = []
 
     # MAILGUN
-    MAILGUN_API_KEY: str = None
-    MAILGUN_DOMAIN_NAME: str = None
+    MAILGUN_API_KEY: Optional[str]=None
+    MAILGUN_DOMAIN_NAME: Optional[str]=None
 
     # Log Level
     LOG_LEVEL: str = None
