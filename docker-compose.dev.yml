@@ -8,6 +8,7 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "8000:8000"
+      - "4317:4317"  
     volumes:
       - .:/app
       - /app/__pycache__
@@ -37,7 +38,7 @@ services:
   supabase-studio:
     image: supabase/studio:20240326-5e5586d
     ports:
-      - "3000:3000"
+      - "3500:3000" #to avoid conflict with vm-webApp(frontend)
     environment:
       # Direct database connection
       DEFAULT_ORGANIZATION_NAME: "Local Development"

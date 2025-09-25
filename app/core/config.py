@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    PROJECT_NAME: str = "VM API - Log Ingestion"
+    PROJECT_NAME: str = "VibeMonitor-API"
     VERSION: str = "1.0.0"
 
     class Config:

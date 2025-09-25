@@ -40,7 +40,8 @@ RUN useradd -r -u 10001 -g users appuser \
 USER appuser
 
 # Expose port 8000
-EXPOSE 8000
+EXPOSE 8000 4317
+
 
 # Command to run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
