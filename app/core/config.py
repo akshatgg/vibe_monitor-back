@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Log Level
     LOG_LEVEL: str = None
 
+    # Groq
+    GROQ_API_KEY: Optional[str] = None
+
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
     OTEL_HTTP_PORT: int = 4318
