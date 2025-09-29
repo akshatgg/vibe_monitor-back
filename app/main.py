@@ -13,6 +13,8 @@ from app.ingestion.batch_processor import batch_processor
 from app.ingestion.otel_collector import otel_collector_server
 from app.ingestion.service import ingestion_service
 from app.query.router import router as query_router
+from worker import RCAOrchestratorWorker
+from app.services.sqs.client import sqs_client
 
 
 # Load environment variables
@@ -28,6 +30,8 @@ async def lifespan(app: FastAPI):
     """Unified lifespan manager for all application services"""
     logger.info("Starting VM API application...")
 
+    worker = RCAOrchestratorWorker()
+
     try:
         # Initialize database
         await init_database()
@@ -41,6 +45,10 @@ async def lifespan(app: FastAPI):
         await otel_collector_server.start()
         logger.info("OpenTelemetry collector started")
 
+        # Start SQS worker
+        await worker.start()
+        logger.info("SQS worker started")
+
         logger.info("All services started successfully")
         yield
 
@@ -51,6 +59,10 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down VM API application...")
 
         try:
+            # Stop SQS worker
+            await worker.stop()
+            logger.info("SQS worker stopped")
+
             # Stop batch processor
             await batch_processor.stop()
             logger.info("Batch processor stopped")
@@ -58,6 +70,10 @@ async def lifespan(app: FastAPI):
             # Stop OpenTelemetry collector
             await otel_collector_server.stop()
             logger.info("OpenTelemetry collector stopped")
+
+            # Close SQS client
+            await sqs_client.close()
+            logger.info("SQS client closed")
 
             logger.info("All services stopped successfully")
         except Exception as e:
