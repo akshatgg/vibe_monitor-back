@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Environment
-    ENVIRONMENT: str = None
+    ENVIRONMENT: Optional[str] = None
 
     # Database
     DATABASE_URL: Optional[str] = None
@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     CLICKHOUSE_HOST: Optional[str] = None
     CLICKHOUSE_PORT: Optional[int] = None
     CLICKHOUSE_USER: Optional[str] = None
-    CLICKHOUSE_PASSWORD: str = ""
-    CLICKHOUSE_DATABASE: str = "vm_api_db"
+    CLICKHOUSE_PASSWORD: Optional[str] = ""
+    CLICKHOUSE_DATABASE: Optional[str] = "vm_api_db"
     CLICKHOUSE_SECURE: bool = False
 
     # Supabase (for production)
@@ -29,13 +29,13 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: Optional[str] = None
 
     # JWT Settings
-    JWT_SECRET_KEY: str
+    JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Other settings
-    API_BASE_URL: str = None
+    API_BASE_URL: Optional[str] = None
 
     # CORS
     ALLOWED_ORIGINS: list = []
@@ -45,7 +45,10 @@ class Settings(BaseSettings):
     MAILGUN_DOMAIN_NAME: Optional[str]=None
 
     # Log Level
-    LOG_LEVEL: str = None
+    LOG_LEVEL: Optional[str] = None
+
+    # Groq
+    GROQ_API_KEY: Optional[str] = None
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
