@@ -56,7 +56,10 @@ async def handle_slack_events(request: Request):
             result = await slack_event_service.handle_slack_event(event_payload)
             return JSONResponse(result)
         
-        return JSONResponse({"status": "ignored", "message": "Not an app mention event"}), 200
+        return JSONResponse(
+            {"status": "ignored", "message": "Not an app mention event"},
+            status_code=200,
+        )
 
     except Exception as e:
         logger.error(f"Error processing Slack event: {e}")
