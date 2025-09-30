@@ -44,6 +44,7 @@ class AuthService:
         ).decode('utf-8').rstrip('=')
         return code_verifier, code_challenge
     
+    
     def get_google_auth_url(self, redirect_uri: str, state: str = None, code_challenge: str = None, code_challenge_method: str = "S256") -> str:
         """Generate Google OAuth authorization URL (Microsoft-style)"""
         if not self.GOOGLE_CLIENT_ID:
