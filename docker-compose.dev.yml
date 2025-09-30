@@ -18,6 +18,9 @@ services:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_REGION=us-east-1
       - SQS_QUEUE_URL=http://localstack:4566/000000000000/vm-api-queue
+      
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} # Used by the LocalStack container itself to initialize
     depends_on:
       - supabase-db
       - localstack
