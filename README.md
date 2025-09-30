@@ -1,10 +1,14 @@
 # Git Workflow & Project Setup
 This document describes the branching workflow and how to run the OpenTelemetry Observability System.
 
+## 📚 Documentation
+
+- [Project Structure & Architecture](./project-overview/project-structure.md) - Detailed overview of the codebase, data flows, and API endpoints
+- [Database ER Diagram](./project-overview/er-diagram.md) - Entity-relationship diagram showing all database tables and relationships
+
 ## Branches
 - **main** → Production-ready code (protected).
 - **dev** → Integration branch where all features get merged.
-- **dev-tushar**, **dev-kartikay** → Individual developer branches.
 
 ## Workflow
 
@@ -19,27 +23,30 @@ cd vm-api
 git remote -v     # check remote
 ```
 
-### 3. Always work on your own branch
-For example, if you are Tushar:
+### 3. Create a branch for your Linear issue
+When working on a Linear issue (e.g., VIB-32: Add new feature):
 ```bash
-git checkout dev-tushar
+# Branch naming format: your_name/vib-{issue-number}-{issue-heading-kebab-case}
+# Example for Shashi working on VIB-32 "Add Slack notifications":
+git checkout -b shashi/vib-32-add-slack-notifications
+
+# Example for Suhani working on VIB-55 "Update README":
+git checkout -b suhani/vib-55-update-readme
 ```
 
-### 4. Keep your branch up to date with dev
+### 4. Keep your branch up to date with main
 Before starting new work:
 ```bash
 # Fetch latest changes from remote
 git fetch origin
 
-# Switch to dev and pull latest
-git checkout dev
-git pull origin dev
+# Switch to main and pull latest
+git checkout main
+git pull origin main
 
-# Switch back to your branch and rebase/merge dev
-git checkout dev-tushar
-git rebase dev   # preferred (clean history)
-# OR
-git merge dev    # if you want to keep merge commits
+# Switch back to your branch and rebase on main
+git checkout shashi/vib-32-add-slack-notifications
+git rebase main   # preferred (clean history)
 ```
 
 ### 5. Do your work
@@ -47,22 +54,28 @@ git merge dev    # if you want to keep merge commits
 # Make changes
 git add .
 git commit -m "your commit message"
-git push origin dev-tushar
+git push origin yourname/vib-XX-issue-description
 ```
 
 ### 6. Create a Pull Request (PR)
-- Go to GitHub/GitLab.
-- Create a PR from `your branch → dev`.
+- Go to GitHub.
+- Create a PR from `your branch → main`.
+- **PR Title Format:** `your_name/VIB-{number}: Description`
+  - Example: `shashi/VIB-32: Add Slack notifications`
+  - Example: `suhani/VIB-55: Update README with new workflow`
+- Add Linear issue link in PR description
 - Wait for review and approval before merging.
 
 ### 7. Sync after PRs are merged
-When someone else's changes are merged into dev:
+When changes are merged into main:
 ```bash
 git fetch origin
-git checkout dev
-git pull origin dev
-git checkout dev-tushar
-git rebase dev   # or git merge dev
+git checkout main
+git pull origin main
+# Delete your old feature branch
+git branch -d shashi/vib-32-add-slack-notifications
+# Create new branch for next issue
+git checkout -b shashi/vib-45-new-feature
 ```
 
 ## Project Setup & Testing
@@ -155,14 +168,17 @@ curl http://localhost:3001/boom
 # Get latest changes
 git fetch origin
 
-# Update dev
-git checkout dev && git pull origin dev
+# Update main
+git checkout main && git pull origin main
 
-# Rebase your branch on latest dev
-git checkout dev-<yourname> && git rebase dev
+# Create new branch for Linear issue VIB-XX
+git checkout -b yourname/vib-XX-issue-description
+
+# Rebase your branch on latest main
+git checkout yourname/vib-XX-issue-description && git rebase main
 
 # Push your branch
-git push origin dev-<yourname>
+git push origin yourname/vib-XX-issue-description
 ```
 
 ### Development Commands
@@ -179,22 +195,24 @@ curl http://localhost:3001/boom            # Error request
 
 ## Notes
 - Never commit directly to main or dev
-- Always update your branch with latest dev before raising a PR
+- Always create a branch from main for each Linear issue
+- Branch naming: `yourname/vib-{number}-{description-kebab-case}`
+- PR title format: `yourname/VIB-{number}: Description`
+- Always update your branch with latest main before raising a PR
 - Test both normal and error scenarios before pushing
 - Ensure .env file has valid API keys for full functionality
 - Use Docker Compose for consistent development environment
 - Monitor #troubleshooting channel for error notifications
-- To install a new package using poetry RUN
 
-```
+### Poetry Package Management
+```bash
+# Install a new package
 poetry add <package name>
-```
-- To remove a package
-```
+
+# Remove a package
 poetry remove <package name>
-```
-- To sync pyproject.toml with poetry.lock
-```
+
+# Sync pyproject.toml with poetry.lock
 poetry lock
 ```
 
