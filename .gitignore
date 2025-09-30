@@ -65,6 +65,7 @@ coverage/
 .tmp/
 temp/
 .venv
+venv/
 
 __pycache__/
 data/

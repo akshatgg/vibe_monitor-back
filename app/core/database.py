@@ -1,7 +1,6 @@
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import text
-import os
 from typing import AsyncGenerator
 
 from ..onboarding.models.models import Base
@@ -13,16 +12,22 @@ def get_database_url() -> str:
         # Production: Use Supabase hosted database URL
         if not settings.SUPABASE_DATABASE_URL:
             raise ValueError("SUPABASE_DATABASE_URL is required for production environment")
-        
+
         # Convert postgresql:// to postgresql+asyncpg:// for async driver if needed
         url = settings.SUPABASE_DATABASE_URL
         if url.startswith("postgresql://") or url.startswith("postgres://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://").replace("postgres://", "postgresql+asyncpg://")
         return url
-        
+
     else:
-        # Development: Use local PostgreSQL from docker-compose with asyncpg driver
-        base_url = settings.DATABASE_URL or "postgresql://postgres:postgres@localhost:54322/postgres"
+        # Development: Require DATABASE_URL to be set explicitly
+        if not settings.DATABASE_URL:
+            raise ValueError(
+                "DATABASE_URL is required for development environment. "
+                "Please set it in your .env file or environment variables."
+            )
+
+        base_url = settings.DATABASE_URL
         if base_url.startswith("postgresql://"):
             base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
         return base_url
@@ -37,6 +42,14 @@ engine = create_async_engine(
     future=True,
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600 if settings.is_production else -1,  # Recycle connections in production
+    pool_size=10 if settings.is_production else 5,  # Connection pool size
+    max_overflow=20 if settings.is_production else 10,  # Max connections beyond pool_size
+    connect_args={
+        "command_timeout": 30,  # Command timeout in seconds
+        "server_settings": {
+            "application_name": "vm-api",
+        },
+    },
 )
 
 # Create async session factory
@@ -59,9 +72,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_database():
     """Initialize database with tables"""
+    logger = logging.getLogger(__name__)
+
     try:
         await create_tables()
-        print("Database tables created successfully")
+        logger.info("Database tables created successfully")
     except Exception as e:
-        print(f"Error creating database tables: {e}")
-        raise
+        logger.error(f"Error creating database tables: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to initialize database: {e}") from e

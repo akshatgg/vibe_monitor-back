@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Environment
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: Optional[str] = None
 
     # Database
     DATABASE_URL: Optional[str] = None
@@ -14,12 +14,11 @@ class Settings(BaseSettings):
     CLICKHOUSE_HOST: Optional[str] = None
     CLICKHOUSE_PORT: Optional[int] = None
     CLICKHOUSE_USER: Optional[str] = None
-    CLICKHOUSE_PASSWORD: str = ""
-    CLICKHOUSE_DATABASE: str = "vm_api_db"
+    CLICKHOUSE_PASSWORD: Optional[str] = ""
+    CLICKHOUSE_DATABASE: Optional[str] = "vm_api_db"
     CLICKHOUSE_SECURE: bool = False
 
     # Supabase (for production)
-    SUPABASE_URL: Optional[str] = None
     SUPABASE_ANON_KEY: Optional[str] = None
     SUPABASE_SERVICE_KEY: Optional[str] = None
     SUPABASE_DATABASE_URL: Optional[str] = None
@@ -30,17 +29,26 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: Optional[str] = None
 
     # JWT Settings
-    JWT_SECRET_KEY: str = "your-super-secret-jwt-key-change-in-production"
+    JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # Other settings
-    SECRET_KEY: str = "your-secret-key"
-    API_BASE_URL: str = "http://localhost:8000"
+    API_BASE_URL: Optional[str] = None
 
-    # Frontend URL for OAuth redirects
-    FRONTEND_URL: str = "http://localhost:3000"
+    # CORS
+    ALLOWED_ORIGINS: list = []
+
+    # MAILGUN
+    MAILGUN_API_KEY: Optional[str]=None
+    MAILGUN_DOMAIN_NAME: Optional[str]=None
+
+    # Log Level
+    LOG_LEVEL: Optional[str] = None
+
+    # Groq
+    GROQ_API_KEY: Optional[str] = None
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
@@ -52,7 +60,7 @@ class Settings(BaseSettings):
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    PROJECT_NAME: str = "VM API - Log Ingestion"
+    PROJECT_NAME: str = "VibeMonitor-API"
     VERSION: str = "1.0.0"
 
     class Config:
@@ -64,17 +72,6 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
-
-    @property
-    def allowed_origins(self) -> List[str]:
-        """Get CORS allowed origins based on environment"""
-        if self.is_production:
-            allowed_origins_env = self._get_env_list("ALLOWED_ORIGINS")
-            return allowed_origins_env or ["https://vibemonitor.ai"]
-        return [
-            "http://localhost:3000",
-            "http://localhost:3001",
-        ]
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""

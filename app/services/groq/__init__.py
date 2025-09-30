@@ -1,2 +1,20 @@
-# __init__.py - /home/irohanrajput/Desktop/work/vm-api/app/services/groq/__init__.py
-# Groq AI Analysis Services
+from .service import GroqService, groq_service
+from .client import GroqClient
+from .models import (
+    ChatRequest,
+    ChatResponse,
+    ChatMessage,
+    ChatRole,
+    GroqError
+)
+
+__all__ = [
+    "GroqService",
+    "groq_service",
+    "GroqClient",
+    "ChatRequest",
+    "ChatResponse",
+    "ChatMessage",
+    "ChatRole",
+    "GroqError"
+]
