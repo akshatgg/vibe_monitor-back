@@ -1,27 +1,32 @@
 import hmac
 import hashlib
 import logging
-import json
-from typing import Dict, Any, Optional
+import uuid
+import re
+from typing import Optional
 from datetime import datetime
 
 import httpx
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.slack.schemas import SlackEventPayload, SlackWebhookPayload
+from app.core.database import AsyncSessionLocal
+from app.slack.schemas import (
+    SlackEventPayload,
+    SlackInstallationCreate,
+    SlackInstallationResponse,
+)
+from app.slack.models import SlackInstallation
 
 logger = logging.getLogger(__name__)
-
-# In-memory storage for Slack installations (for now)
-# In production, you should store this in your PostgreSQL database
-_slack_installations: Dict[str, Dict[str, Any]] = {}
 
 class SlackEventService:
     @staticmethod
     async def verify_slack_request(
-        slack_signature: str, 
-        slack_request_timestamp: str, 
+        slack_signature: str,
+        slack_request_timestamp: str,
         request_body: str
     ) -> bool:
         """
@@ -41,7 +46,7 @@ class SlackEventService:
         return hmac.compare_digest(signature, slack_signature)
 
     @staticmethod
-    async def handle_slack_event(payload: SlackEventPayload) -> Dict[str, Any]:
+    async def handle_slack_event(payload: SlackEventPayload) -> dict:
         """
         Process Slack event and respond to user
         """
@@ -92,7 +97,7 @@ class SlackEventService:
     @staticmethod
     async def process_user_message(
         user_message: str,
-        event_context: Dict[str, Any]
+        event_context: dict
     ) -> str:
         """
         Process user's message and generate a response
@@ -107,10 +112,7 @@ class SlackEventService:
         timestamp = event_context.get("timestamp")
 
         # Remove bot mention from message to get clean text
-        clean_message = user_message
-        # Remove <@BOTID> mention format
-        import re
-        clean_message = re.sub(r'<@[A-Z0-9]+>', '', clean_message).strip()
+        clean_message = re.sub(r'<@[A-Z0-9]+>', '', user_message).strip()
 
         logger.info(f"Processing message from user {user_id}: '{clean_message}'")
 
@@ -150,55 +152,79 @@ class SlackEventService:
         team_name: str,
         access_token: str,
         bot_user_id: Optional[str],
-        full_data: Dict[str, Any]
-    ) -> None:
+        scope: str,
+        workspace_id: Optional[str] = None
+    ) -> SlackInstallationResponse:
         """
-        Store Slack workspace installation details
-
-        TODO: In production, save this to PostgreSQL database
-        For now, using in-memory storage for simplicity
+        Store Slack workspace installation details in PostgreSQL
         """
-        installation_data = {
-            "team_id": team_id,
-            "team_name": team_name,
-            "access_token": access_token,  # Use this to send messages to this workspace
-            "bot_user_id": bot_user_id,
-            "installed_at": datetime.utcnow().isoformat(),
-            "scopes": full_data.get("scope", ""),
-            "raw_response": full_data  # Store full OAuth response for debugging
-        }
+        async with AsyncSessionLocal() as db:
+            try:
+                # Check if installation already exists
+                stmt = select(SlackInstallation).where(SlackInstallation.team_id == team_id)
+                result = await db.execute(stmt)
+                existing = result.scalar_one_or_none()
 
-        # Store in memory (keyed by team_id)
-        _slack_installations[team_id] = installation_data
+                if existing:
+                    # Update existing installation
+                    existing.team_name = team_name
+                    existing.access_token = access_token
+                    existing.bot_user_id = bot_user_id
+                    existing.scope = scope
+                    existing.workspace_id = workspace_id
+                    existing.updated_at = datetime.utcnow()
 
-        logger.info(f"Stored installation for team {team_id} ({team_name})")
-        logger.debug(f"Installation data: {json.dumps(installation_data, indent=2)}")
+                    logger.info(f"Updated installation for team {team_id} ({team_name})")
+                    installation_db = existing
+                else:
+                    # Create new installation
+                    installation_data = SlackInstallationCreate(
+                        team_id=team_id,
+                        team_name=team_name,
+                        access_token=access_token,
+                        bot_user_id=bot_user_id,
+                        scope=scope,
+                        workspace_id=workspace_id
+                    )
 
-        # TODO: Save to database
-        # async with get_db() as db:
-        #     slack_install = SlackInstallation(**installation_data)
-        #     db.add(slack_install)
-        #     await db.commit()
+                    installation_db = SlackInstallation(
+                        id=str(uuid.uuid4()),
+                        **installation_data.model_dump()
+                    )
+                    db.add(installation_db)
+                    logger.info(f"Created new installation for team {team_id} ({team_name})")
+
+                await db.commit()
+                await db.refresh(installation_db)
+
+                return SlackInstallationResponse.model_validate(installation_db)
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Error storing installation: {e}", exc_info=True)
+                raise
 
     @staticmethod
-    async def get_installation(team_id: str) -> Optional[Dict[str, Any]]:
+    async def get_installation(team_id: str) -> Optional[SlackInstallationResponse]:
         """
-        Retrieve Slack installation for a workspace
-
-        Returns the access token and other details needed to interact with Slack
+        Retrieve Slack installation for a workspace from database
         """
-        installation = _slack_installations.get(team_id)
+        async with AsyncSessionLocal() as db:
+            try:
+                stmt = select(SlackInstallation).where(SlackInstallation.team_id == team_id)
+                result = await db.execute(stmt)
+                installation_db = result.scalar_one_or_none()
 
-        if not installation:
-            logger.warning(f"No installation found for team {team_id}")
-            return None
+                if not installation_db:
+                    logger.warning(f"No installation found for team {team_id}")
+                    return None
 
-        return installation
+                return SlackInstallationResponse.model_validate(installation_db)
 
-    @staticmethod
-    async def get_all_installations() -> Dict[str, Dict[str, Any]]:
-        """Get all stored installations (for debugging/admin)"""
-        return _slack_installations.copy()
+            except Exception as e:
+                logger.error(f"Error retrieving installation: {e}", exc_info=True)
+                return None
+
 
     @staticmethod
     async def send_message(team_id: str, channel: str, text: str) -> bool:
@@ -221,7 +247,7 @@ class SlackEventService:
                 logger.error(f"Cannot send message - no token available for team {team_id}")
                 return False
         else:
-            access_token = installation["access_token"]
+            access_token = installation.access_token
 
         try:
             async with httpx.AsyncClient() as client:

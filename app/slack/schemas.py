@@ -15,7 +15,7 @@ class SlackEventPayload(BaseModel):
     type: str
     event_id: str
     event_time: int
-    
+
     @validator('event')
     def validate_event(cls, event):
         """
@@ -56,7 +56,7 @@ class SlackWebhookPayload(BaseModel):
     """
     event_context: Dict[str, Any]
     processed_at: str = Field(default_factory=lambda: str(datetime.utcnow()))
-    
+
     def to_webhook_payload(self) -> Dict[str, Any]:
         """
         Transform Slack event context for external webhook
@@ -65,3 +65,64 @@ class SlackWebhookPayload(BaseModel):
             "source": "slack_bot",
             **self.event_context
         }
+
+
+# OAuth Response Models
+class SlackOAuthTeam(BaseModel):
+    """Slack OAuth team information"""
+    id: str
+    name: str
+
+
+class SlackOAuthResponse(BaseModel):
+    """Response from Slack OAuth token exchange"""
+    ok: bool
+    access_token: str
+    token_type: str = "bot"
+    scope: str
+    bot_user_id: Optional[str] = None
+    app_id: str
+    team: SlackOAuthTeam
+    enterprise: Optional[Dict[str, Any]] = None
+    authed_user: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+# Installation Data Models
+class SlackInstallationCreate(BaseModel):
+    """Schema for creating a new Slack installation"""
+    team_id: str
+    team_name: str
+    access_token: str
+    bot_user_id: Optional[str] = None
+    scope: str
+    workspace_id: Optional[str] = None
+
+
+class SlackInstallationResponse(BaseModel):
+    """Schema for Slack installation response (includes access_token for internal use)"""
+    id: str
+    team_id: str
+    team_name: str
+    access_token: str  # Only used internally, never exposed in API responses
+    bot_user_id: Optional[str] = None
+    scope: str
+    workspace_id: Optional[str] = None
+    installed_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SlackInstallationPublic(BaseModel):
+    """Public-facing installation data (without token)"""
+    id: str
+    team_id: str
+    team_name: str
+    bot_user_id: Optional[str] = None
+    scope: str
+    installed_at: datetime
+
+    class Config:
+        from_attributes = True

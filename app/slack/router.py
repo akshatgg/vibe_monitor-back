@@ -138,16 +138,17 @@ async def slack_oauth_callback(
         team_name = data["team"]["name"]
         access_token = data["access_token"]
         bot_user_id = data.get("bot_user_id")
+        scope = data.get("scope", "")
 
         logger.info(f"OAuth successful - Team: {team_name} ({team_id})")
 
         # Store the installation (token, team info) in database
-        await slack_event_service.store_installation(
+        installation = await slack_event_service.store_installation(
             team_id=team_id,
             team_name=team_name,
             access_token=access_token,
             bot_user_id=bot_user_id,
-            full_data=data
+            scope=scope
         )
 
         logger.info(f"✅ Bot successfully installed for team: {team_name}")
@@ -156,9 +157,10 @@ async def slack_oauth_callback(
         return JSONResponse({
             "success": True,
             "message": f"🎉 Bot installed successfully in {team_name}!",
-            "team_id": team_id,
-            "team_name": team_name,
-            "bot_user_id": bot_user_id
+            "team_id": installation.team_id,
+            "team_name": installation.team_name,
+            "bot_user_id": installation.bot_user_id,
+            "installed_at": installation.installed_at.isoformat()
         })
 
     except httpx.TimeoutException:
