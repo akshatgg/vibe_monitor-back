@@ -242,3 +242,45 @@ class WorkspaceService:
             owner_user_id=user.id,
             db=db
         )
+
+    async def delete_workspace(
+        self,
+        workspace_id: str,
+        user_id: str,
+        db: AsyncSession
+    ) -> bool:
+        """Delete a workspace if user is the owner"""
+        
+        # Verify user is the owner of the workspace
+        membership_query = select(Membership).options(
+            selectinload(Membership.workspace)
+        ).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user_id,
+            Membership.role == Role.OWNER
+        )
+        
+        result = await db.execute(membership_query)
+        membership = result.scalar_one_or_none()
+        
+        if not membership:
+            raise HTTPException(
+                status_code=403,
+                detail="Only workspace owners can delete workspaces"
+            )
+        
+        workspace = membership.workspace
+        
+        # Delete all memberships first (foreign key constraint)
+        memberships_query = select(Membership).where(Membership.workspace_id == workspace_id)
+        memberships_result = await db.execute(memberships_query)
+        memberships = memberships_result.scalars().all()
+        
+        for membership in memberships:
+            await db.delete(membership)
+        
+        # Delete the workspace
+        await db.delete(workspace)
+        await db.commit()
+        
+        return True
