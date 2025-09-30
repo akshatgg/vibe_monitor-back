@@ -83,15 +83,14 @@ jobs:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run ruff check --output-format=rdjson . \
-            | reviewdog -f=rdjson -name="ruff" -reporter=github-pr-review -level=error
+            | reviewdog -f=rdjson -name="ruff" -reporter=github-pr-review -level=error -fail-on-error=true
       - name: Ruff format check (with suggestions)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
         run: |
           poetry run ruff format --check --diff \
-            | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-review -level=error
-
+            | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-review -level=error -fail-on-error=true
   mypy:
     name: Mypy (type checking)
     needs: Setup
@@ -126,7 +125,7 @@ jobs:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run mypy . --show-column-numbers --pretty \
-            | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning
+            | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning -fail-on-error=true
 
   bandit:
     name: Bandit (security scan)
