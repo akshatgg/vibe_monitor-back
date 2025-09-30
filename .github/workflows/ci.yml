@@ -175,9 +175,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   
+
+      - name: Cache Gitleaks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: gitleaks-${{ runner.os }}-cache
+
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         with:
-          args: detect --source . --redact -v
+          args: detect --source . --redact --no-banner --report-format sarif --report-path gitleaks.sarif
+
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
