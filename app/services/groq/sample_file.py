@@ -1,4 +1,3 @@
-import logging
 from .client import GroqClient
 class SampleFile:
     def __init__(self):
