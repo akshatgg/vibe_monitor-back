@@ -1,0 +1,12 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9   # Use the same version as in pyproject.toml
+    hooks:
+      - id: ruff
+        args: [--fix]     # auto-fix lint issues
+      - id: ruff-format   # enforce formatting      
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4   # pin to the latest stable version
+    hooks:
+      - id: gitleaks
+        args: ["protect", "--staged", "--verbose"]

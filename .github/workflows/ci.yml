@@ -1,43 +1,195 @@
 name: CI
 
-on:
-  push:
-    branches:
-      - "**"        
+on:      
   pull_request:
     branches:
-      - "**"
+      - "main"
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - "main"
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint-test:
-    name: Lint & Test
+  Setup:
+    name: Setup
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.11]
+        python-version: [ "3.12" ]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry venv
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install poetry
-          pip install pytest pytest-cov flake8
-          poetry install --no-root
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: poetry install --no-root --no-interaction --no-ansi
 
-
-      - name: Run linting
+  ruff:
+    name: Ruff (lint + format autofix)
+    needs: Setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+              .venv
+              ~/.cache/pypoetry
+              ~/.cache/pip
+          key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
+      - name: Install dependencies (if cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: poetry install --no-root --no-interaction --no-ansi
+      - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
+      - name: Ruff lint (with suggestions)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          flake8 app/
-
-      - name: Run tests
+          poetry run ruff check --output-format=rdjson . \
+            | reviewdog -f=rdjson -name="ruff" -reporter=github-pr-review -level=error -fail-on-error=true
+      - name: Ruff format check (with suggestions)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
         run: |
-          pytest tests/ --cov=app --cov-report=term-missing
+          poetry run ruff format --check --diff \
+            | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-review -level=error -fail-on-error=true
+  mypy:
+    name: Mypy (type checking)
+    needs: Setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+            .venv
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
+      - name: Install dependencies (if cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: poetry install --no-root --no-interaction --no-ansi
+      - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
+      - name: Run mypy with reviewdog
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          poetry run mypy . --show-column-numbers --pretty \
+            | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning -fail-on-error=true
+
+  bandit:
+    name: Bandit (security scan)
+    needs: Setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+            .venv
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
+      - name: Install dependencies (if cache miss)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: poetry install --no-root --no-interaction --no-ansi
+      - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
+      - name: Run bandit with reviewdog
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          poetry run bandit -r . -x .venv,venv,build,dist,tests -f json \
+            | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error
+
+  secrets-scan:
+    name: Gitleaks (secrets scan)
+    needs: Setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   
+
+      - name: Cache Gitleaks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: gitleaks-${{ runner.os }}-cache
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: detect --source . --redact --no-banner --report-format sarif --report-path gitleaks.sarif
+
+      # - name: Upload SARIF report
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: gitleaks.sarif
