@@ -10,13 +10,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: Optional[str] = None
     
-    # Database (ClickHouse)
-    CLICKHOUSE_HOST: Optional[str] = None
-    CLICKHOUSE_PORT: Optional[int] = None
-    CLICKHOUSE_USER: Optional[str] = None
-    CLICKHOUSE_PASSWORD: Optional[str] = ""
-    CLICKHOUSE_DATABASE: Optional[str] = "vm_api_db"
-    CLICKHOUSE_SECURE: bool = False
 
     # Supabase (for production)
     SUPABASE_ANON_KEY: Optional[str] = None
@@ -62,13 +55,6 @@ class Settings(BaseSettings):
     SQS_QUEUE_URL: Optional[str] = None
     AWS_ENDPOINT_URL: Optional[str] = None
 
-    # OpenTelemetry Configuration
-    OTEL_GRPC_PORT: int = 4317
-    OTEL_HTTP_PORT: int = 4318
-
-    # Batch Processing Configuration
-    LOG_BATCH_SIZE: int = 1000
-    LOG_BATCH_TIMEOUT: int = 2
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
