@@ -12,7 +12,7 @@ from app.ingestion.batch_processor import batch_processor
 from app.ingestion.otel_collector import otel_collector_server
 from app.ingestion.service import ingestion_service
 from app.query.router import router as query_router
-from worker import RCAOrchestratorWorker
+from app.worker import RCAOrchestratorWorker
 from app.services.sqs.client import sqs_client
 
 
