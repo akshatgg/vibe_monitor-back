@@ -10,14 +10,28 @@ logger = logging.getLogger(__name__)
 
 class RCAOrchestratorWorker(BaseWorker):
     def __init__(self):
+        """
+        Initialize the RCAOrchestratorWorker and set its worker name to "rca_orchestrator".
+        """
         super().__init__("rca_orchestrator")
 
     async def process_message(self, message_body: dict):
+        """
+        Process a single RCA orchestration message.
+        
+        Parameters:
+            message_body (dict): Parsed message payload (typically the SQS message body) containing RCA data to process.
+        """
         logger.info(f"Processing message: {message_body}")
         await asyncio.sleep(1)
 
 
 async def main():
+    """
+    Run the RCA orchestrator worker until a termination signal is received and perform graceful shutdown.
+    
+    Starts the RCAOrchestratorWorker, installs handlers for SIGINT and SIGTERM to trigger shutdown, waits for the shutdown event, and on exit stops the worker and closes the SQS client to ensure resources are cleaned up.
+    """
     logger.info("Starting worker process...")
 
     worker = RCAOrchestratorWorker()
