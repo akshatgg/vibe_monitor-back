@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     MAILGUN_API_KEY: Optional[str]=None
     MAILGUN_DOMAIN_NAME: Optional[str]=None
 
+    # Slack Integration
+    SLACK_SIGNING_SECRET: Optional[str] = None
+    SLACK_WEBHOOK_URL: Optional[str] = None
+    SLACK_CLIENT_ID: Optional[str] = None
+    SLACK_CLIENT_SECRET: Optional[str] = None
+    SLACK_BOT_TOKEN: Optional[str] = None  # For single workspace (optional)
+
     # Log Level
     LOG_LEVEL: Optional[str] = None
 
