@@ -7,7 +7,6 @@ This document describes the branching workflow and how to run the repo.
 
 ## Branches
 - **main** → Production-ready code (protected).
-- **dev** → Integration branch where all features get merged.
 
 ## Workflow
 
