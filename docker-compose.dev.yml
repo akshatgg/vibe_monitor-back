@@ -22,8 +22,10 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} # Used by the LocalStack container itself to initialize
     depends_on:
-      - supabase-db
-      - localstack
+      supabase-db:
+        condition: service_started
+      localstack:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -115,8 +117,11 @@ services:
       SERVICES: sqs
       DEBUG: 1
       PERSISTENCE: 1
-      LAMBDA_EXECUTOR: docker
-      DOCKER_HOST: unix:///var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep '\"sqs\": \"running\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh"

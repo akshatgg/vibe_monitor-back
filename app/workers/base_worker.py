@@ -57,13 +57,13 @@ class BaseWorker(ABC):
                         await sqs_client.delete_message(message['ReceiptHandle'])
                         logger.debug(f"Worker {self.worker_name} processed message successfully")
 
-                    except Exception as e:
-                        logger.error(f"Worker {self.worker_name} failed to process message: {e}")
+                    except Exception:
+                        logger.exception(f"Worker {self.worker_name} failed to process message")
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"Worker {self.worker_name} encountered error: {e}")
+            except Exception:
+                logger.exception(f"Worker {self.worker_name} encountered error")
                 await asyncio.sleep(5)
 
     @abstractmethod

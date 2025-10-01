@@ -1,12 +1,10 @@
 import asyncio
 import logging
+import signal
 from dotenv import load_dotenv
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +12,7 @@ class RCAOrchestratorWorker(BaseWorker):
     def __init__(self):
         super().__init__("rca_orchestrator")
 
-    async def process_message(self, message_body):
+    async def process_message(self, message_body: dict):
         logger.info(f"Processing message: {message_body}")
         await asyncio.sleep(1)
 
@@ -26,10 +24,14 @@ async def main():
 
     try:
         await worker.start()
-
-        while worker.running:
-            await asyncio.sleep(1)
-
+        loop = asyncio.get_running_loop()
+        shutdown = asyncio.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, shutdown.set)
+            except NotImplementedError:
+                pass  # Windows
+        await shutdown.wait()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
     finally:
@@ -39,4 +41,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())

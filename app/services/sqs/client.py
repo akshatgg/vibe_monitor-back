@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Optional, Dict, Any
 import aioboto3
+from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError, NoCredentialsError
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,9 @@ class SQSClient:
     async def _get_sqs_client(self):
         if self._sqs is None:
             self._session = aioboto3.Session()
+            if not self.region:
+                logger.error("AWS_REGION not configured")
+                raise ValueError("AWS_REGION not configured")
             client_kwargs = {'region_name': self.region}
 
             # Add endpoint_url for LocalStack support in development
@@ -44,8 +48,11 @@ class SQSClient:
             logger.debug(f"Message sent to SQS: {response.get('MessageId')}")
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to send message to SQS: {e}")
+        except (ClientError, EndpointConnectionError, NoCredentialsError, BotoCoreError):
+            logger.exception("Failed to send message to SQS")
+            return False
+        except Exception:
+            logger.exception("Unexpected error while sending message to SQS")
             return False
 
     async def receive_messages(self, max_messages: int = 1, wait_time: int = 20) -> list:
@@ -74,8 +81,11 @@ class SQSClient:
 
             return messages
 
-        except Exception as e:
-            logger.error(f"Failed to receive messages from SQS: {e}")
+        except (ClientError, EndpointConnectionError, NoCredentialsError, BotoCoreError):
+            logger.exception("Failed to receive messages from SQS")
+            return []
+        except Exception:
+            logger.exception("Unexpected error while receiving messages from SQS")
             return []
 
     async def delete_message(self, receipt_handle: str) -> bool:
@@ -94,8 +104,11 @@ class SQSClient:
             logger.debug(f"Message deleted from SQS")
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to delete message from SQS: {e}")
+        except (ClientError, EndpointConnectionError, NoCredentialsError, BotoCoreError):
+            logger.exception("Failed to delete message from SQS")
+            return False
+        except Exception:
+            logger.exception("Unexpected error while deleting message from SQS")
             return False
 
     async def close(self):

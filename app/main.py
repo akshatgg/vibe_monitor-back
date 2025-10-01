@@ -52,8 +52,8 @@ async def lifespan(app: FastAPI):
         logger.info("All services started successfully")
         yield
 
-    except Exception as e:
-        logger.error(f"Failed to start services: {e}")
+    except Exception:
+        logger.exception(f"Failed to start services")
         raise
     finally:
         logger.info("Shutting down VM API application...")
@@ -76,8 +76,8 @@ async def lifespan(app: FastAPI):
             logger.info("SQS client closed")
 
             logger.info("All services stopped successfully")
-        except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+        except Exception:
+            logger.exception(f"Error during shutdown")
 
 
 # Create FastAPI application

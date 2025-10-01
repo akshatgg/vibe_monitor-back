@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
 
     # AWS SQS
-    AWS_REGION: Optional[str] = "us-west-1"
+    AWS_REGION: Optional[str] = None
     SQS_QUEUE_URL: Optional[str] = None
     AWS_ENDPOINT_URL: Optional[str] = None
 
