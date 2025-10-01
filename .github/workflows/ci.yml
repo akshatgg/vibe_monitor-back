@@ -53,7 +53,7 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-      - run: poetry add --dev ruff
+      - run: poetry install --no-root
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Ruff lint (with suggestions)
         run: |
@@ -80,7 +80,7 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-      - run: poetry add --dev mypy
+      - run: poetry install --no-root
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run mypy with reviewdog
         run: |
@@ -103,7 +103,7 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-      - run: poetry add --dev bandit
+      - run: poetry install --no-root
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run bandit with reviewdog
         run: |
@@ -126,7 +126,7 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-      - run: poetry add --dev pip-audit
+      - run: poetry install --no-root
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run pip-audit with reviewdog
         run: |
