@@ -154,8 +154,8 @@ async def logout(
     try:
         # Revoke all refresh tokens for this user
         from sqlalchemy import delete
-        from ..models.models import RefreshToken
-        
+        from app.models import RefreshToken
+
         await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
         await db.commit()
         

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List
 from .client import GroqClient
-from .models import ChatRequest, ChatResponse, ChatMessage, ChatRole
+from .schemas import ChatRequest, ChatResponse, ChatMessage, ChatRole
 
 logger = logging.getLogger(__name__)
 

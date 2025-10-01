@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from urllib.parse import urlencode
 
-from ..models.models import User, RefreshToken
+from app.models import User, RefreshToken
 from ..schemas.schemas import UserResponse
 from ...core.database import get_db
 from ...core.config import settings

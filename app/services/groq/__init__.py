@@ -1,6 +1,6 @@
 from .service import GroqService, groq_service
 from .client import GroqClient
-from .models import (
+from .schemas import (
     ChatRequest,
     ChatResponse,
     ChatMessage,

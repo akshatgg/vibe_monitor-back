@@ -18,7 +18,7 @@ from app.slack.schemas import (
     SlackInstallationCreate,
     SlackInstallationResponse,
 )
-from app.slack.models import SlackInstallation
+from app.models import SlackInstallation
 
 logger = logging.getLogger(__name__)
 

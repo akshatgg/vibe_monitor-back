@@ -5,7 +5,7 @@ from typing import List, Optional
 import uuid
 from fastapi import HTTPException
 
-from ..models.models import Workspace, Membership, User, Role
+from app.models import Workspace, Membership, User, Role
 from ..schemas.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceWithMembership
 
 
