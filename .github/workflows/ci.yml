@@ -186,10 +186,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-        with:
-          args: detect --source . --redact --no-banner --report-format sarif --report-path gitleaks.sarif
-
-      # - name: Upload SARIF report
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   with:
-      #     sarif_file: gitleaks.sarif
