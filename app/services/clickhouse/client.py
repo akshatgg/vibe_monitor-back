@@ -1,6 +1,5 @@
 import clickhouse_connect
 from typing import List, Dict, Any, Optional
-from datetime import datetime
 import logging
 from app.core.config import settings
 

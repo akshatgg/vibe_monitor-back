@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Header
-from typing import Optional, List
+from typing import Optional
 from app.ingestion.schemas import LogQueryRequest, LogQueryResponse
 from app.ingestion.service import ingestion_service
 

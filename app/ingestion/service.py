@@ -1,6 +1,5 @@
 import time
 import uuid
-from typing import Dict, Any
 from app.ingestion.schemas import LogQueryRequest, LogQueryResponse, IngestionStatsResponse
 from app.services.clickhouse.service import clickhouse_service
 from app.services.clickhouse.models import LogQueryFilters

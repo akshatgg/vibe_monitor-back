@@ -1,7 +1,6 @@
-import asyncio
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import aioboto3
 from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError, NoCredentialsError
 from app.core.config import settings
@@ -114,7 +113,7 @@ class SQSClient:
             for message in messages:
                 try:
                     message['ParsedBody'] = json.loads(message['Body'])
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     logger.exception(f"Failed to parse message body: {message['Body']}")
                     message['ParsedBody'] = None
 

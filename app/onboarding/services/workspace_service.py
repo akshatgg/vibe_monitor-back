@@ -136,7 +136,7 @@ class WorkspaceService:
         
         query = select(Workspace).where(
             Workspace.domain == domain,
-            Workspace.visible_to_org == True
+            Workspace.visible_to_org is True
         )
         
         result = await db.execute(query)

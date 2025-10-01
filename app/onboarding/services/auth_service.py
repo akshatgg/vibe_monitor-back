@@ -3,7 +3,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import httpx
-import json
 import base64
 import hashlib
 from typing import Dict, Optional
@@ -154,7 +153,7 @@ class AuthService:
     async def create_or_get_user(self, google_user_info: Dict[str, str], db: AsyncSession) -> UserResponse:
         """Create new user or return existing user"""
         email = google_user_info.get("email")
-        google_id = google_user_info.get("sub")
+        google_user_info.get("sub")
         name = google_user_info.get("name", "")
         
         # Check if user exists by email
