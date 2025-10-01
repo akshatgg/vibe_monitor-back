@@ -3,6 +3,7 @@ name = "vm-api"
 version = "0.1.0"
 description = "VM API with observability and authentication"
 authors = ["Your Name <your.email@example.com>"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -45,6 +46,8 @@ asyncpg = "^0.29.0"
 alembic = "^1.13.0"
 pydantic-settings = "^2.10.1"
 grpcio = "^1.75.0"
+boto3 = "^1.35.0"
+aioboto3 = "^13.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

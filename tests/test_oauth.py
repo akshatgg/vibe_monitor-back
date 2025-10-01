@@ -1,6 +1,5 @@
 #this is just a helper script to test oauth login manually
 #!/usr/bin/env python3
-import re
 import subprocess
 import sys
 from urllib.parse import urlparse, parse_qs
@@ -38,7 +37,7 @@ def run_oauth_callback(code, state):
         "-H", "accept: application/json"
     ]
     
-    print(f"🚀 Running OAuth callback...")
+    print("🚀 Running OAuth callback...")
     print(f"Command: {' '.join(curl_cmd)}")
     print()
     
@@ -84,7 +83,7 @@ def main():
                 print("❌ Invalid URL format. Please paste the full URL starting with http")
                 continue
             
-            print(f"\n🔍 Extracting parameters from URL...")
+            print("\n🔍 Extracting parameters from URL...")
             code, state = extract_oauth_params(redirect_url)
             
             if not code:

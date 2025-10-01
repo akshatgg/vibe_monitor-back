@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Optional
+from typing import List
 from .client import GroqClient
 from .models import ChatRequest, ChatResponse, ChatMessage, ChatRole
 

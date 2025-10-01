@@ -44,7 +44,9 @@
         {"name": "MAILGUN_API_KEY", "valueFrom": "/vm-api/mailgun-api-key"},
         {"name": "MAILGUN_DOMAIN_NAME", "valueFrom": "/vm-api/mailgun-domain-name"},
         {"name": "GROQ_API_KEY", "valueFrom": "/vm-api/groq-api-key"},
-        {"name": "LOG_LEVEL", "valueFrom": "/vm-api/log-level"}
+        {"name": "LOG_LEVEL", "valueFrom": "/vm-api/log-level"},
+        {"name": "AWS_REGION", "valueFrom": "/vm-api/aws-region"},
+        {"name": "SQS_QUEUE_URL", "valueFrom": "/vm-api/sqs-queue-url"}
       ]
     }
   ]

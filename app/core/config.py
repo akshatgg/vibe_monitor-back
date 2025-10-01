@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # Groq
     GROQ_API_KEY: Optional[str] = None
 
+    # AWS SQS
+    AWS_REGION: Optional[str] = None
+    SQS_QUEUE_URL: Optional[str] = None
+    AWS_ENDPOINT_URL: Optional[str] = None
+
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
     OTEL_HTTP_PORT: int = 4318

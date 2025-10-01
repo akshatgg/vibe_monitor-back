@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -13,6 +12,8 @@ from app.ingestion.batch_processor import batch_processor
 from app.ingestion.otel_collector import otel_collector_server
 from app.ingestion.service import ingestion_service
 from app.query.router import router as query_router
+from worker import RCAOrchestratorWorker
+from app.services.sqs.client import sqs_client
 
 
 # Load environment variables
@@ -25,8 +26,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Unified lifespan manager for all application services"""
+    """
+    Manage application startup and shutdown lifecycle for all services.
+    
+    On startup, initializes the database and starts the batch processor, OpenTelemetry collector, and SQS worker, then yields control for the application to run. On shutdown, stops the SQS worker, stops the batch processor, stops the OpenTelemetry collector, and closes the SQS client. If startup fails, the exception is logged and re-raised; errors during shutdown are logged.
+    """
     logger.info("Starting VM API application...")
+
+    worker = RCAOrchestratorWorker()
 
     try:
         # Initialize database
@@ -41,16 +48,24 @@ async def lifespan(app: FastAPI):
         await otel_collector_server.start()
         logger.info("OpenTelemetry collector started")
 
+        # Start SQS worker
+        await worker.start()
+        logger.info("SQS worker started")
+
         logger.info("All services started successfully")
         yield
 
-    except Exception as e:
-        logger.error(f"Failed to start services: {e}")
+    except Exception:
+        logger.exception("Failed to start services")
         raise
     finally:
         logger.info("Shutting down VM API application...")
 
         try:
+            # Stop SQS worker
+            await worker.stop()
+            logger.info("SQS worker stopped")
+
             # Stop batch processor
             await batch_processor.stop()
             logger.info("Batch processor stopped")
@@ -59,9 +74,13 @@ async def lifespan(app: FastAPI):
             await otel_collector_server.stop()
             logger.info("OpenTelemetry collector stopped")
 
+            # Close SQS client
+            await sqs_client.close()
+            logger.info("SQS client closed")
+
             logger.info("All services stopped successfully")
-        except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
+        except Exception:
+            logger.exception("Error during shutdown")
 
 
 # Create FastAPI application

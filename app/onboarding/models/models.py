@@ -2,8 +2,6 @@ from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from typing import Optional
-from datetime import datetime
 import enum
 
 Base = declarative_base()
