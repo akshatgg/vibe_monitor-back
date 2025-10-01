@@ -3,6 +3,7 @@ name = "vm-api"
 version = "0.1.0"
 description = "VM API with observability and authentication"
 authors = ["Your Name <your.email@example.com>"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"

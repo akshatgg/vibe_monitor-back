@@ -18,7 +18,13 @@ class SQSClient:
     async def _get_sqs_client(self):
         if self._sqs is None:
             self._session = aioboto3.Session()
-            self._sqs = self._session.client('sqs', region_name=self.region)
+            client_kwargs = {'region_name': self.region}
+
+            # Add endpoint_url for LocalStack support in development
+            if settings.AWS_ENDPOINT_URL and settings.ENVIRONMENT in ['dev', 'development']:
+                client_kwargs['endpoint_url'] = settings.AWS_ENDPOINT_URL
+
+            self._sqs = await self._session.client('sqs', **client_kwargs).__aenter__()
         return self._sqs
 
     async def send_message(self, message_body: Dict[str, Any], delay_seconds: int = 0) -> bool:
@@ -94,9 +100,10 @@ class SQSClient:
 
     async def close(self):
         if self._sqs:
-            await self._sqs.close()
-        if self._session:
-            await self._session.close()
+            await self._sqs.__aexit__(None, None, None)
+            self._sqs = None
+        # aioboto3 Session doesn't need explicit close
+        self._session = None
 
 
 sqs_client = SQSClient()

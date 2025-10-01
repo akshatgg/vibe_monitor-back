@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # AWS SQS
     AWS_REGION: Optional[str] = "us-west-1"
     SQS_QUEUE_URL: Optional[str] = None
+    AWS_ENDPOINT_URL: Optional[str] = None
 
     # OpenTelemetry Configuration
     OTEL_GRPC_PORT: int = 4317
