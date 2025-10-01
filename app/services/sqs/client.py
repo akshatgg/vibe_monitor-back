@@ -114,8 +114,8 @@ class SQSClient:
             for message in messages:
                 try:
                     message['ParsedBody'] = json.loads(message['Body'])
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse message body: {message['Body']}")
+                except json.JSONDecodeError as e:
+                    logger.exception(f"Failed to parse message body: {message['Body']}")
                     message['ParsedBody'] = None
 
             return messages
@@ -151,7 +151,7 @@ class SQSClient:
                 ReceiptHandle=receipt_handle
             )
 
-            logger.debug(f"Message deleted from SQS")
+            logger.debug("Message deleted from SQS")
             return True
 
         except (ClientError, EndpointConnectionError, NoCredentialsError, BotoCoreError):

@@ -123,7 +123,6 @@ services:
       timeout: 3s
       retries: 20
     volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
       - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh"
       - "localstack_data:/var/lib/localstack"
     networks:
