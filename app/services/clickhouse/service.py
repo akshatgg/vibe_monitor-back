@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List
 from .client import ClickHouseClient
-from .models import LogEntry, LogQueryFilters, LogQueryResponse
+from .schemas import LogEntry, LogQueryFilters, LogQueryResponse
 
 logger = logging.getLogger(__name__)
 

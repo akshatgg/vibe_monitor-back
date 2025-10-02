@@ -3,8 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 
-from ..onboarding.models.models import Base
-from ..slack.models import SlackInstallation 
+from app.models import Base 
 from .config import settings
 
 def get_database_url() -> str:

@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from groq import Groq
 from app.core.config import settings
-from .models import ChatRequest, ChatResponse
+from .schemas import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
 

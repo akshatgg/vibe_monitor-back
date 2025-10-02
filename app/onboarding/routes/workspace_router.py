@@ -10,7 +10,7 @@ from ..schemas.schemas import (
 )
 from ..services.workspace_service import WorkspaceService
 from ..services.auth_service import AuthService
-from ..models.models import User
+from app.models import User
 from ...core.database import get_db
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
