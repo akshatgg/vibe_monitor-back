@@ -6,7 +6,6 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "8000:8000"
-      - "4317:4317"  
     volumes:
       - .:/app
       - /app/__pycache__

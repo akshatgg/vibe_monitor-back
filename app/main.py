@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     """
     Manage application startup and shutdown lifecycle for all services.
 
-    On startup, initializes the database and starts the batch processor, OpenTelemetry collector, and SQS worker, then yields control for the application to run. On shutdown, stops the SQS worker, stops the batch processor, stops the OpenTelemetry collector, and closes the SQS client. If startup fails, the exception is logged and re-raised; errors during shutdown are logged.
+    On startup, initializes the database and starts the SQS worker, then yields control for the application to run. On shutdown, stops the SQS worker, and closes the SQS client. If startup fails, the exception is logged and re-raised; errors during shutdown are logged.
     """
     logger.info("Starting VM API application...")
 

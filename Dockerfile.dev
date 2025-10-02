@@ -26,7 +26,7 @@ RUN poetry install --no-root && pip install debugpy
 # Copy application code (this layer changes most frequently)
 COPY . .
 
-EXPOSE 8000 4317
+EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
 

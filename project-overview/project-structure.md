@@ -58,11 +58,6 @@ vm-api/
 │   │
 │   ├── api/routers/                # Central router aggregation
 │   │   └── routers.py              # Combines all routers
-│   │
-│   └── [discontinued modules]
-│       ├── ingestion/              # ⚠️ DISCONTINUED - OTel ingestion
-│       ├── services/clickhouse/    # ⚠️ DISCONTINUED
-│       ├── query/                  # ⚠️ DISCONTINUED
 │
 ├── tests/                          # Test suite
 ├── docker-compose.dev.yml          # Development environment
@@ -490,13 +485,13 @@ ALLOWED_ORIGINS=["http://localhost:3000","https://vibemonitor.ai"]
 
 ## Notes
 
-### Discontinued Modules
-The following modules are marked as discontinued and should not be used:
-- `app/ingestion/` - OpenTelemetry ingestion
-- `app/services/clickhouse/` - ClickHouse integration
-- `app/query/` - Log query endpoints
+### Removed Modules
+The following modules have been removed from the codebase:
+- `app/ingestion/` - OpenTelemetry ingestion (removed)
+- `app/services/clickhouse/` - ClickHouse integration (removed)
+- `app/query/` - Log query endpoints (removed)
 
-Focus development efforts on:
+Current focus areas:
 - Authentication & workspace management
 - Slack integration
 - Core API features

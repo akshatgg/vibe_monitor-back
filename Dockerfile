@@ -40,7 +40,7 @@ RUN useradd -r -u 10001 -g users appuser \
 USER appuser
 
 # Expose port 8000
-EXPOSE 8000 4317
+EXPOSE 8000
 
 
 # Command to run the application
