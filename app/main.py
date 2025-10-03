@@ -92,4 +92,3 @@ async def health_check():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
- 

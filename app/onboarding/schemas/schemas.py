@@ -85,3 +85,26 @@ class GoogleOAuthToken(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+# Grafana Integration schemas
+class GrafanaIntegrationCreate(BaseModel):
+    workspace_id: str
+    grafana_url: str
+    api_token: str
+
+
+class GrafanaIntegrationUpdate(BaseModel):
+    grafana_url: Optional[str] = None
+    api_token: Optional[str] = None
+
+
+class GrafanaIntegrationResponse(BaseModel):
+    id: str
+    vm_workspace_id: str
+    grafana_url: str
+    api_token: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
