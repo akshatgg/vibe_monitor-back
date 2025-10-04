@@ -9,7 +9,6 @@ from datetime import datetime
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -19,29 +18,36 @@ from app.slack.schemas import (
     SlackInstallationResponse,
 )
 from app.models import SlackInstallation
+from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
+
 
 class SlackEventService:
     @staticmethod
     async def verify_slack_request(
-        slack_signature: str,
-        slack_request_timestamp: str,
-        request_body: str
+        slack_signature: str, slack_request_timestamp: str, request_body: str
     ) -> bool:
         """
         Verify Slack request signature for security
         """
-        if not (settings.SLACK_SIGNING_SECRET and slack_signature and slack_request_timestamp):
+        if not (
+            settings.SLACK_SIGNING_SECRET
+            and slack_signature
+            and slack_request_timestamp
+        ):
             logger.warning("Missing Slack verification parameters")
             return False
 
         base_string = f"v0:{slack_request_timestamp}:{request_body}"
-        signature = 'v0=' + hmac.new(
-            key=settings.SLACK_SIGNING_SECRET.encode('utf-8'),
-            msg=base_string.encode('utf-8'),
-            digestmod=hashlib.sha256
-        ).hexdigest()
+        signature = (
+            "v0="
+            + hmac.new(
+                key=settings.SLACK_SIGNING_SECRET.encode("utf-8"),
+                msg=base_string.encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).hexdigest()
+        )
 
         return hmac.compare_digest(signature, slack_signature)
 
@@ -57,19 +63,26 @@ class SlackEventService:
 
             team_id = event_context.get("team_id")
             channel_id = event_context.get("channel_id")
-            user_message = event_context.get("text", "").strip()
+            user_message_ex = event_context.get("text", "").strip()
 
             # Process the message and generate response
             bot_response = await SlackEventService.process_user_message(
-                user_message=user_message,
-                event_context=event_context
+                user_message=user_message_ex, event_context=event_context
             )
+            clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message_ex).strip()
 
-            # Send message back to Slack
+            if clean_message.lower() in ["help", "status", "health"]:
+                thread_ts = event_context.get("thread_ts")
+            else:
+                thread_ts = event_context.get("thread_ts") or event_context.get(
+                    "timestamp"
+                )
+
             await SlackEventService.send_message(
                 team_id=team_id,
                 channel=channel_id,
-                text=bot_response
+                text=bot_response,
+                thread_ts=thread_ts,
             )
 
             # Call external webhook if configured (for additional processing)
@@ -87,7 +100,7 @@ class SlackEventService:
             return {
                 "status": "success",
                 "message": "Event processed and replied to user",
-                "payload": event_context
+                "payload": event_context,
             }
 
         except Exception as e:
@@ -95,10 +108,7 @@ class SlackEventService:
             raise HTTPException(status_code=500, detail=str(e))
 
     @staticmethod
-    async def process_user_message(
-        user_message: str,
-        event_context: dict
-    ) -> str:
+    async def process_user_message(user_message: str, event_context: dict) -> str:
         """
         Process user's message and generate a response
 
@@ -112,15 +122,15 @@ class SlackEventService:
         timestamp = event_context.get("timestamp")
 
         # Remove bot mention from message to get clean text
-        clean_message = re.sub(r'<@[A-Z0-9]+>', '', user_message).strip()
+        clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message).strip()
 
         logger.info(f"Processing message from user {user_id}: '{clean_message}'")
 
         # Simple command handling
-        if not clean_message or clean_message.lower() in ['hi', 'hello', 'hey']:
+        if not clean_message or clean_message.lower() in ["hi", "hello", "hey"]:
             return f"👋 Hi <@{user_id}>! How can I help you today?"
 
-        elif clean_message.lower() in ['help', 'commands']:
+        elif clean_message.lower() in ["help", "commands"]:
             return (
                 f"Hi <@{user_id}>! Here's what I can do:\n\n"
                 "• Just say `hi` or `hello` to greet me\n"
@@ -130,7 +140,7 @@ class SlackEventService:
                 "More features coming soon! 🚀"
             )
 
-        elif clean_message.lower() == 'status':
+        elif clean_message.lower() == "status":
             return (
                 f"✅ System Status:\n\n"
                 f"• Bot: Online and running\n"
@@ -142,7 +152,7 @@ class SlackEventService:
         else:
             # Default response for any other message
             return (
-                f"👋 Hi <@{user_id}>! You said: *\"{clean_message}\"*\n\n"
+                f'👋 Hi <@{user_id}>! You said: *"{clean_message}"*\n\n'
                 f"I received your message! Type `help` to see what I can do."
             )
 
@@ -151,18 +161,31 @@ class SlackEventService:
         team_id: str,
         team_name: str,
         access_token: str,
-        bot_user_id: Optional[str],
+        bot_user_id: str,
         scope: str,
-        workspace_id: Optional[str] = None
+        workspace_id: Optional[
+            str
+        ] = None,  # this is vibemonitor workspace id/ not yet configured
     ) -> SlackInstallationResponse:
         """
         Store Slack workspace installation details in PostgreSQL
         """
+
+        try:
+            access_token = token_processor.encrypt(access_token)
+            logger.info("access token for slack installation encrypted successfully")
+        except Exception as err:
+            raise Exception(
+                f"error encrypting access token while slack installation {err}"
+            )
+
         async with AsyncSessionLocal() as db:
             try:
                 # Check if installation already exists
-                stmt = select(SlackInstallation).where(SlackInstallation.team_id == team_id)
-                result = await db.execute(stmt)
+                statement = select(SlackInstallation).where(
+                    SlackInstallation.team_id == team_id
+                )
+                result = await db.execute(statement)
                 existing = result.scalar_one_or_none()
 
                 if existing:
@@ -174,7 +197,7 @@ class SlackEventService:
                     existing.workspace_id = workspace_id
                     existing.updated_at = datetime.utcnow()
 
-                    logger.info(f"Updated installation for team {team_id} ({team_name})")
+                    logger.info(f"Updated installation for {team_id} ({team_name})")
                     installation_db = existing
                 else:
                     # Create new installation
@@ -184,15 +207,14 @@ class SlackEventService:
                         access_token=access_token,
                         bot_user_id=bot_user_id,
                         scope=scope,
-                        workspace_id=workspace_id
+                        workspace_id=workspace_id,
                     )
 
                     installation_db = SlackInstallation(
-                        id=str(uuid.uuid4()),
-                        **installation_data.model_dump()
+                        id=str(uuid.uuid4()), **installation_data.model_dump()
                     )
                     db.add(installation_db)
-                    logger.info(f"Created new installation for team {team_id} ({team_name})")
+                    logger.info(f"Created new installation for {team_id} ({team_name})")
 
                 await db.commit()
                 await db.refresh(installation_db)
@@ -211,8 +233,10 @@ class SlackEventService:
         """
         async with AsyncSessionLocal() as db:
             try:
-                stmt = select(SlackInstallation).where(SlackInstallation.team_id == team_id)
-                result = await db.execute(stmt)
+                statement = select(SlackInstallation).where(
+                    SlackInstallation.team_id == team_id
+                )
+                result = await db.execute(statement)
                 installation_db = result.scalar_one_or_none()
 
                 if not installation_db:
@@ -225,43 +249,54 @@ class SlackEventService:
                 logger.error(f"Error retrieving installation: {e}", exc_info=True)
                 return None
 
-
     @staticmethod
-    async def send_message(team_id: str, channel: str, text: str) -> bool:
+    async def send_message(
+        team_id: str, channel: str, text: str, thread_ts: Optional[str] = None
+    ) -> bool:
         """
-        Send a message to a Slack channel
+        Send a message to a Slack channel or thread
 
         Uses the stored access token for the workspace
-        Falls back to SLACK_BOT_TOKEN if installation not found
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID to send message to
+            text: Message text
+            thread_ts: Thread timestamp - if provided, replies in thread; otherwise posts to channel
         """
         installation = await SlackEventService.get_installation(team_id)
 
         if not installation:
-            logger.warning(f"No installation found for team {team_id}")
+            logger.error(f"No installation found for team {team_id}")
+            return False
 
-            # Fallback to direct bot token for single workspace setup
-            if settings.SLACK_BOT_TOKEN:
-                logger.info("Using fallback SLACK_BOT_TOKEN")
-                access_token = settings.SLACK_BOT_TOKEN
-            else:
-                logger.error(f"Cannot send message - no token available for team {team_id}")
-                return False
-        else:
-            access_token = installation.access_token
+        if not installation.access_token:
+            logger.error(f"No access token found for team {team_id}")
+            return False
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+            logger.info("Access token decrypted successfully for slack message")
+        except Exception as err:
+            logger.error(f"Error decrypting access token for team {team_id}: {err}")
+            return False 
 
         try:
             async with httpx.AsyncClient() as client:
+                payload = {"channel": channel, "text": text}
+
+                # Add thread_ts to reply in thread, if thread_ts is not provided, message will be posted to channel
+                if thread_ts:
+                    payload["thread_ts"] = thread_ts
+
                 response = await client.post(
                     "https://slack.com/api/chat.postMessage",
                     headers={
                         "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
-                    json={
-                        "channel": channel,
-                        "text": text
-                    },
-                    timeout=10.0
+                    json=payload,
+                    timeout=10.0,
                 )
 
             data = response.json()
@@ -276,5 +311,6 @@ class SlackEventService:
         except Exception as e:
             logger.error(f"Error sending Slack message: {e}")
             return False
+
 
 slack_event_service = SlackEventService()

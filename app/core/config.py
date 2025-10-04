@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: Optional[str] = None
 
+    WEB_APP_URL: Optional[str] = None
     # Database
     DATABASE_URL: Optional[str] = None
     
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    
+    #TOKEN_PROCESSOR_KEY
+    CRYPTOGRAPHY_SECRET: Optional[str] = None
+
 
     # Other settings
     API_BASE_URL: Optional[str] = None
@@ -42,7 +47,7 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: Optional[str] = None
     SLACK_CLIENT_ID: Optional[str] = None
     SLACK_CLIENT_SECRET: Optional[str] = None
-    SLACK_BOT_TOKEN: Optional[str] = None  # For single workspace (optional)
+
 
     # Log Level
     LOG_LEVEL: Optional[str] = None

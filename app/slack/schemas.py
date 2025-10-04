@@ -37,7 +37,8 @@ class SlackEventPayload(BaseModel):
             "channel_id": self.event.get('channel'),
             "timestamp": self.event.get('ts'),
             "text": self.event.get('text', '').strip(),
-            "team_id": self.team_id
+            "team_id": self.team_id,
+            "thread_ts": self.event.get('thread_ts')  # Thread timestamp for threaded replies
         }
 
 

@@ -7,31 +7,31 @@ from fastapi.responses import JSONResponse
 from app.slack.schemas import SlackEventPayload
 from app.slack.service import slack_event_service
 from app.core.config import settings
+from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
 
 slack_router = APIRouter(prefix="/slack", tags=["slack"])
 
+
 @slack_router.post("/events")
 async def handle_slack_events(request: Request):
     """
     Endpoint for handling Slack Events API subscription
-    
+
     Supports:
     1. URL verification challenge
     2. App mention events
     3. Request signature verification
     """
     # Get request headers and body
-    slack_signature = request.headers.get('X-Slack-Signature', '')
-    slack_request_timestamp = request.headers.get('X-Slack-Request-Timestamp', '')
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
     request_body = await request.body()
 
     # Verify request
     if not await slack_event_service.verify_slack_request(
-        slack_signature, 
-        slack_request_timestamp, 
-        request_body.decode('utf-8')
+        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
     ):
         logger.warning("Invalid Slack request signature")
         raise HTTPException(status_code=403, detail="Invalid request signature")
@@ -40,22 +40,22 @@ async def handle_slack_events(request: Request):
     try:
         payload_dict = await request.json()
     except Exception as e:
-        logger.error(f"Error parsing request body: {e}")
+        logger.error(f"Error parsing request body to JSON : {e}")
         raise HTTPException(status_code=400, detail="Invalid payload")
 
     # Handle URL verification challenge
-    if payload_dict.get('type') == 'url_verification':
-        return JSONResponse({"challenge": payload_dict['challenge']})
+    if payload_dict.get("type") == "url_verification":
+        return JSONResponse({"challenge": payload_dict["challenge"]})
 
     # Validate and process Slack event
     try:
         event_payload = SlackEventPayload(**payload_dict)
-        
+
         # Process only app_mention events
-        if event_payload.event.get('type') == 'app_mention':
+        if event_payload.event.get("type") == "app_mention":
             result = await slack_event_service.handle_slack_event(event_payload)
             return JSONResponse(result)
-        
+
         return JSONResponse(
             {"status": "ignored", "message": "Not an app mention event"},
             status_code=200,
@@ -68,9 +68,7 @@ async def handle_slack_events(request: Request):
 
 @slack_router.get("/oauth/callback")
 async def slack_oauth_callback(
-    code: Optional[str] = None,
-    error: Optional[str] = None,
-    state: Optional[str] = None
+    code: Optional[str] = None, error: Optional[str] = None, state: Optional[str] = None
 ):
     """
     OAuth 2.0 callback endpoint - handles Slack app installation
@@ -88,26 +86,19 @@ async def slack_oauth_callback(
         logger.error(f"OAuth error from Slack: {error}")
         return JSONResponse(
             status_code=400,
-            content={
-                "error": error,
-                "message": "Installation was cancelled or failed"
-            }
+            content={"error": error, "message": "Installation was cancelled or failed"},
         )
 
     # Validate we received an authorization code
     if not code:
         logger.error("No authorization code received")
-        raise HTTPException(
-            status_code=400,
-            detail="Missing authorization code"
-        )
+        raise HTTPException(status_code=400, detail="Missing authorization code")
 
     # Validate OAuth credentials are configured
     if not settings.SLACK_CLIENT_ID or not settings.SLACK_CLIENT_SECRET:
-        logger.error("Slack OAuth credentials not configured")
+        logger.error("MISSING SLACK_CLIENT_ID or/and SLACK_CLIENT_SECRET IN CONFIG")
         raise HTTPException(
-            status_code=500,
-            detail="Slack OAuth not properly configured"
+            status_code=500, detail="Slack OAuth not properly configured"
         )
 
     try:
@@ -120,9 +111,9 @@ async def slack_oauth_callback(
                 data={
                     "client_id": settings.SLACK_CLIENT_ID,
                     "client_secret": settings.SLACK_CLIENT_SECRET,
-                    "code": code
+                    "code": code,
                 },
-                timeout=10.0
+                timeout=10.0,
             )
 
         # Parse Slack's response
@@ -132,15 +123,16 @@ async def slack_oauth_callback(
             error_msg = data.get("error", "Unknown error")
             logger.error(f"OAuth token exchange failed: {error_msg}")
             raise HTTPException(
-                status_code=400,
-                detail=f"Failed to complete installation: {error_msg}"
+                status_code=400, detail=f"slack installation failed: {error_msg}"
             )
 
-        # Extract workspace and token information
+        # Extract slack workspace and token information
         team_id = data["team"]["id"]
         team_name = data["team"]["name"]
         access_token = data["access_token"]
-        bot_user_id = data.get("bot_user_id")
+        bot_user_id = data.get(
+            "bot_user_id"
+        )  # for that specific bot which is installed in that slack workspace
         scope = data.get("scope", "")
 
         logger.info(f"OAuth successful - Team: {team_name} ({team_id})")
@@ -151,37 +143,21 @@ async def slack_oauth_callback(
             team_name=team_name,
             access_token=access_token,
             bot_user_id=bot_user_id,
-            scope=scope
+            scope=scope,
         )
 
-        logger.info(f"✅ Bot successfully installed for team: {team_name}")
+        logger.info(f"✅ Slack App Successfully installed for: {team_name}")
 
-        # Return success response
-        return JSONResponse({
-            "success": True,
-            "message": f"🎉 Bot installed successfully in {team_name}!",
-            "team_id": installation.team_id,
-            "team_name": installation.team_name,
-            "bot_user_id": installation.bot_user_id,
-            "installed_at": installation.installed_at.isoformat()
-        })
+        # Redirect to success page
+        redirect_url = f"{settings.WEB_APP_URL}/?slack-installation=success"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
     except httpx.TimeoutException:
         logger.error("Timeout while exchanging OAuth code")
-        raise HTTPException(
-            status_code=504,
-            detail="Request to Slack timed out"
-        )
+        raise HTTPException(status_code=504, detail="Request to Slack timed out")
     except httpx.HTTPError as e:
         logger.error(f"HTTP error during OAuth: {e}")
-        raise HTTPException(
-            status_code=502,
-            detail="Failed to communicate with Slack"
-        )
+        raise HTTPException(status_code=502, detail="Failed to communicate with Slack")
     except Exception as e:
         logger.error(f"Unexpected error during OAuth: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Installation failed: {str(e)}"
-        )
-
+        raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")
