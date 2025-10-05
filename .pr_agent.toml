@@ -1,0 +1,45 @@
+# PR-Agent Configuration with Groq
+# For more options, see: https://qodo-merge-docs.qodo.ai/usage-guide/configuration_options/
+
+[config]
+# Use Groq's Llama 3.3 70B model (fast and capable)
+model = "groq/llama-3.3-70b-versatile"
+
+# Fallback models in case primary fails
+fallback_models = [
+    "groq/llama-3.1-70b-versatile",
+    "groq/mixtral-8x7b-32768"
+]
+
+[github_action_config]
+# Auto-review when PR is opened
+auto_review = true
+auto_describe = false
+auto_improve = false
+
+[pr_reviewer]
+# Enable focused review sections
+require_focused_review = true
+require_score_review = true
+require_tests_review = true
+require_security_review = true
+
+# Number of code suggestions to show
+num_code_suggestions = 3
+
+# Use persistent comment (updates single comment instead of creating new ones)
+persistent_comment = true
+
+# Limit findings to keep reviews concise
+num_code_suggestions_per_chunk = 3
+
+[pr_description]
+# Settings if you enable auto_describe
+publish_labels = true
+add_original_user_description = true
+keep_original_user_title = true
+
+[pr_code_suggestions]
+# Settings if you enable auto_improve
+num_code_suggestions = 5
+summarize = true

@@ -1,0 +1,51 @@
+name: PR Agent - Groq Powered Code Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  pr_agent_job:
+    # Only run if it's not a bot and (it's a PR event OR it's a comment on a PR)
+    if: |
+      github.event.sender.type != 'Bot' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'issue_comment' && github.event.issue.pull_request))
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+    name: Run PR Agent with Groq AI
+
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: qodo-ai/pr-agent@main
+        env:
+          # GitHub token (automatically provided by GitHub Actions)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Groq API configuration
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+          # Model configuration - using Groq's Llama 3.3 70B
+          CONFIG__MODEL: "groq/llama-3.3-70b-versatile"
+          CONFIG__FALLBACK_MODELS: '["groq/llama-3.1-70b-versatile", "groq/mixtral-8x7b-32768"]'
+
+          # Enable auto-review on PR open
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+
+          # Review configuration
+          PR_REVIEWER__REQUIRE_FOCUSED_REVIEW: "true"
+          PR_REVIEWER__REQUIRE_SCORE_REVIEW: "true"
+          PR_REVIEWER__REQUIRE_TESTS_REVIEW: "true"
+          PR_REVIEWER__REQUIRE_SECURITY_REVIEW: "true"
+          PR_REVIEWER__NUM_CODE_SUGGESTIONS: "3"
+
+          # Use persistent comment (single comment that gets updated)
+          PR_REVIEWER__PERSISTENT_COMMENT: "true"
