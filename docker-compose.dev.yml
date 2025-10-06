@@ -27,6 +27,7 @@ services:
         condition: service_healthy
     networks:
       - app-network
+      - lgtm_observability
 
   # Supabase Database (PostgreSQL)
   supabase-db:
@@ -134,3 +135,5 @@ volumes:
 networks:
   app-network:
     driver: bridge
+  lgtm_observability:
+    external: true
