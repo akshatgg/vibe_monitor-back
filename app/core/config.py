@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_REDIRECT_URI: Optional[str] = None
 
+    # GitHub App
+    GITHUB_APP_NAME: Optional[str] = None
+    GITHUB_APP_ID: Optional[str] = None
+    GITHUB_PRIVATE_KEY_PEM: Optional[str] = None
+    GITHUB_INSTALLATION_ID: Optional[str] = None
+
     # JWT Settings
     JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"

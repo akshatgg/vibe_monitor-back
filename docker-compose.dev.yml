@@ -1,7 +1,7 @@
 services:
   # FastAPI Application
   vm-api:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.dev
     ports:

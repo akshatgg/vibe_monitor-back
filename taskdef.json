@@ -42,7 +42,11 @@
         {"name": "SLACK_SIGNING_SECRET", "valueFrom": "/vm-api/slack-signing-secret"},
         {"name": "SLACK_WEBHOOK_URL", "valueFrom": "/vm-api/slack-webhook-url"},
         {"name": "SLACK_CLIENT_ID", "valueFrom": "/vm-api/slack-client-id"},
-        {"name": "SLACK_CLIENT_SECRET", "valueFrom": "/vm-api/slack-client-secret"}
+        {"name": "SLACK_CLIENT_SECRET", "valueFrom": "/vm-api/slack-client-secret"},
+        {"name": "GITHUB_APP_NAME", "valueFrom": "/vm-api/github-app-name"},
+        {"name": "GITHUB_APP_ID", "valueFrom": "/vm-api/github-app-id"},
+        {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api/github-client-id"},
+        {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"}
       ]
     }
   ]

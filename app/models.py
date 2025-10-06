@@ -118,3 +118,24 @@ class SlackInstallation(Base):
     )  # Optional link to internal workspace
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+class GitHubIntegration(Base):
+    __tablename__ = "github_integrations"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    github_user_id = Column(String, nullable=False)
+    github_username = Column(String, nullable=False)
+    installation_id = Column(String, nullable=False)
+    scopes = Column(String, nullable=True)
+
+    # Access token storage
+    access_token = Column(String, nullable=True)  # GitHub installation access token
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)  # Token expiry time
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    workspace = relationship("Workspace", backref="github_integrations")
