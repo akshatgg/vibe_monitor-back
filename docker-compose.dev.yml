@@ -52,19 +52,21 @@ services:
       # Direct database connection
       DEFAULT_ORGANIZATION_NAME: "Local Development"
       DEFAULT_PROJECT_NAME: "VM API"
-      
+
       # Database connection details
       POSTGRES_PASSWORD: postgres
-      
+
       # Connection URL that Studio will use
       DATABASE_URL: postgresql://postgres:postgres@supabase-db:5432/postgres
-      
+
       # Studio specific settings
       STUDIO_PG_META_URL: http://supabase-meta:8080
       SUPABASE_URL: http://supabase-kong:8000
       SUPABASE_REST_URL: http://supabase-kong:8000/rest/v1/
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
       SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+    healthcheck:
+      disable: true
     depends_on:
       - supabase-db
       - supabase-meta
