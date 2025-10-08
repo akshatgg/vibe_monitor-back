@@ -12,7 +12,9 @@ from ..services.github_tools_service import (
     verify_workspace_access
 )
 from ...core.database import get_db
- 
+from ...core.config import settings
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,17 @@ router = APIRouter(prefix="/github-tools", tags=["github-tools"])
 auth_service = AuthService()
 
 
-@router.post("/repositories")
+# Check if we're in production mode
+IS_PRODUCTION = settings.is_production
+
+
+# ==================== ROUTE FUNCTIONS ====================
+# These functions are kept for future LLM model usage
+# Routes are only exposed in development mode
+# =========================================================
+
+
+
 async def list_repositories_graphql(
     workspace_id: str = Query(..., description="Workspace ID"),
     first: int = Query(50, description="Number of repositories to fetch"),
@@ -106,7 +118,6 @@ async def list_repositories_graphql(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/tree")
 async def get_repository_tree(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -196,7 +207,6 @@ async def get_repository_tree(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/read-file")
 async def read_repository_file(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -289,7 +299,6 @@ async def read_repository_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/context")
 async def get_branch_recent_commits(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -404,7 +413,6 @@ async def get_branch_recent_commits(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/commits")
 async def get_repository_commits(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -517,7 +525,6 @@ async def get_repository_commits(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/pull-requests")
 async def list_pull_requests(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -649,7 +656,6 @@ async def list_pull_requests(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/metadata")
 async def get_repository_metadata(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
@@ -749,14 +755,12 @@ async def get_repository_metadata(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/repository/download-file")
 async def download_file_by_path(
     workspace_id: str = Query(..., description="Workspace ID"),
     repo: str = Query(..., description="Repository name"),
     file_path: str = Query(..., description="File path in repository (e.g., 'src/main.py')"),
     owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
     ref: Optional[str] = Query(None, description="Branch/tag/commit ref (optional, defaults to default branch)"),
-    decode_content: bool = Query(True, description="Auto-decode base64 content to UTF-8 string (default: True)"),
     user = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -765,6 +769,7 @@ async def download_file_by_path(
 
     This endpoint fetches the full content of a file from a GitHub repository.
     Use this after getting file locations from /search/code to download the actual files.
+    Content is automatically decoded from base64 to UTF-8 string.
 
     Args:
         workspace_id: Workspace ID
@@ -772,10 +777,9 @@ async def download_file_by_path(
         file_path: File path in repository (e.g., 'src/main.py', 'README.md')
         owner: Repository owner (optional, defaults to GitHub integration username)
         ref: Branch/tag/commit reference (optional, defaults to repo's default branch)
-        decode_content: Auto-decode base64 to UTF-8 string (default: True)
 
     Returns:
-        File metadata and content (decoded if decode_content=True, otherwise base64)
+        File metadata and decoded content (UTF-8 string)
 
     Example usage:
         After code search returns: {"path": "src/main.py", "repository": {"name": "myrepo"}}
@@ -829,8 +833,8 @@ async def download_file_by_path(
             "encoding": data.get("encoding", "base64")
         }
 
-        # Decode content if requested
-        if decode_content and data.get("content"):
+        # Always decode content from base64 to UTF-8
+        if data.get("content"):
             import base64
             try:
                 # Remove newlines and decode base64
@@ -845,8 +849,7 @@ async def download_file_by_path(
                 response_data["content_decoded"] = False
                 response_data["decode_error"] = str(e)
         else:
-            # Return raw base64 content
-            response_data["content"] = data.get("content", "")
+            response_data["content"] = ""
             response_data["content_decoded"] = False
 
         return response_data
@@ -858,7 +861,6 @@ async def download_file_by_path(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/search/code")
 async def search_code(
     workspace_id: str = Query(..., description="Workspace ID"),
     search_query: str = Query(..., description="Search query (e.g., 'import', 'function', etc.)"),
@@ -920,6 +922,29 @@ async def search_code(
             params=params
         )
 
+        # Filter items to only include required fields
+        filtered_items = []
+        for item in data.get("items", []):
+            filtered_item = {
+                "name": item.get("name"),
+                "path": item.get("path"),
+                "sha": item.get("sha"),
+                "repository": {
+                    "name": item.get("repository", {}).get("name"),
+                    "id": item.get("repository", {}).get("id"),
+                    "full_name": item.get("repository", {}).get("full_name"),
+                    "private": item.get("repository", {}).get("private")
+                },
+                "text_matches": [
+                    {
+                        "fragment": match.get("fragment"),
+                        "matches": match.get("matches", [])
+                    }
+                    for match in item.get("text_matches", [])
+                ]
+            }
+            filtered_items.append(filtered_item)
+
         return {
             "success": True,
             "owner": owner,
@@ -928,7 +953,7 @@ async def search_code(
             "query_string": search_string,
             "total_count": data.get("total_count", 0),
             "incomplete_results": data.get("incomplete_results", False),
-            "items": data.get("items", [])
+            "items": filtered_items
         }
 
     except HTTPException:
@@ -938,3 +963,76 @@ async def search_code(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== CONDITIONAL ROUTE REGISTRATION ====================
+# Register routes only in development mode
+# In production, functions remain available for LLM model usage
+# =======================================================================
+
+if not IS_PRODUCTION:
+    logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: Registering GitHub tools routes")
+
+    # Register all routes for development/testing
+    router.add_api_route(
+        "/repositories",
+        list_repositories_graphql,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/tree",
+        get_repository_tree,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/read-file",
+        read_repository_file,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/context",
+        get_branch_recent_commits,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/commits",
+        get_repository_commits,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/pull-requests",
+        list_pull_requests,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/metadata",
+        get_repository_metadata,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/repository/download-file",
+        download_file_by_path,
+        methods=["POST"],
+        response_model=None
+    )
+
+    router.add_api_route(
+        "/search/code",
+        search_code,
+        methods=["POST"],
+        response_model=None
+    )
+else:
+    logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: GitHub tools routes disabled (functions available for LLM usage)")
