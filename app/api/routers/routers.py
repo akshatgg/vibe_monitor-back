@@ -9,6 +9,7 @@ from app.slack.router import slack_router
 
 
 from app.onboarding.routes.github_app_router import router as github_app_router
+from app.onboarding.routes.github_tools_router import router as github_tools_router
 
 
 # Create main API router
@@ -19,4 +20,5 @@ api_router.include_router(auth_router, tags=["authentication"])
 api_router.include_router(workspace_router, tags=["workspaces"])
 api_router.include_router(slack_router)
 api_router.include_router(github_app_router, tags=["github-app"])
+api_router.include_router(github_tools_router)
 

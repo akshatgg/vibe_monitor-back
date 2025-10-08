@@ -20,7 +20,6 @@ router = APIRouter(prefix="/github", tags=["github-app"])
 github_app_service = GitHubAppService()
 auth_service = AuthService()
 
-
 @router.get("/status")
 async def get_github_integration_status(
     workspace_id: str = Query(..., description="Workspace ID to check"),
