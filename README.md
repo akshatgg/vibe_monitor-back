@@ -80,16 +80,65 @@ git checkout -b shashi/vib-45-new-feature
 
 ### Prerequisites
 - Docker & Docker Compose
+- Python 3.12+
+- Poetry (will be auto-installed if not present)
 
-### Setup
+### Quick Start (Recommended for Development)
+
+Run uvicorn server on your host machine with hot reload, while infrastructure runs in Docker:
+
+```bash
+# Start dev environment (auto-installs dependencies, starts containers, runs uvicorn)
+./dev_start.sh
+
+# Stop dev environment
+./dev_stop.sh
+```
+
+This setup provides:
+- ✅ Fast hot reload for code changes
+- ✅ Easy debugging (attach debugger directly)
+- ✅ Full IDE integration
+- ✅ Auto-installs Python dependencies
+- ✅ Infrastructure services in Docker (Supabase, LocalStack)
+
+### Services & Ports
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **VM-API** | http://localhost:8000 | FastAPI application |
+| **Supabase Studio** | http://localhost:3500 | Database management UI |
+| **LocalStack** | http://localhost:4566 | AWS services emulation (SQS) |
+| **Supabase DB** | postgresql://postgres:postgres@localhost:54322/postgres | PostgreSQL database |
+
+### Alternative: Full Docker Setup
+
+If you prefer to run everything in Docker (including the API):
+
+```bash
+# Run all services in Docker
+docker compose -f docker-compose.dev.yml --profile full-docker up -d
+
+# Stop all services
+docker compose -f docker-compose.dev.yml down
+```
+
+### Manual Setup
+
 ```bash
 # 1. Create .env file
 cp .env.example .env
 
 # 2. Edit .env with your credentials
 
-# 3. Start the development environment
-docker compose -f docker-compose.dev.yml up
+# 3. Install dependencies
+poetry install
+
+# 4. Start infrastructure only
+docker compose -f docker-compose.dev.yml up -d
+
+# 5. Start uvicorn server
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 
