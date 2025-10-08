@@ -84,7 +84,7 @@ git checkout -b shashi/vib-45-new-feature
 ### Setup
 ```bash
 # 1. Create .env file
-cp .env.template .env
+cp .env.example .env
 
 # 2. Edit .env with your credentials
 
