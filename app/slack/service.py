@@ -117,9 +117,13 @@ class SlackEventService:
         - AI integration (Groq, OpenAI, etc.)
         - Business logic
         """
+        from app.services.sqs.client import sqs_client
+
         user_id = event_context.get("user_id")
         channel_id = event_context.get("channel_id")
         timestamp = event_context.get("timestamp")
+        team_id = event_context.get("team_id")
+        thread_ts = event_context.get("thread_ts")
 
         # Remove bot mention from message to get clean text
         clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message).strip()
@@ -128,33 +132,63 @@ class SlackEventService:
 
         # Simple command handling
         if not clean_message or clean_message.lower() in ["hi", "hello", "hey"]:
-            return f"👋 Hi <@{user_id}>! How can I help you today?"
+            return f"👋 Hi <@{user_id}>! How can I help you today? Ask me anything about your services, logs, or metrics!"
 
         elif clean_message.lower() in ["help", "commands"]:
             return (
                 f"Hi <@{user_id}>! Here's what I can do:\n\n"
-                "• Just say `hi` or `hello` to greet me\n"
-                "• Type `help` to see this message\n"
-                "• Type `status` to check system status\n"
-                "• Mention me with any message and I'll respond!\n\n"
-                "More features coming soon! 🚀"
+                "🔍 **AI-Powered Root Cause Analysis**\n"
+                "Ask me questions about your services and I'll investigate logs and metrics:\n"
+                "• _\"Why is my xyz service slow?\"_\n"
+                "• _\"Check errors in api-gateway service\"_\n"
+                "• _\"What's causing high CPU on auth-service?\"_\n"
+                "• _\"Investigate database timeouts\"_\n\n"
+                "📋 **Commands**\n"
+                "• `help` - Show this message\n"
+                "• `status` - Check bot health\n\n"
+                "I use AI to analyze your observability data and provide actionable insights! 🚀"
             )
 
         elif clean_message.lower() == "status":
             return (
                 f"✅ System Status:\n\n"
                 f"• Bot: Online and running\n"
+                f"• AI Agent: Ready (Groq LLM)\n"
                 f"• Channel: <#{channel_id}>\n"
                 f"• Your User ID: {user_id}\n"
                 f"• Message received at: {timestamp}"
             )
 
         else:
-            # Default response for any other message
-            return (
-                f'👋 Hi <@{user_id}>! You said: *"{clean_message}"*\n\n'
-                f"I received your message! Type `help` to see what I can do."
-            )
+            # This looks like an RCA query - enqueue it to SQS for worker processing
+            logger.info(f"Enqueueing RCA query to SQS: '{clean_message}'")
+
+            # Prepare message for SQS queue
+            rca_message = {
+                "query": clean_message,
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "team_id": team_id,
+                "thread_ts": thread_ts,
+                "timestamp": timestamp,
+            }
+
+            # Send to SQS queue
+            success = await sqs_client.send_message(rca_message)
+
+            if success:
+                logger.info(f"✅ RCA query enqueued successfully: {rca_message}")
+                return (
+                    f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
+                    f"This may take a moment while I investigate logs and metrics. "
+                    f"I'll reply here once I have the analysis ready."
+                )
+            else:
+                logger.error("❌ Failed to enqueue RCA query to SQS")
+                return (
+                    f"❌ Sorry <@{user_id}>, I'm having trouble processing your request right now. "
+                    f"Please try again in a moment."
+                )
 
     @staticmethod
     async def store_installation(

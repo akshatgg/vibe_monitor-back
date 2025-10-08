@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routers.routers import api_router
 from app.core.config import settings
 from app.core.database import init_database
+from app.metrics.router import router as metrics_router
+from app.log.router import router as log_router
 
 from app.worker import RCAOrchestratorWorker
 from app.services.sqs.client import sqs_client
@@ -82,6 +84,8 @@ app.add_middleware(
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(metrics_router, prefix=settings.API_V1_PREFIX)
+app.include_router(log_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health")

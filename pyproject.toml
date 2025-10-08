@@ -43,6 +43,9 @@ alembic = "^1.13.0"
 pydantic-settings = "^2.10.1"
 boto3 = "^1.35.0"
 aioboto3 = "^13.1.0"
+langchain = "^0.3.27"
+langchain-groq = "^0.3.8"
+langchain-core = "^0.3.78"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
