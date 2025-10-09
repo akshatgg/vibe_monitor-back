@@ -2,8 +2,10 @@
 RCA Agent Service using LangChain with Groq LLM
 """
 import logging
+from functools import partial
 from typing import Dict, Any, Optional
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.tools import StructuredTool
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -20,6 +22,16 @@ from .tools import (
 
 logger = logging.getLogger(__name__)
 
+# Define all available RCA tools in one place (single source of truth)
+ALL_RCA_TOOLS = [
+    fetch_error_logs_tool,
+    fetch_logs_tool,
+    fetch_cpu_metrics_tool,
+    fetch_memory_metrics_tool,
+    fetch_http_latency_tool,
+    fetch_metrics_tool,
+]
+
 
 class RCAAgentService:
     """
@@ -27,15 +39,15 @@ class RCAAgentService:
     """
 
     def __init__(self):
-        """Initialize the RCA agent with Groq LLM and observability tools"""
+        """Initialize the RCA agent with Groq LLM (shared across all requests)"""
         self.llm = None
-        self.agent_executor = None
-        self._initialize_agent()
+        self.prompt = None
+        self._initialize_llm()
 
-    def _initialize_agent(self):
-        """Initialize the LangChain agent with tools"""
+    def _initialize_llm(self):
+        """Initialize the shared LLM and prompt template"""
         try:
-            # Initialize Groq LLM
+            # Initialize Groq LLM (stateless, can be shared)
             if not settings.GROQ_API_KEY:
                 raise ValueError("GROQ_API_KEY not configured in environment")
 
@@ -46,47 +58,63 @@ class RCAAgentService:
                 max_tokens=4096,
             )
 
-            # Define available tools for the agent
-            tools = [
-                fetch_error_logs_tool,  # High priority - start here
-                fetch_logs_tool,
-                fetch_cpu_metrics_tool,
-                fetch_memory_metrics_tool,
-                fetch_http_latency_tool,
-                fetch_metrics_tool,
-            ]
-
             # Create chat prompt template with system message
-            # This uses the newer ChatPromptTemplate format for better tool calling
-            prompt = ChatPromptTemplate.from_messages([
+            self.prompt = ChatPromptTemplate.from_messages([
                 ("system", RCA_SYSTEM_PROMPT),
                 ("human", "{input}"),
                 ("placeholder", "{agent_scratchpad}"),
             ])
 
-            # Create the tool-calling agent (newer, more reliable than create_react_agent)
-            agent = create_tool_calling_agent(
-                llm=self.llm,
-                tools=tools,
-                prompt=prompt,
-            )
-
-            # Create agent executor with configuration
-            self.agent_executor = AgentExecutor(
-                agent=agent,
-                tools=tools,
-                verbose=True,  # Enable verbose logging for debugging
-                max_iterations=15,  # Allow up to 15 tool calls
-                max_execution_time=180,  # 3 minute timeout
-                handle_parsing_errors=True,  # Gracefully handle LLM parsing errors
-                return_intermediate_steps=True,  # Return reasoning steps
-            )
-
-            logger.info("RCA Agent initialized successfully with Groq LLM and tool calling")
+            logger.info("RCA Agent LLM initialized successfully")
 
         except Exception as e:
-            logger.error(f"Failed to initialize RCA agent: {e}")
+            logger.error(f"Failed to initialize RCA agent LLM: {e}")
             raise
+
+    def _create_agent_executor_for_workspace(self, workspace_id: str) -> AgentExecutor:
+        """
+        Create a workspace-specific agent executor with tools bound to the given workspace_id.
+
+        This method creates a new executor for each request to ensure thread-safety and
+        prevent workspace_id conflicts between concurrent requests.
+
+        Args:
+            workspace_id: The workspace ID to bind to all tools
+
+        Returns:
+            AgentExecutor configured for the specific workspace
+        """
+        # Dynamically bind workspace_id to all tools
+        tools_with_workspace = [
+            StructuredTool.from_function(
+                coroutine=partial(tool.func, workspace_id=workspace_id),
+                name=tool.name,
+                description=tool.description,
+                args_schema=tool.args_schema,
+            )
+            for tool in ALL_RCA_TOOLS
+        ]
+
+        # Create the tool-calling agent with workspace-specific tools
+        agent = create_tool_calling_agent(
+            llm=self.llm,
+            tools=tools_with_workspace,
+            prompt=self.prompt,
+        )
+
+        # Create and return executor for this workspace
+        executor = AgentExecutor(
+            agent=agent,
+            tools=tools_with_workspace,
+            verbose=True,
+            max_iterations=15,
+            max_execution_time=180,
+            handle_parsing_errors=True,
+            return_intermediate_steps=True,
+        )
+
+        logger.info(f"Created agent executor for workspace: {workspace_id}")
+        return executor
 
     async def analyze(
         self,
@@ -98,7 +126,7 @@ class RCAAgentService:
 
         Args:
             user_query: User's question or issue description (e.g., "Why is my xyz service slow?")
-            context: Optional context from Slack (user_id, channel_id, etc.)
+            context: Optional context from Slack (user_id, channel_id, workspace_id, etc.)
 
         Returns:
             Dictionary containing:
@@ -108,7 +136,23 @@ class RCAAgentService:
                 - error: Error message if failed
         """
         try:
-            logger.info(f"Starting RCA analysis for query: '{user_query}'")
+            # Extract workspace_id from context (REQUIRED - no default)
+            workspace_id = (context or {}).get("workspace_id")
+
+            if not workspace_id:
+                error_msg = "workspace_id is required in context for RCA analysis"
+                logger.error(error_msg)
+                return {
+                    "output": None,
+                    "intermediate_steps": [],
+                    "success": False,
+                    "error": error_msg,
+                }
+
+            logger.info(f"Starting RCA analysis for query: '{user_query}' (workspace: {workspace_id})")
+
+            # Create workspace-specific agent executor
+            agent_executor = self._create_agent_executor_for_workspace(workspace_id)
 
             # Prepare input for the agent
             agent_input = {
@@ -116,9 +160,9 @@ class RCAAgentService:
             }
 
             # Execute the agent asynchronously
-            result = await self.agent_executor.ainvoke(agent_input)
+            result = await agent_executor.ainvoke(agent_input)
 
-            logger.info("RCA analysis completed successfully")
+            logger.info(f"RCA analysis completed successfully for workspace: {workspace_id}")
 
             return {
                 "output": result.get("output", "Analysis completed but no output generated."),
@@ -192,16 +236,9 @@ class RCAAgentService:
         return {
             "model": "llama-3.3-70b-versatile",
             "provider": "Groq",
-            "max_iterations": 10,
-            "max_execution_time": 120,
-            "available_tools": [
-                "fetch_error_logs_tool",
-                "fetch_logs_tool",
-                "fetch_cpu_metrics_tool",
-                "fetch_memory_metrics_tool",
-                "fetch_http_latency_tool",
-                "fetch_metrics_tool",
-            ],
+            "max_iterations": 15,
+            "max_execution_time": 180,
+            "available_tools": [tool.name for tool in ALL_RCA_TOOLS],
         }
 
 

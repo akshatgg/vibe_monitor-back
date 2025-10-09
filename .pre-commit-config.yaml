@@ -1,14 +1,29 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9   # Use the same version as in pyproject.toml
+    rev: v0.14.0   # Use the same version as in pyproject.toml
     hooks:
       - id: ruff
         args: [--fix]     # auto-fix lint issues
       - id: ruff-format   # enforce formatting
 
-repos:
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2   # Match version in pyproject.toml
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-requests
+          - types-pytz
+          - sqlalchemy[mypy]
+        args: [--show-column-numbers, --pretty, --ignore-missing-imports]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6   # Match version in pyproject.toml
+    hooks:
+      - id: bandit
+        args: [-r, ., -x, .venv,venv,build,dist,tests, -ll]   # -ll = only medium/high severity
+
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.4   # pin to the latest stable version
+    rev: v8.28.0   # pin to the latest stable version
     hooks:
       - id: gitleaks
-        args: ["protect", "--staged", "--verbose"]
+        args: ["--staged", "--redact", "--no-banner"]

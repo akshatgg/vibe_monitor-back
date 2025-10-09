@@ -160,33 +160,85 @@ class SlackEventService:
             )
 
         else:
-            # This looks like an RCA query - enqueue it to SQS for worker processing
-            logger.info(f"Enqueueing RCA query to SQS: '{clean_message}'")
+            # This looks like an RCA query - create Job record and enqueue to SQS
+            logger.info(f"Creating RCA job for query: '{clean_message}'")
 
-            # Prepare message for SQS queue
-            rca_message = {
-                "query": clean_message,
-                "user_id": user_id,
-                "channel_id": channel_id,
-                "team_id": team_id,
-                "thread_ts": thread_ts,
-                "timestamp": timestamp,
-            }
+            from app.models import Job, JobStatus
 
-            # Send to SQS queue
-            success = await sqs_client.send_message(rca_message)
+            # Generate job ID
+            job_id = str(uuid.uuid4())
 
-            if success:
-                logger.info(f"✅ RCA query enqueued successfully: {rca_message}")
+            try:
+                # Create Job record in database
+                async with AsyncSessionLocal() as db:
+                    # Get slack integration ID and workspace_id from team_id
+                    slack_integration = await SlackEventService.get_installation(team_id)
+                    if not slack_integration:
+                        logger.error(f"No Slack installation found for team {team_id}")
+                        return (
+                            f"❌ Sorry <@{user_id}>, your Slack workspace is not properly configured. "
+                            f"Please reinstall the app or contact support."
+                        )
+
+                    if not slack_integration.workspace_id:
+                        logger.error(f"Slack installation {slack_integration.id} has no workspace_id")
+                        return (
+                            f"❌ Sorry <@{user_id}>, your Slack workspace is not linked to a VibeMonitor workspace. "
+                            f"Please complete the setup or contact support."
+                        )
+
+                    slack_integration_id = slack_integration.id
+                    workspace_id = slack_integration.workspace_id
+
+                    # Create job record
+                    job = Job(
+                        id=job_id,
+                        vm_workspace_id=workspace_id,
+                        slack_integration_id=slack_integration_id,
+                        trigger_channel_id=channel_id,
+                        trigger_thread_ts=thread_ts,
+                        trigger_message_ts=timestamp,
+                        status=JobStatus.QUEUED,
+                        requested_context={
+                            "query": clean_message,
+                            "user_id": user_id,
+                            "team_id": team_id,
+                        },
+                    )
+                    db.add(job)
+                    await db.commit()
+                    logger.info(f"✅ Job {job_id} created in database")
+
+                # Send lightweight message to SQS (just job_id)
+                success = await sqs_client.send_message({"job_id": job_id})
+
+                if success:
+                    logger.info(f"✅ Job {job_id} enqueued to SQS")
+                    return (
+                        f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
+                        f"Job ID: `{job_id[:8]}...`\n"
+                        f"This may take a moment while I investigate logs and metrics. "
+                        f"I'll reply here once I have the analysis ready."
+                    )
+                else:
+                    logger.error(f"❌ Failed to enqueue job {job_id} to SQS")
+                    # Mark job as failed since we couldn't enqueue it
+                    async with AsyncSessionLocal() as db:
+                        job = await db.get(Job, job_id)
+                        if job:
+                            job.status = JobStatus.FAILED
+                            job.error_message = "Failed to enqueue to SQS"
+                            await db.commit()
+
+                    return (
+                        f"❌ Sorry <@{user_id}>, I'm having trouble processing your request right now. "
+                        f"Please try again in a moment."
+                    )
+
+            except Exception as e:
+                logger.exception(f"❌ Error creating job: {e}")
                 return (
-                    f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
-                    f"This may take a moment while I investigate logs and metrics. "
-                    f"I'll reply here once I have the analysis ready."
-                )
-            else:
-                logger.error("❌ Failed to enqueue RCA query to SQS")
-                return (
-                    f"❌ Sorry <@{user_id}>, I'm having trouble processing your request right now. "
+                    f"❌ Sorry <@{user_id}>, I encountered an error while processing your request. "
                     f"Please try again in a moment."
                 )
 

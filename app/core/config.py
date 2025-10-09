@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     API_BASE_URL: Optional[str] = None
 
     # CORS
-    ALLOWED_ORIGINS: list = []
+    ALLOWED_ORIGINS: List[str] = []
 
     # MAILGUN
     MAILGUN_API_KEY: Optional[str]=None

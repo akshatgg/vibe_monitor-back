@@ -1,11 +1,14 @@
 import asyncio
 import logging
 import signal
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
 from app.slack.service import slack_event_service
+from app.core.database import AsyncSessionLocal
+from app.models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,103 +27,181 @@ class RCAOrchestratorWorker(BaseWorker):
 
         Expected message_body format:
         {
-            "query": "Why is my xyz service slow?",
-            "user_id": "U123ABC",
-            "channel_id": "C456DEF",
-            "team_id": "T789GHI",
-            "thread_ts": "1234567890.123456",
-            "timestamp": "1234567890.123456"
+            "job_id": "uuid-string"
         }
 
         Parameters:
-            message_body (dict): Parsed message payload from SQS containing Slack event data
+            message_body (dict): Parsed message payload from SQS containing job_id
         """
-        try:
-            logger.info(f"🔍 Starting RCA analysis for message: {message_body}")
+        job_id = message_body.get("job_id")
 
-            # Extract required fields
-            user_query = message_body.get("query", "").strip()
-            team_id = message_body.get("team_id")
-            channel_id = message_body.get("channel_id")
-            thread_ts = message_body.get("thread_ts") or message_body.get("timestamp")
+        if not job_id:
+            logger.error("No job_id in SQS message, skipping")
+            return
 
-            # Validate required fields
-            if not user_query:
-                logger.warning("Empty query in message body, skipping")
-                return
-
-            if not team_id or not channel_id:
-                logger.error("Missing team_id or channel_id in message body")
-                return
-
-            # Send initial "thinking" message to Slack
-            await slack_event_service.send_message(
-                team_id=team_id,
-                channel=channel_id,
-                text=f"🤔 Analyzing the issue: *{user_query}*\n\nI'm investigating logs and metrics... This may take a moment.",
-                thread_ts=thread_ts,
-            )
-
-            # Perform RCA analysis using AI agent
-            logger.info(f"🤖 Invoking RCA agent for query: '{user_query}'")
-            result = await rca_agent_service.analyze_with_retry(
-                user_query=user_query,
-                context=message_body,
-                max_retries=2,
-            )
-
-            # Process result
-            if result["success"]:
-                logger.info("✅ RCA analysis completed successfully")
-
-                # Format the response
-                analysis_output = result["output"]
-
-                # Send analysis result back to Slack
-                await slack_event_service.send_message(
-                    team_id=team_id,
-                    channel=channel_id,
-                    text=analysis_output,
-                    thread_ts=thread_ts,
-                )
-
-                logger.info(f"📤 RCA result sent to Slack (team: {team_id}, channel: {channel_id})")
-
-            else:
-                # Analysis failed
-                error_msg = result.get("error", "Unknown error occurred")
-                logger.error(f"❌ RCA analysis failed: {error_msg}")
-
-                # Send error message to user
-                await slack_event_service.send_message(
-                    team_id=team_id,
-                    channel=channel_id,
-                    text=(
-                        f"❌ I encountered an issue while analyzing your request:\n\n"
-                        f"```{error_msg}```\n\n"
-                        f"Please try rephrasing your query or contact support if the issue persists."
-                    ),
-                    thread_ts=thread_ts,
-                )
-
-        except Exception as e:
-            logger.exception(f"❌ Unexpected error processing RCA message: {e}")
-
-            # Attempt to send error notification to Slack
+        async with AsyncSessionLocal() as db:
             try:
+                # Fetch job from database
+                job = await db.get(Job, job_id)
+
+                if not job:
+                    logger.error(f"Job {job_id} not found in database")
+                    return
+
+                # Check if job is in correct state
+                if job.status != JobStatus.QUEUED:
+                    logger.warning(f"Job {job_id} is not queued (status: {job.status.value}), skipping")
+                    return
+
+                # Check if job should be delayed (backoff)
+                if job.backoff_until and job.backoff_until > datetime.utcnow():
+                    logger.info(f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing")
+                    # Re-enqueue to SQS for later processing
+                    await sqs_client.send_message({"job_id": job_id})
+                    return
+
+                logger.info(f"🔍 Processing job {job_id}: {job.requested_context.get('query')}")
+
+                # Update job status to RUNNING
+                job.status = JobStatus.RUNNING
+                job.started_at = datetime.utcnow()
+                await db.commit()
+
+                # Extract context from job
+                query = job.requested_context.get("query", "")
+                team_id = job.requested_context.get("team_id")
+                workspace_id = job.vm_workspace_id
+                channel_id = job.trigger_channel_id
+                thread_ts = job.trigger_thread_ts
+
+                # Send initial "thinking" message to Slack
                 if team_id and channel_id:
                     await slack_event_service.send_message(
                         team_id=team_id,
                         channel=channel_id,
-                        text=(
-                            f"⚠️ An unexpected error occurred while processing your request:\n\n"
-                            f"```{str(e)}```\n\n"
-                            f"Our team has been notified. Please try again later."
-                        ),
+                        text=f"🤔 Analyzing the issue: *{query}*\n\nJob ID: `{job_id[:8]}...`\nI'm investigating logs and metrics... This may take a moment.",
                         thread_ts=thread_ts,
                     )
-            except Exception as notify_error:
-                logger.error(f"Failed to send error notification to Slack: {notify_error}")
+
+                # Perform RCA analysis using AI agent
+                logger.info(f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})")
+
+                # Add workspace_id to context for RCA tools
+                analysis_context = {
+                    **(job.requested_context or {}),
+                    "workspace_id": workspace_id
+                }
+
+                result = await rca_agent_service.analyze_with_retry(
+                    user_query=query,
+                    context=analysis_context,
+                    max_retries=2,
+                )
+
+                # Process result
+                if result["success"]:
+                    logger.info(f"✅ Job {job_id} completed successfully")
+
+                    # Update job status
+                    job.status = JobStatus.COMPLETED
+                    job.finished_at = datetime.utcnow()
+                    await db.commit()
+
+                    # Send analysis result back to Slack
+                    if team_id and channel_id:
+                        await slack_event_service.send_message(
+                            team_id=team_id,
+                            channel=channel_id,
+                            text=result["output"],
+                            thread_ts=thread_ts,
+                        )
+
+                    logger.info(f"📤 Job {job_id} result sent to Slack")
+
+                else:
+                    # Analysis failed - implement retry logic
+                    error_msg = result.get("error", "Unknown error occurred")
+                    logger.error(f"❌ Job {job_id} failed: {error_msg}")
+
+                    job.retries += 1
+
+                    if job.retries < job.max_retries:
+                        # Retry with exponential backoff
+                        backoff_seconds = 2 ** job.retries * 60  # 2min, 4min, 8min
+                        job.status = JobStatus.QUEUED
+                        job.backoff_until = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                        job.error_message = f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
+                        await db.commit()
+
+                        logger.info(f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})")
+
+                        # Re-enqueue to SQS for retry
+                        await sqs_client.send_message({"job_id": job_id})
+
+                        # Notify user about retry
+                        if team_id and channel_id:
+                            await slack_event_service.send_message(
+                                team_id=team_id,
+                                channel=channel_id,
+                                text=(
+                                    f"⚠️ Job encountered an issue. Retrying in {backoff_seconds // 60} minutes...\n"
+                                    f"Attempt {job.retries}/{job.max_retries}"
+                                ),
+                                thread_ts=thread_ts,
+                            )
+
+                    else:
+                        # Max retries exceeded
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.utcnow()
+                        job.error_message = error_msg
+                        await db.commit()
+
+                        logger.error(f"❌ Job {job_id} failed after {job.retries} retries")
+
+                        # Send final error message to user
+                        if team_id and channel_id:
+                            await slack_event_service.send_message(
+                                team_id=team_id,
+                                channel=channel_id,
+                                text=(
+                                    f"❌ I encountered an issue while analyzing your request:\n\n"
+                                    f"```{error_msg}```\n\n"
+                                    f"Job ID: `{job_id}`\n"
+                                    f"Tried {job.retries} times. Please try rephrasing your query or contact support."
+                                ),
+                                thread_ts=thread_ts,
+                            )
+
+            except Exception as e:
+                logger.exception(f"❌ Unexpected error processing job {job_id}: {e}")
+
+                # Try to mark job as failed
+                try:
+                    job = await db.get(Job, job_id)
+                    if job:
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.utcnow()
+                        job.error_message = f"Worker exception: {str(e)}"
+                        await db.commit()
+
+                        # Attempt to send error notification to Slack
+                        if job.requested_context:
+                            team_id = job.requested_context.get("team_id")
+                            if team_id and job.trigger_channel_id:
+                                await slack_event_service.send_message(
+                                    team_id=team_id,
+                                    channel=job.trigger_channel_id,
+                                    text=(
+                                        f"⚠️ An unexpected error occurred while processing your request:\n\n"
+                                        f"```{str(e)}```\n\n"
+                                        f"Job ID: `{job_id}`\n"
+                                        f"Our team has been notified. Please try again later."
+                                    ),
+                                    thread_ts=job.trigger_thread_ts,
+                                )
+                except Exception as recovery_error:
+                    logger.error(f"Failed to handle job failure: {recovery_error}")
 
 
 async def main():

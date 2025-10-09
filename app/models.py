@@ -3,7 +3,8 @@ Unified database models for the application.
 All SQLAlchemy models are defined here.
 """
 
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum, Integer, Text, Index
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -16,6 +17,14 @@ Base = declarative_base()
 class Role(enum.Enum):
     OWNER = "owner"
     MEMBER = "member"
+
+
+class JobStatus(enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING_INPUT = "waiting_input"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 # User and Workspace Models
@@ -139,3 +148,55 @@ class GitHubIntegration(Base):
 
     # Relationships
     workspace = relationship("Workspace", backref="github_integrations")
+
+
+# Job Orchestration Models
+class Job(Base):
+    """
+    Job lifecycle tracking for RCA orchestration
+
+    Tracks the full lifecycle of AI-powered RCA requests from Slack,
+    including retry logic, status tracking, and error handling.
+    """
+
+    __tablename__ = "jobs"
+
+    # Primary key
+    id = Column(String, primary_key=True)  # UUID
+
+    # Workspace link
+    vm_workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # Slack context
+    slack_integration_id = Column(String, ForeignKey("slack_installations.id"), nullable=True)
+    trigger_channel_id = Column(String, nullable=True)  # Slack channel ID (C...)
+    trigger_thread_ts = Column(String, nullable=True)  # Root thread timestamp
+    trigger_message_ts = Column(String, nullable=True)  # Message timestamp that triggered bot
+
+    # Lifecycle
+    status = Column(Enum(JobStatus), nullable=False, default=JobStatus.QUEUED)
+    priority = Column(Integer, default=0)  # Higher = more important
+    retries = Column(Integer, default=0)  # Number of retry attempts
+    max_retries = Column(Integer, default=3)  # Maximum retry attempts
+    backoff_until = Column(DateTime(timezone=True), nullable=True)  # Don't retry before this time
+
+    # Context + timing + error
+    requested_context = Column(JSON, nullable=True)  # User query, context data
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="jobs")
+    slack_integration = relationship("SlackInstallation", backref="jobs")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index('idx_jobs_workspace_status', 'vm_workspace_id', 'status'),
+        Index('idx_jobs_slack_integration', 'slack_integration_id'),
+        Index('idx_jobs_created_at', 'created_at'),
+    )
