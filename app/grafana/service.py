@@ -1,10 +1,9 @@
 """
 Grafana Cloud integration service.
-Handles Loki API verification and Grafana integration CRUD operations.
+Handles Grafana integration CRUD operations.
 """
 
 import uuid
-import httpx
 import logging
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,80 +18,6 @@ logger = logging.getLogger(__name__)
 
 class GrafanaService:
     """Service for managing Grafana Cloud integrations"""
-
-    async def verify_loki_token(self, grafana_url: str, api_token: str) -> bool:
-        """
-        Verify Grafana Cloud token by testing connection to Loki.
-
-        For Grafana Cloud, the token format should be: <instance_id>:<access_token>
-        This uses Basic Auth where username=instance_id, password=access_token
-
-        Args:
-            grafana_url: Loki URL (e.g., https://logs-prod-us-central1.grafana.net)
-            api_token: Format "<instance_id>:<token>" or just the token
-
-        Returns:
-            bool: True if connection successful
-
-        Raises:
-            HTTPException: If verification fails
-        """
-        grafana_url = grafana_url.rstrip("/")
-        loki_url = f"{grafana_url}/loki/api/v1/labels"
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-                # Check if token contains instance_id:token format
-                if ":" in api_token:
-                    # Split into username:password for Basic Auth
-                    parts = api_token.split(":", 1)
-                    username, password = parts[0], parts[1]
-                    response = await client.get(loki_url, auth=(username, password))
-                else:
-                    # Try as Bearer token
-                    headers = {
-                        "Authorization": f"Bearer {api_token}",
-                        "X-Scope-OrgID": "1"
-                    }
-                    response = await client.get(loki_url, headers=headers)
-
-                if response.status_code == 200:
-                    logger.info(f"Loki connection verified for {grafana_url}")
-                    return True
-                elif response.status_code == 401:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Invalid credentials. Use format: '<instance_id>:<token>' or check your Loki URL."
-                    )
-                elif response.status_code == 403:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Token lacks permissions. Ensure it has logs:read scope."
-                    )
-                elif response.status_code == 404:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Loki endpoint not found. For Grafana Cloud, use the Loki URL (e.g., https://logs-prod-<region>.grafana.net), not the Grafana dashboard URL."
-                    )
-                elif response.status_code in (302, 307):
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Authentication failed. Check your Loki URL and credentials."
-                    )
-                else:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Connection failed (HTTP {response.status_code}). Verify Loki URL and token format."
-                    )
-
-        except HTTPException:
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"Network error: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail=f"Cannot connect to {grafana_url}. Verify the Loki URL."
-            )
 
     async def create_integration(
         self,
