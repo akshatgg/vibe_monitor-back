@@ -8,16 +8,16 @@ from typing import Optional
 
 
 class GrafanaConnectRequest(BaseModel):
-    """Request model for connecting Grafana Cloud"""
+    """Request model for connecting Grafana"""
 
     workspace_id: str = Field(..., description="VibeMonitor workspace ID")
     grafana_url: str = Field(
         ...,
-        description="Grafana Cloud stack URL",
-        examples=["https://akshatgg.grafana.net"],
+        description="Grafana instance URL",
+        examples=["https://your-grafana-instance.com"],
     )
     api_token: str = Field(
-        ..., description="Grafana Cloud Access Policy token"
+        ..., description="Grafana API token"
     )
 
 

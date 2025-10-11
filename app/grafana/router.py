@@ -1,6 +1,6 @@
 """
-Grafana Cloud integration API router.
-Provides endpoints for connecting and managing Grafana Cloud integrations.
+Grafana integration API router.
+Provides endpoints for connecting and managing Grafana integrations.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,17 +28,17 @@ async def connect_grafana(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Connect Grafana Cloud to a workspace.
+    Connect Grafana to a workspace.
 
     Flow:
-    1. User provides Grafana Cloud Stack URL and Access Policy token
+    1. User provides Grafana instance URL and API token
     2. Backend encrypts and stores the token
     3. Return connection status
 
     Required:
     - workspace_id: VibeMonitor workspace ID
-    - grafana_url: Grafana Cloud stack URL (e.g., https://akshatgg.grafana.net)
-    - api_token: Access Policy token
+    - grafana_url: Grafana instance URL (e.g., https://your-grafana-instance.com)
+    - api_token: Grafana API token
     """
     try:
         integration = await grafana_service.create_integration(
@@ -109,7 +109,7 @@ async def disconnect_grafana(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Disconnect Grafana Cloud from a workspace.
+    Disconnect Grafana from a workspace.
 
     Deletes the stored integration and encrypted token.
     """

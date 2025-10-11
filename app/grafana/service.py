@@ -1,5 +1,5 @@
 """
-Grafana Cloud integration service.
+Grafana integration service.
 Handles Grafana integration CRUD operations.
 """
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class GrafanaService:
-    """Service for managing Grafana Cloud integrations"""
+    """Service for managing Grafana integrations"""
 
     async def create_integration(
         self,
@@ -31,8 +31,8 @@ class GrafanaService:
 
         Args:
             workspace_id: VibeMonitor workspace ID
-            grafana_url: Grafana Cloud stack URL
-            api_token: Grafana Access Policy token (will be encrypted)
+            grafana_url: Grafana instance URL
+            api_token: Grafana API token (will be encrypted)
             db: Database session
 
         Returns:
@@ -122,14 +122,3 @@ class GrafanaService:
         logger.info(f"Deleted Grafana integration for workspace {workspace_id}")
         return True
 
-    def get_decrypted_token(self, integration: GrafanaIntegration) -> str:
-        """
-        Decrypt the stored API token.
-
-        Args:
-            integration: GrafanaIntegration object with encrypted token
-
-        Returns:
-            str: Decrypted API token
-        """
-        return token_processor.decrypt(integration.api_token)

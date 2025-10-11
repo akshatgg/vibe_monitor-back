@@ -1,4 +1,4 @@
 """
-Grafana Cloud integration module for VibeMonitor.
-Handles connection to Grafana Cloud Loki for log access.
+Grafana integration module for VibeMonitor.
+Handles connection to Grafana Loki for log access.
 """
