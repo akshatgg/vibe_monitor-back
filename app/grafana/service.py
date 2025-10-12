@@ -54,10 +54,10 @@ class GrafanaService:
                     logger.info(f"Grafana credentials validated successfully for {grafana_url}")
                     return True
                 elif response.status_code == 401:
-                    logger.warning(f"Grafana authentication failed: Invalid API token")
+                    logger.warning("Grafana authentication failed: Invalid API token")
                     return False
                 elif response.status_code == 403:
-                    logger.warning(f"Grafana token has insufficient permissions")
+                    logger.warning("Grafana token has insufficient permissions")
                     return False
                 else:
                     logger.warning(f"Grafana credentials validation failed: {response.status_code}")
