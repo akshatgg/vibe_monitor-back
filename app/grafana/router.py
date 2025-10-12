@@ -32,8 +32,9 @@ async def connect_grafana(
 
     Flow:
     1. User provides Grafana instance URL and API token
-    2. Backend encrypts and stores the token
-    3. Return connection status
+    2. Validate credentials by testing connectivity
+    3. Backend encrypts and stores the token
+    4. Return connection status
 
     Required:
     - workspace_id: VibeMonitor workspace ID
@@ -41,6 +42,19 @@ async def connect_grafana(
     - api_token: Grafana API token
     """
     try:
+        # Validate credentials before storing
+        is_valid = await grafana_service.validate_credentials(
+            grafana_url=request.grafana_url,
+            api_token=request.api_token
+        )
+
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Grafana credentials. Please check your URL and API token."
+            )
+
+        # Store integration after validation passes
         integration = await grafana_service.create_integration(
             workspace_id=request.workspace_id,
             grafana_url=request.grafana_url,

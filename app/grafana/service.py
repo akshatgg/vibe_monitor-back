@@ -9,6 +9,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException
+import httpx
 
 from app.models import GrafanaIntegration, Workspace
 from app.utils.token_processor import token_processor
@@ -18,6 +19,59 @@ logger = logging.getLogger(__name__)
 
 class GrafanaService:
     """Service for managing Grafana integrations"""
+
+    async def validate_credentials(
+        self,
+        grafana_url: str,
+        api_token: str
+    ) -> bool:
+        """
+        Validate Grafana URL and API token by testing authentication.
+
+        Tests the /api/user endpoint which requires a valid API token.
+
+        Args:
+            grafana_url: Grafana instance URL
+            api_token: Grafana API token
+
+        Returns:
+            bool: True if credentials are valid, False otherwise
+        """
+        try:
+            # Test authenticated endpoint - /api/user returns current user info
+            # This endpoint requires valid authentication and exists in all Grafana installations
+            url = f"{grafana_url.rstrip('/')}/api/user"
+            headers = {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json"
+            }
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+
+                # 200 = valid credentials, 401 = invalid token, 403 = insufficient permissions
+                if response.status_code == 200:
+                    logger.info(f"Grafana credentials validated successfully for {grafana_url}")
+                    return True
+                elif response.status_code == 401:
+                    logger.warning(f"Grafana authentication failed: Invalid API token")
+                    return False
+                elif response.status_code == 403:
+                    logger.warning(f"Grafana token has insufficient permissions")
+                    return False
+                else:
+                    logger.warning(f"Grafana credentials validation failed: {response.status_code}")
+                    return False
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout connecting to Grafana at {grafana_url}")
+            return False
+        except httpx.RequestError as e:
+            logger.error(f"Error connecting to Grafana: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error validating Grafana credentials: {e}")
+            return False
 
     async def create_integration(
         self,
