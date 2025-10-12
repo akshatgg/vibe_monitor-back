@@ -22,6 +22,6 @@ api_router.include_router(workspace_router, tags=["workspaces"])
 api_router.include_router(slack_router)
 api_router.include_router(log_router, tags=["logs"])
 api_router.include_router(metrics_router, tags=["metrics"])
-api_router.include_router(github_app_router, tags=["github-app"])
+api_router.include_router(github_app_router, tags=["github-oauth"])
 api_router.include_router(github_tools_router)
 
