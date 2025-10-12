@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, validator
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class SlackEventPayload(BaseModel):
@@ -56,7 +56,7 @@ class SlackWebhookPayload(BaseModel):
     Model for sending data to external webhook
     """
     event_context: Dict[str, Any]
-    processed_at: str = Field(default_factory=lambda: str(datetime.utcnow()))
+    processed_at: str = Field(default_factory=lambda: str(datetime.now(timezone.utc)))
 
     def to_webhook_payload(self) -> Dict[str, Any]:
         """

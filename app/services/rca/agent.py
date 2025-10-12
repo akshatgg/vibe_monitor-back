@@ -4,6 +4,7 @@ RCA Agent Service using LangChain with Groq LLM
 import logging
 from functools import partial
 from typing import Dict, Any, Optional
+from pydantic import BaseModel, create_model
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import StructuredTool
 from langchain_groq import ChatGroq
@@ -11,25 +12,49 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.core.config import settings
 from .prompts import RCA_SYSTEM_PROMPT
-from .tools import (
+from .tools.grafana.tools import (
     fetch_logs_tool,
     fetch_error_logs_tool,
     fetch_cpu_metrics_tool,
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
-    fetch_metrics_tool,
+    fetch_metrics_tool  
+)
+
+from .tools.github.tools import (
+    list_repositories_tool,
+    get_repository_commits_tool,
+    list_pull_requests_tool,
+    search_code_tool,
+    download_file_tool,
+    read_repository_file_tool,
+    get_repository_tree_tool,
+    get_branch_recent_commits_tool,
+    get_repository_metadata_tool
 )
 
 logger = logging.getLogger(__name__)
 
 # Define all available RCA tools in one place (single source of truth)
 ALL_RCA_TOOLS = [
+    # Grafana/Observability tools
     fetch_error_logs_tool,
     fetch_logs_tool,
     fetch_cpu_metrics_tool,
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
     fetch_metrics_tool,
+
+    # GitHub tools
+    list_repositories_tool,
+    read_repository_file_tool,
+    search_code_tool,
+    get_repository_commits_tool,
+    list_pull_requests_tool,
+    download_file_tool,
+    get_repository_tree_tool,
+    get_branch_recent_commits_tool,
+    get_repository_metadata_tool,
 ]
 
 
@@ -71,6 +96,31 @@ class RCAAgentService:
             logger.error(f"Failed to initialize RCA agent LLM: {e}")
             raise
 
+    def _create_schema_without_workspace_id(self, original_schema: type[BaseModel]) -> type[BaseModel]:
+        """
+        Create a new Pydantic schema excluding the workspace_id field.
+
+        Args:
+            original_schema: The original tool schema that includes workspace_id
+
+        Returns:
+            A new schema with workspace_id field removed
+        """
+        # Get all fields except workspace_id
+        fields = {
+            name: (field.annotation, field)
+            for name, field in original_schema.model_fields.items()
+            if name != "workspace_id"
+        }
+
+        # Create new model without workspace_id
+        new_schema = create_model(
+            f"{original_schema.__name__}WithoutWorkspace",
+            **fields
+        )
+
+        return new_schema
+
     def _create_agent_executor_for_workspace(self, workspace_id: str) -> AgentExecutor:
         """
         Create a workspace-specific agent executor with tools bound to the given workspace_id.
@@ -84,16 +134,22 @@ class RCAAgentService:
         Returns:
             AgentExecutor configured for the specific workspace
         """
-        # Dynamically bind workspace_id to all tools
-        tools_with_workspace = [
-            StructuredTool.from_function(
-                coroutine=partial(tool.func, workspace_id=workspace_id),
+        # Dynamically bind workspace_id to all tools with modified schemas
+        tools_with_workspace = []
+
+        for tool in ALL_RCA_TOOLS:
+            # Create schema without workspace_id (since it's pre-bound)
+            modified_schema = self._create_schema_without_workspace_id(tool.args_schema)
+
+            # Create wrapped tool with partial application and modified schema
+            wrapped_tool = StructuredTool.from_function(
+                coroutine=partial(tool.coroutine, workspace_id=workspace_id),
                 name=tool.name,
                 description=tool.description,
-                args_schema=tool.args_schema,
+                args_schema=modified_schema,
             )
-            for tool in ALL_RCA_TOOLS
-        ]
+
+            tools_with_workspace.append(wrapped_tool)
 
         # Create the tool-calling agent with workspace-specific tools
         agent = create_tool_calling_agent(

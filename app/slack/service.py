@@ -4,7 +4,7 @@ import logging
 import uuid
 import re
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import HTTPException
@@ -18,6 +18,8 @@ from app.slack.schemas import (
     SlackInstallationResponse,
 )
 from app.models import SlackInstallation
+from app.models import Job, JobStatus
+
 from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
@@ -123,7 +125,7 @@ class SlackEventService:
         channel_id = event_context.get("channel_id")
         timestamp = event_context.get("timestamp")
         team_id = event_context.get("team_id")
-        thread_ts = event_context.get("thread_ts")
+        thread_ts = event_context.get("thread_ts") or event_context.get("timestamp")
 
         # Remove bot mention from message to get clean text
         clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message).strip()
@@ -163,7 +165,6 @@ class SlackEventService:
             # This looks like an RCA query - create Job record and enqueue to SQS
             logger.info(f"Creating RCA job for query: '{clean_message}'")
 
-            from app.models import Job, JobStatus
 
             # Generate job ID
             job_id = str(uuid.uuid4())
@@ -281,7 +282,7 @@ class SlackEventService:
                     existing.bot_user_id = bot_user_id
                     existing.scope = scope
                     existing.workspace_id = workspace_id
-                    existing.updated_at = datetime.utcnow()
+                    existing.updated_at = datetime.now(timezone.utc)
 
                     logger.info(f"Updated installation for {team_id} ({team_name})")
                     installation_db = existing

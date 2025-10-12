@@ -206,7 +206,7 @@ SELECT
     finished_at,
     finished_at - started_at AS execution_time
 FROM jobs
-WHERE vm_workspace_id = 'ws_001'
+WHERE vm_workspace_id = 'YOUR_WORKSPACE_ID'  -- Replace with actual workspace ID
 ORDER BY created_at DESC
 LIMIT 50;
 ```
@@ -393,8 +393,8 @@ ORDER BY count DESC;
 **Common Causes:**
 1. **Groq API issues** - Check `GROQ_API_KEY` configuration
 2. **Database connection issues** - Check `DATABASE_URL`
-3. **Grafana integration issues** - Verify `grafana_integrations` table has data
-4. **Workspace mapping issues** - Check hardcoded `vm_workspace_id = "ws_001"`
+3. **Grafana integration issues** - Verify `grafana_integrations` table has data for the workspace
+4. **Workspace mapping issues** - Verify job's `vm_workspace_id` matches an existing workspace with Grafana integration
 
 ---
 
@@ -484,13 +484,18 @@ GROQ_API_KEY=gsk_...
 
 ### Job Configuration (in code)
 
+The workspace ID is automatically extracted from the triggering source (Slack workspace or API request). Example from `app/slack/service.py`:
+
 ```python
-# app/slack/service.py (line 179-192)
+# workspace_id is dynamically obtained from the Slack installation
+slack_installation = await get_slack_installation(team_id)
+workspace_id = slack_installation.workspace_id
+
 job = Job(
     id=job_id,
-    vm_workspace_id="ws_001",  # TODO: Dynamic mapping
-    max_retries=3,              # Default retry limit
-    priority=0,                 # Default priority
+    vm_workspace_id=workspace_id,  # Dynamically set from context
+    max_retries=3,                  # Default retry limit
+    priority=0,                     # Default priority
     ...
 )
 ```

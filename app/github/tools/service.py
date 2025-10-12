@@ -12,7 +12,7 @@ from sqlalchemy import select
 from fastapi import HTTPException
 import httpx
 
-from .github_app_service import GitHubAppService
+from ..oauth.service import GitHubAppService
 from ...utils.token_processor import token_processor
 from ...models import GitHubIntegration, Membership
 
@@ -215,12 +215,12 @@ def get_owner_or_default(owner: str, integration) -> str:
 async def verify_workspace_access(user_id: str, workspace_id: str, db: AsyncSession) -> None:
     """
     Verify user has access to the specified workspace.
-    
+
     Args:
         user_id: User ID
         workspace_id: Workspace ID
         db: Database session
-        
+
     Raises:
         HTTPException: If user does not have access to the workspace
     """
@@ -231,11 +231,84 @@ async def verify_workspace_access(user_id: str, workspace_id: str, db: AsyncSess
         )
     )
     membership = result.scalar_one_or_none()
-    
+
     if not membership:
         raise HTTPException(
             status_code=403,
             detail="User does not have access to this workspace"
         )
-    
+
     return membership
+
+
+# Cache for default branches: {(workspace_id, owner, repo): branch_name}
+_default_branch_cache: Dict[tuple, str] = {}
+
+
+async def get_default_branch(
+    workspace_id: str,
+    repo_name: str,
+    owner: str,
+    db: AsyncSession
+) -> str:
+    """
+    Get the default branch name for a repository dynamically.
+
+    This function queries GitHub's GraphQL API to fetch the repository's
+    default branch (e.g., "main", "master", "develop") and caches the result
+    to avoid repeated API calls.
+
+    Args:
+        workspace_id: Workspace ID
+        repo_name: Repository name
+        owner: Repository owner
+        db: Database session
+
+    Returns:
+        str: Default branch name (e.g., "main", "master")
+
+    Raises:
+        HTTPException: If repository not found or no default branch
+    """
+    # Check cache first
+    cache_key = (workspace_id, owner, repo_name)
+    if cache_key in _default_branch_cache:
+        return _default_branch_cache[cache_key]
+
+    # Get integration and access token
+    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+
+    # GraphQL query to get default branch
+    query = """
+    query GetDefaultBranch($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        defaultBranchRef {
+          name
+        }
+      }
+    }
+    """
+
+    variables = {
+        "owner": owner,
+        "name": repo_name
+    }
+
+    # Execute GraphQL query
+    data = await execute_github_graphql(query, variables, access_token)
+
+    repository_data = data.get("data", {}).get("repository", {})
+    default_branch_ref = repository_data.get("defaultBranchRef")
+
+    if not default_branch_ref:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No default branch found for repository {owner}/{repo_name}"
+        )
+
+    branch_name = default_branch_ref.get("name")
+
+    # Cache the result
+    _default_branch_cache[cache_key] = branch_name
+
+    return branch_name

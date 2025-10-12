@@ -9,8 +9,8 @@ from app.metrics.router import router as metrics_router
 from app.slack.router import slack_router
 
 
-from app.onboarding.routes.github_app_router import router as github_app_router
-from app.onboarding.routes.github_tools_router import router as github_tools_router
+from app.github.oauth.router import router as github_app_router
+from app.github.tools.router import router as github_tools_router
 
 
 # Create main API router

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import signal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
@@ -54,17 +54,28 @@ class RCAOrchestratorWorker(BaseWorker):
                     return
 
                 # Check if job should be delayed (backoff)
-                if job.backoff_until and job.backoff_until > datetime.utcnow():
-                    logger.info(f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing")
-                    # Re-enqueue to SQS for later processing
-                    await sqs_client.send_message({"job_id": job_id})
+                if job.backoff_until and job.backoff_until > datetime.now(timezone.utc):
+                    # Calculate delay in seconds
+                    delay = (job.backoff_until - datetime.now(timezone.utc)).total_seconds()
+
+                    # SQS has a maximum delay of 900 seconds (15 minutes)
+                    # If delay is longer, use max and let it check again
+                    delay_seconds = min(int(delay), 900)
+
+                    logger.info(f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing with {delay_seconds}s delay")
+
+                    # Re-enqueue to SQS with delay
+                    await sqs_client.send_message(
+                        message_body={"job_id": job_id},
+                        delay_seconds=delay_seconds
+                    )
                     return
 
                 logger.info(f"🔍 Processing job {job_id}: {job.requested_context.get('query')}")
 
                 # Update job status to RUNNING
                 job.status = JobStatus.RUNNING
-                job.started_at = datetime.utcnow()
+                job.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 # Extract context from job
@@ -78,8 +89,8 @@ class RCAOrchestratorWorker(BaseWorker):
                 if team_id and channel_id:
                     await slack_event_service.send_message(
                         team_id=team_id,
-                        channel=channel_id,
-                        text=f"🤔 Analyzing the issue: *{query}*\n\nJob ID: `{job_id[:8]}...`\nI'm investigating logs and metrics... This may take a moment.",
+                        channel=channel_id, 
+                        text=f"🤔 Analyzing the issue: *{query}*\n\n",
                         thread_ts=thread_ts,
                     )
 
@@ -104,7 +115,7 @@ class RCAOrchestratorWorker(BaseWorker):
 
                     # Update job status
                     job.status = JobStatus.COMPLETED
-                    job.finished_at = datetime.utcnow()
+                    job.finished_at = datetime.now(timezone.utc)
                     await db.commit()
 
                     # Send analysis result back to Slack
@@ -129,14 +140,20 @@ class RCAOrchestratorWorker(BaseWorker):
                         # Retry with exponential backoff
                         backoff_seconds = 2 ** job.retries * 60  # 2min, 4min, 8min
                         job.status = JobStatus.QUEUED
-                        job.backoff_until = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                        job.backoff_until = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
                         job.error_message = f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
                         await db.commit()
 
+                        # SQS has max delay of 900s (15 min), use that as cap
+                        delay_seconds = min(backoff_seconds, 900)
+
                         logger.info(f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})")
 
-                        # Re-enqueue to SQS for retry
-                        await sqs_client.send_message({"job_id": job_id})
+                        # Re-enqueue to SQS for retry with delay
+                        await sqs_client.send_message(
+                            message_body={"job_id": job_id},
+                            delay_seconds=delay_seconds
+                        )
 
                         # Notify user about retry
                         if team_id and channel_id:
@@ -153,7 +170,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     else:
                         # Max retries exceeded
                         job.status = JobStatus.FAILED
-                        job.finished_at = datetime.utcnow()
+                        job.finished_at = datetime.now(timezone.utc)
                         job.error_message = error_msg
                         await db.commit()
 
@@ -181,7 +198,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     job = await db.get(Job, job_id)
                     if job:
                         job.status = JobStatus.FAILED
-                        job.finished_at = datetime.utcnow()
+                        job.finished_at = datetime.now(timezone.utc)
                         job.error_message = f"Worker exception: {str(e)}"
                         await db.commit()
 

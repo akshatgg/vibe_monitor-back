@@ -217,16 +217,15 @@ uvicorn app.main:app --reload
 
 ### Workspace ID
 
-Currently hardcoded to `ws_001` in `app/services/rca/tools.py`:
+The workspace ID is automatically extracted from the job's `vm_workspace_id` field and passed to all RCA tools through the context. The flow is:
 
-```python
-WORKSPACE_ID = "ws_001"
-```
+1. Job is created with `vm_workspace_id` from the workspace that triggered the RCA
+2. Worker extracts `workspace_id = job.vm_workspace_id`
+3. Workspace ID is added to the analysis context
+4. RCA agent binds workspace_id to all tools automatically
+5. All log/metric queries use the correct workspace
 
-To make dynamic per Slack workspace:
-1. Store workspace mapping in database (slack_team_id → vm_workspace_id)
-2. Pass workspace_id through message context
-3. Use in tool calls
+No manual configuration needed - workspace isolation is automatic.
 
 ### API Endpoints
 
@@ -339,12 +338,12 @@ curl https://api.groq.com/v1/models \
 
 ### Agent Not Finding Data
 
-- Verify Grafana integration configured for workspace `ws_001`
+- Verify Grafana integration is configured for your workspace
 - Check Loki/Prometheus datasources exist in Grafana
-- Test endpoints manually:
+- Test endpoints manually (replace `YOUR_WORKSPACE_ID` with your actual workspace ID):
 
 ```bash
-curl -H "workspace-id: ws_001" \
+curl -H "workspace-id: YOUR_WORKSPACE_ID" \
   http://localhost:8000/api/v1/logs/errors?service_name=xyz&start=now-1h
 ```
 
@@ -384,17 +383,13 @@ Your custom instructions here...
 
 ### Support Multiple Workspaces
 
-Modify tools to accept dynamic workspace_id:
+Multi-workspace support is already implemented! Each job automatically uses the workspace ID from the triggering Slack workspace or API request. The workspace_id is:
 
-```python
-@tool
-async def fetch_logs_tool(
-    service_name: str,
-    workspace_id: str = "ws_001",  # Make configurable
-    ...
-) -> str:
-    ...
-```
+1. Stored in the job's `vm_workspace_id` field when created
+2. Extracted by the worker from the job
+3. Automatically bound to all tool calls by the RCA agent
+
+All tools receive the workspace_id parameter from the job context, ensuring proper workspace isolation.
 
 ## Monitoring
 

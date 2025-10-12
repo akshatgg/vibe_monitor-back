@@ -12,9 +12,6 @@ from app.metrics.models import TimeRange as MetricTimeRange
 
 logger = logging.getLogger(__name__)
 
-# Default workspace - can be overridden per tool call
-DEFAULT_WORKSPACE_ID = "ws_001"
-
 
 def _format_logs_response(response, limit: int = 50) -> str:
     """Format log query response for LLM consumption"""
@@ -101,30 +98,36 @@ def _format_metrics_response(response) -> str:
 @tool
 async def fetch_logs_tool(
     service_name: str,
+    workspace_id: str,
     search_term: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
     limit: int = 100,
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Fetch logs from a specific service with optional text search.
 
+    ⚠️ IMPORTANT: You must provide an ACTUAL service name you discovered from logs.
+    NEVER assume or guess service names. If you don't have a service name yet,
+    use fetch_error_logs_tool WITHOUT service_name to discover services first.
+
     Use this tool to investigate log patterns, search for specific errors, or examine service behavior.
 
     Args:
-        service_name: Name of the service to query logs from (e.g., 'api-gateway', 'auth-service', 'database')
+        service_name: ACTUAL service name from logs (NOT "xyz" or any placeholder)
+        workspace_id: Workspace identifier (automatically provided from job context)
         search_term: Optional text to search for in logs (e.g., 'timeout', 'error', 'failed')
         start: Start time - use relative format like 'now-30m', 'now-1h', 'now-6h' (default: 'now-30m')
         end: End time - typically 'now' (default: 'now')
         limit: Maximum number of log entries to return (default: 100)
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
         Formatted log entries with timestamps and messages
 
-    Example:
-        fetch_logs_tool(service_name="xyz", search_term="connection timeout", start="now-1h")
+    Example usage pattern (NOT real service names):
+        # First discover service name from error logs
+        # Then use that ACTUAL service name here
+        fetch_logs_tool(service_name="<ACTUAL_SERVICE_FROM_LOGS>", search_term="connection timeout", start="now-1h")
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
@@ -158,30 +161,37 @@ async def fetch_logs_tool(
 
 @tool
 async def fetch_error_logs_tool(
+    workspace_id: str,
     service_name: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
     limit: int = 100,
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Fetch ERROR-level logs to quickly identify failures and issues.
 
-    This is typically the FIRST tool to use when investigating problems.
+    ⚠️ CRITICAL: This is typically the FIRST tool to use when investigating problems.
+    Call this WITHOUT service_name parameter to discover ALL services experiencing errors.
+    The output will show you ACTUAL service names which you can use in subsequent queries.
+
     Filters logs containing error keywords (case-insensitive).
 
     Args:
-        service_name: Optional service name to filter by (if None, searches all services)
+        workspace_id: Workspace identifier (automatically provided from job context)
+        service_name: Optional ACTUAL service name from previous log output (if None, searches ALL services - RECOMMENDED for discovery)
         start: Start time in relative format (default: 'now-30m')
         end: End time (default: 'now')
         limit: Maximum number of entries (default: 100)
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
-        Error logs with timestamps and error messages
+        Error logs with timestamps, ACTUAL service names, and error messages
 
-    Example:
-        fetch_error_logs_tool(service_name="xyz", start="now-1h")
+    Example usage patterns (NOT real service names):
+        # First call - discover services (NO service_name parameter):
+        fetch_error_logs_tool(start="now-1h")
+
+        # After discovering service "serviceDesk" from above output:
+        fetch_error_logs_tool(service_name="serviceDesk", start="now-1h")
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
@@ -204,30 +214,34 @@ async def fetch_error_logs_tool(
 
 @tool
 async def fetch_cpu_metrics_tool(
+    workspace_id: str,
     service_name: Optional[str] = None,
     start_time: str = "now-1h",
     end_time: str = "now",
     step: str = "60s",
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Get CPU usage metrics for a service over time.
+
+    ⚠️ IMPORTANT: Use ACTUAL service name you discovered from logs.
+    NEVER use placeholder names. If you don't have a service name, call without it to get all services.
 
     Use this to investigate performance degradation, resource saturation, or scaling issues.
     Returns CPU usage as a percentage.
 
     Args:
-        service_name: Service to query (if None, gets all services)
+        workspace_id: Workspace identifier (automatically provided from job context)
+        service_name: ACTUAL service name from logs (if None, gets all services)
         start_time: Start time like 'now-1h', 'now-6h' (default: 'now-1h')
         end_time: End time (default: 'now')
         step: Query resolution - '60s' for 1-min intervals, '300s' for 5-min (default: '60s')
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
-        CPU usage statistics (latest, average, max, min)
+        CPU usage statistics (latest, average, max, min) for ACTUAL services
 
-    Example:
-        fetch_cpu_metrics_tool(service_name="xyz", start_time="now-2h")
+    Example usage pattern (NOT real service names):
+        # Use ACTUAL service name discovered from error logs
+        fetch_cpu_metrics_tool(service_name="<ACTUAL_SERVICE>", start_time="now-2h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -249,30 +263,34 @@ async def fetch_cpu_metrics_tool(
 
 @tool
 async def fetch_memory_metrics_tool(
+    workspace_id: str,
     service_name: Optional[str] = None,
     start_time: str = "now-1h",
     end_time: str = "now",
     step: str = "60s",
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Get memory usage metrics for a service over time.
+
+    ⚠️ IMPORTANT: Use ACTUAL service name you discovered from logs.
+    NEVER use placeholder names.
 
     Use this to detect memory leaks, OOM issues, or resource constraints.
     Returns memory usage in megabytes (MB).
 
     Args:
-        service_name: Service to query
+        workspace_id: Workspace identifier (automatically provided from job context)
+        service_name: ACTUAL service name from logs
         start_time: Start time (default: 'now-1h')
         end_time: End time (default: 'now')
         step: Query resolution (default: '60s')
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
-        Memory usage statistics in MB
+        Memory usage statistics in MB for ACTUAL services
 
-    Example:
-        fetch_memory_metrics_tool(service_name="xyz", start_time="now-3h")
+    Example usage pattern (NOT real service names):
+        # Use ACTUAL service name discovered from error logs
+        fetch_memory_metrics_tool(service_name="<ACTUAL_SERVICE>", start_time="now-3h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -294,31 +312,35 @@ async def fetch_memory_metrics_tool(
 
 @tool
 async def fetch_http_latency_tool(
+    workspace_id: str,
     service_name: Optional[str] = None,
     percentile: float = 0.95,
     start_time: str = "now-1h",
     end_time: str = "now",
     step: str = "60s",
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Get HTTP request latency metrics at specified percentile.
 
+    ⚠️ IMPORTANT: Use ACTUAL service name you discovered from logs.
+    NEVER use placeholder names.
+
     Use this to investigate slow response times, API performance issues, or latency spikes.
 
     Args:
-        service_name: Service to query
+        workspace_id: Workspace identifier (automatically provided from job context)
+        service_name: ACTUAL service name from logs
         percentile: Latency percentile - 0.50 (p50/median), 0.95 (p95), 0.99 (p99) (default: 0.95)
         start_time: Start time (default: 'now-1h')
         end_time: End time (default: 'now')
         step: Query resolution (default: '60s')
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
-        HTTP latency statistics at the specified percentile
+        HTTP latency statistics at the specified percentile for ACTUAL services
 
-    Example:
-        fetch_http_latency_tool(service_name="xyz", percentile=0.99, start_time="now-2h")
+    Example usage pattern (NOT real service names):
+        # Use ACTUAL service name discovered from error logs
+        fetch_http_latency_tool(service_name="<ACTUAL_SERVICE>", percentile=0.99, start_time="now-2h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -342,30 +364,36 @@ async def fetch_http_latency_tool(
 @tool
 async def fetch_metrics_tool(
     metric_type: str,
+    workspace_id: str,
     service_name: Optional[str] = None,
     start_time: str = "now-1h",
     end_time: str = "now",
     step: str = "60s",
-    workspace_id: str = DEFAULT_WORKSPACE_ID,
 ) -> str:
     """
     Fetch various types of metrics for comprehensive analysis.
+
+    ⚠️ IMPORTANT: Use ACTUAL service name you discovered from logs, or omit service_name to get all services.
+    NEVER use placeholder names.
 
     Use this for additional metrics beyond CPU, memory, and latency.
 
     Args:
         metric_type: Type of metric - 'http_requests', 'errors', 'throughput', 'availability'
-        service_name: Service to query
+        workspace_id: Workspace identifier (automatically provided from job context)
+        service_name: ACTUAL service name from logs (if None, queries all services)
         start_time: Start time (default: 'now-1h')
         end_time: End time (default: 'now')
         step: Query resolution (default: '60s')
-        workspace_id: Workspace identifier (default: 'ws_001')
 
     Returns:
-        Metrics data formatted for analysis
+        Metrics data formatted for analysis showing ACTUAL service names
 
-    Example:
-        fetch_metrics_tool(metric_type="errors", service_name="xyz", start_time="now-3h")
+    Example usage pattern (NOT real service names):
+        # Use ACTUAL service name discovered from error logs, or omit to see all services
+        fetch_metrics_tool(metric_type="errors", service_name="<ACTUAL_SERVICE>", start_time="now-3h")
+        # OR discover all services experiencing errors:
+        fetch_metrics_tool(metric_type="errors", start_time="now-3h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
