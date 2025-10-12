@@ -88,7 +88,10 @@ git checkout -b shashi/vib-45-new-feature
 Run uvicorn server on your host machine with hot reload, while infrastructure runs in Docker:
 
 ```bash
-# Start dev environment (auto-installs dependencies, starts containers, runs uvicorn)
+# Start dev environment (auto-installs dependencies, starts containers, runs uvicorn) 
+## make the file executable first using 
+chmod +x dev_start.sh
+
 ./dev_start.sh
 
 # Stop dev environment

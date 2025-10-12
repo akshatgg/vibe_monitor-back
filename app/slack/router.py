@@ -1,17 +1,58 @@
 import logging
 from typing import Optional
 import httpx
-from fastapi import APIRouter, Request, HTTPException
+import secrets
+from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.slack.schemas import SlackEventPayload
 from app.slack.service import slack_event_service
 from app.core.config import settings
+from app.core.database import get_db
+from app.onboarding.services.auth_service import AuthService
+from app.models import Workspace, Membership
 from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
+auth_service = AuthService()
 
 slack_router = APIRouter(prefix="/slack", tags=["slack"])
+
+
+@slack_router.get("/install")
+async def initiate_slack_install(
+    workspace_id: str,
+    user = Depends(auth_service.get_current_user)
+):
+    """
+    Generate Slack OAuth URL with workspace_id and user_id embedded in state parameter
+
+    Args:
+        workspace_id: VibeMonitor workspace ID to link Slack installation to
+        user: Authenticated user (from JWT)
+
+    Returns:
+        Redirect to Slack OAuth authorization page
+
+    Security:
+        - Requires JWT authentication
+        - State includes user_id|workspace_id|nonce to prevent CSRF attacks
+    """
+    # Create state with user_id, workspace_id, and random nonce (same pattern as GitHub)
+    state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
+
+    oauth_url = (
+        f"https://slack.com/oauth/v2/authorize?"
+        f"client_id={settings.SLACK_CLIENT_ID}&"
+        f"scope=app_mentions:read,channels:read,chat:write,chat:write.public,commands,groups:read,channels:history&"
+        f"user_scope=&"
+        f"state={state}"
+    )
+
+    logger.info(f"Initiating Slack OAuth for workspace: {workspace_id} by user: {user.id}")
+    return JSONResponse({"oauth_url": oauth_url})
 
 
 @slack_router.post("/events")
@@ -68,17 +109,27 @@ async def handle_slack_events(request: Request):
 
 @slack_router.get("/oauth/callback")
 async def slack_oauth_callback(
-    code: Optional[str] = None, error: Optional[str] = None, state: Optional[str] = None
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    state: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
 ):
     """
     OAuth 2.0 callback endpoint - handles Slack app installation
 
     Flow:
-    1. User clicks "Add to Slack" button
-    2. Slack redirects here with authorization code
-    3. We exchange code for access token
-    4. Store token for this workspace
-    5. Bot is now installed and can receive events
+    1. User clicks "Add to Slack" button (authenticated, with workspace_id in state)
+    2. Slack redirects here with authorization code and state
+    3. We extract user_id and workspace_id from state
+    4. Verify user has access to the workspace
+    5. Exchange code for access token
+    6. Store token linked to workspace_id
+    7. Bot is now installed and can receive events
+
+    Security:
+    - State format: user_id|workspace_id|nonce
+    - Verifies workspace exists
+    - Verifies user has membership in workspace
     """
 
     # Handle OAuth errors (user cancelled, etc.)
@@ -93,6 +144,59 @@ async def slack_oauth_callback(
     if not code:
         logger.error("No authorization code received")
         raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    # Extract user_id and workspace_id from state parameter
+    user_id = None
+    workspace_id = None
+    if state:
+        try:
+            # Parse state format: "user_id|workspace_id|nonce" (same pattern as GitHub)
+            parts = state.split("|")
+            if len(parts) >= 2:
+                user_id = parts[0]
+                workspace_id = parts[1]
+                logger.info(f"Extracted user_id: {user_id}, workspace_id: {workspace_id} from state")
+        except Exception as e:
+            logger.error(f"Failed to parse state parameter: {e}")
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    # Validate user_id and workspace_id were extracted
+    if not user_id:
+        logger.error("Missing user_id in state parameter")
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if not workspace_id:
+        logger.error("Missing workspace_id in state parameter")
+        raise HTTPException(status_code=400, detail="workspace_id is required")
+
+    # Verify workspace exists and user has access (same security as GitHub integration)
+
+    workspace_result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = workspace_result.scalar_one_or_none()
+
+    if not workspace:
+        logger.error(f"Workspace not found: {workspace_id}")
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    # Check if user is a member of the workspace
+    membership_result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id == workspace_id
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership:
+        logger.error(f"User {user_id} does not have access to workspace {workspace_id}")
+        raise HTTPException(
+            status_code=403,
+            detail="User does not have access to this workspace"
+        )
+
+    logger.info(f"✅ Verified user {user_id} has access to workspace {workspace_id}")
 
     # Validate OAuth credentials are configured
     if not settings.SLACK_CLIENT_ID or not settings.SLACK_CLIENT_SECRET:
@@ -118,6 +222,7 @@ async def slack_oauth_callback(
 
         # Parse Slack's response
         data = response.json()
+        print(data)
 
         if not data.get("ok"):
             error_msg = data.get("error", "Unknown error")
@@ -137,19 +242,23 @@ async def slack_oauth_callback(
 
         logger.info(f"OAuth successful - Team: {team_name} ({team_id})")
 
-        # Store the installation (token, team info) in database
-        installation = await slack_event_service.store_installation(
+        # Store the installation (token, team info) in database with workspace_id
+        await slack_event_service.store_installation(
             team_id=team_id,
             team_name=team_name,
             access_token=access_token,
             bot_user_id=bot_user_id,
             scope=scope,
+            workspace_id=workspace_id,  # Link to VibeMonitor workspace
         )
 
-        logger.info(f"✅ Slack App Successfully installed for: {team_name}")
+        logger.info(
+            f"✅ Slack App Successfully installed for: {team_name}"
+            + (f" (linked to workspace: {workspace_id})" if workspace_id else " (no workspace linked)")
+        )
 
         # Redirect to success page
-        redirect_url = f"{settings.WEB_APP_URL}/?slack-installation=success"
+        redirect_url = f"{settings.WEB_APP_URL}/workspace/{workspace_id}"
         return RedirectResponse(url=redirect_url, status_code=302)
 
     except httpx.TimeoutException:
