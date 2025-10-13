@@ -200,3 +200,23 @@ class Job(Base):
         Index('idx_jobs_slack_integration', 'slack_integration_id'),
         Index('idx_jobs_created_at', 'created_at'),
     )
+    
+
+class RepositoryService(Base):
+    __tablename__ = "repository_services"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    repo_name = Column(String, nullable=False)  # Full repo name (owner/repo)
+    services = Column(JSON, nullable=False)  # Detected services (e.g., CI/CD, Docker, etc.)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="repository_services")
+
+    # Unique constraint to prevent duplicate entries
+    __table_args__ = (
+        Index('idx_repo_workspace', 'workspace_id', 'repo_name', unique=True),
+    )
+    

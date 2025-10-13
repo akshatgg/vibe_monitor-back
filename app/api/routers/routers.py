@@ -11,6 +11,7 @@ from app.slack.router import slack_router
 
 from app.github.oauth.router import router as github_app_router
 from app.github.tools.router import router as github_tools_router
+from app.services.rca.get_service_name.router import router as get_servicename
 
 
 # Create main API router
@@ -23,5 +24,5 @@ api_router.include_router(slack_router)
 api_router.include_router(log_router, tags=["logs"])
 api_router.include_router(metrics_router, tags=["metrics"])
 api_router.include_router(github_app_router, tags=["github-oauth"])
-api_router.include_router(github_tools_router)
-
+api_router.include_router(github_tools_router, tags=["github-tools"])
+api_router.include_router(get_servicename, tags=["repository-services"]) 
