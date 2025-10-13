@@ -22,7 +22,6 @@ from .tools.grafana.tools import (
 )
 
 from .tools.github.tools import (
-    list_repositories_tool,
     get_repository_commits_tool,
     list_pull_requests_tool,
     search_code_tool,
@@ -77,9 +76,9 @@ class RCAAgentService:
 
             self.llm = ChatGroq(
                 api_key=settings.GROQ_API_KEY,
-                model="llama-3.3-70b-versatile",  # Groq's best model for reasoning
-                temperature=0.1,  # Low temperature for consistent, focused analysis
-                max_tokens=4096,
+                model=settings.GROQ_LLM_MODEL,  # Groq's best model for reasoning
+                temperature=0.2,  # Balanced temperature for creative problem-solving while staying focused
+                max_tokens=8192,  # Increased for detailed multi-service investigations
             )
 
             # Create chat prompt template with system message and service mapping
@@ -162,8 +161,8 @@ class RCAAgentService:
             agent=agent,
             tools=tools_with_workspace,
             verbose=True,
-            max_iterations=15,
-            max_execution_time=180,
+            max_iterations=25,  # Increased for complex multi-service investigations
+            max_execution_time=300,  # 5 minutes for thorough upstream analysis
             handle_parsing_errors=True,
             return_intermediate_steps=True,
         )
@@ -312,8 +311,8 @@ class RCAAgentService:
         return {
             "model": "llama-3.3-70b-versatile",
             "provider": "Groq",
-            "max_iterations": 15,
-            "max_execution_time": 180,
+            "max_iterations": 25,
+            "max_execution_time": 300,
             "available_tools": [tool.name for tool in ALL_RCA_TOOLS],
         }
 

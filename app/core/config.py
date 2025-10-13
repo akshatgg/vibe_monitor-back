@@ -60,6 +60,7 @@ class Settings(BaseSettings):
 
     # Groq
     GROQ_API_KEY: Optional[str] = None
+    GROQ_LLM_MODEL: Optional[str]=None
 
     # AWS SQS
     AWS_REGION: Optional[str] = None
