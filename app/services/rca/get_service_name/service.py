@@ -68,17 +68,11 @@ async def extract_service_names_from_repo(
         List of discovered service names
     """
     try:
-        print(f"\n🚀 Starting service name extraction for repo: {repo}")
-        print(f"📦 Workspace ID: {workspace_id}")
-
         # Get GitHub integration and owner automatically from DB
-        print(f"🔍 Fetching GitHub integration from database...")
         integration, _ = await get_github_integration_with_token(workspace_id, db)
         owner = integration.github_username
-        print(f"✅ Found owner: {owner}")
 
         # Step 1: Get repository metadata for primary language
-        print(f"\n📊 Step 1: Fetching repository metadata...")
         metadata = await get_repository_metadata(
             workspace_id=workspace_id,
             name=repo,
@@ -89,11 +83,9 @@ async def extract_service_names_from_repo(
         )
 
         primary_language = _get_primary_language(metadata)
-        print(f"🔤 Primary language detected: {primary_language or 'Unknown'}")
         logger.info(f"Primary language for {owner}/{repo}: {primary_language}")
 
         # Step 2: Get repository tree to list files
-        print(f"\n🌳 Step 2: Fetching repository tree...")
         tree = await get_repository_tree(
             workspace_id=workspace_id,
             name=repo,
@@ -104,15 +96,11 @@ async def extract_service_names_from_repo(
         )
 
         files = _extract_file_names(tree)
-        print(f"📁 Found {len(files)} files in repository")
 
         # Step 3: Prioritize files to analyze
-        print(f"\n📋 Step 3: Prioritizing files for analysis...")
         priority_files = _get_priority_files(files, primary_language)
-        print(f"🎯 Top priority files: {priority_files[:5]}")
 
         # Step 4: Check Dockerfile FIRST (top priority)
-        print(f"\n🐳 Step 4: Checking Dockerfile for service.name label...")
         dockerfile_service = await _check_dockerfile_first(
             workspace_id=workspace_id,
             repo=repo,
@@ -123,14 +111,10 @@ async def extract_service_names_from_repo(
 
         # If Dockerfile has service.name label, return immediately
         if dockerfile_service:
-            print(f"🎉 Found service.name in Dockerfile: {dockerfile_service}")
             logger.info(f"Found service in Dockerfile: {dockerfile_service}")
             return [dockerfile_service]
-        else:
-            print(f"⚠️  No service.name label found in Dockerfile")
 
         # Step 5: Check other files if Dockerfile didn't have the label
-        print(f"\n📝 Step 5: Analyzing other files for service names...")
         service_names = []
         for file_path in priority_files[:10]:  # Limit to 10 files
             # Skip Dockerfile since we already checked it
@@ -138,7 +122,6 @@ async def extract_service_names_from_repo(
                 continue
 
             try:
-                print(f"   🔎 Analyzing: {file_path}")
                 file_content = await download_file_by_path(
                     workspace_id=workspace_id,
                     repo=repo,
@@ -151,36 +134,22 @@ async def extract_service_names_from_repo(
 
                 if file_content.get("success") and file_content.get("content"):
                     names = _extract_service_names_from_content(file_content["content"])
-                    if names:
-                        print(f"   ✅ Found service names in {file_path}: {names}")
-                        service_names.extend(names)
-                    else:
-                        print(f"   ⚪ No service names found in {file_path}")
+                    service_names.extend(names)
 
             except Exception as e:
-                print(f"   ❌ Failed to analyze {file_path}: {e}")
                 logger.warning(f"Failed to analyze {file_path}: {e}")
                 continue
 
         # Step 6: Return unique service names or fallback to repo name
-        print(f"\n🔄 Step 6: Deduplicating and finalizing...")
         unique_names = list(set(service_names))
         if not unique_names:
-            fallback_name = _normalize_name(repo)
-            print(f"⚠️  No service names found, using fallback: {fallback_name}")
-            unique_names = [fallback_name]
-        else:
-            print(f"✅ Final service names: {unique_names}")
+            unique_names = [_normalize_name(repo)]
 
-        print(f"🏁 Service extraction complete!\n")
         return unique_names
 
     except Exception as e:
-        print(f"\n❌ ERROR during service extraction: {e}")
         logger.error(f"Error extracting service names from {repo}: {e}")
-        fallback = _normalize_name(repo)
-        print(f"🔄 Returning fallback: {fallback}\n")
-        return [fallback]
+        return [_normalize_name(repo)]
 
 
 async def save_repository_services(
@@ -317,7 +286,6 @@ def _extract_service_names_from_content(content: str) -> List[str]:
             if match:
                 normalized = _normalize_name(match)
                 if _is_valid_name(normalized):
-                    print(f"      🔹 Pattern '{pattern_name}' matched: '{match}' → normalized: '{normalized}'")
                     names.append(normalized)
 
     return names
@@ -362,7 +330,6 @@ async def _check_dockerfile_first(
         Service name if found in Dockerfile, None otherwise
     """
     # Find Dockerfile
-    print(f"   🔍 Searching for Dockerfile in {len(files)} files...")
     dockerfile = None
     for f in files:
         if f.lower() in ["dockerfile", "dockerfile.prod", "dockerfile.dev"]:
@@ -370,13 +337,11 @@ async def _check_dockerfile_first(
             break
 
     if not dockerfile:
-        print(f"   ⚠️  No Dockerfile found in repository")
         logger.info("No Dockerfile found")
         return None
 
     try:
         # Download Dockerfile
-        print(f"   📥 Downloading Dockerfile: {dockerfile}")
         logger.info(f"Checking Dockerfile: {dockerfile}")
         file_content = await download_file_by_path(
             workspace_id=workspace_id,
@@ -389,28 +354,22 @@ async def _check_dockerfile_first(
         )
 
         if not file_content.get("success") or not file_content.get("content"):
-            print(f"   ❌ Failed to download or empty Dockerfile")
             return None
 
         content = file_content["content"]
-        print(f"   ✅ Dockerfile downloaded ({len(content)} bytes)")
 
         # Look for LABEL service.name="xxx" pattern
-        print(f"   🔎 Searching for 'LABEL service.name' pattern...")
         pattern = r'LABEL\s+service\.name\s*=\s*["\']([a-zA-Z0-9_\-]+)["\']'
         match = re.search(pattern, content, re.MULTILINE | re.IGNORECASE)
 
         if match:
             service_name = match.group(1)
-            print(f"   🎯 Found LABEL service.name: {service_name}")
             logger.info(f"Found LABEL service.name in Dockerfile: {service_name}")
             return service_name
 
-        print(f"   ⚪ No 'LABEL service.name' found in Dockerfile")
         logger.info("Dockerfile exists but no service.name label found")
         return None
 
     except Exception as e:
-        print(f"   ❌ Exception while checking Dockerfile: {e}")
         logger.warning(f"Failed to check Dockerfile: {e}")
         return None

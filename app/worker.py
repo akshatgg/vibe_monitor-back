@@ -6,9 +6,12 @@ from dotenv import load_dotenv
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
+from app.services.rca.callbacks import SlackProgressCallback
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
 from app.models import Job, JobStatus
+from app.github.tools.router import list_repositories_graphql
+from app.services.rca.get_service_name.service import extract_service_names_from_repo
 
 logger = logging.getLogger(__name__)
 
@@ -89,24 +92,107 @@ class RCAOrchestratorWorker(BaseWorker):
                 if team_id and channel_id:
                     await slack_event_service.send_message(
                         team_id=team_id,
-                        channel=channel_id, 
-                        text=f"🤔 Analyzing the issue: *{query}*\n\n",
+                        channel=channel_id,
+                        text=f"🤔 Analyzing: *{query}*\n\n_Step 1: Discovering services..._",
                         thread_ts=thread_ts,
                     )
+
+                # PRE-PROCESSING: Discover service→repo mappings BEFORE invoking AI agent
+                logger.info(f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}")
+
+                service_repo_mapping = {}
+                try:
+                    # Fetch all repositories
+                    repos_response = await list_repositories_graphql(
+                        workspace_id=workspace_id,
+                        first=50,  # Limit to first 50 repos to avoid overwhelming
+                        after=None,
+                        user_id="rca-agent",
+                        db=db
+                    )
+
+                    if repos_response.get("success"):
+                        repositories = repos_response.get("repositories", [])
+                        print(repositories, "............................................")
+                        total_repos = len(repositories)
+                        logger.info(f"Found {total_repos} repositories to scan")
+
+                        if team_id and channel_id:
+                            await slack_event_service.send_message(
+                                team_id=team_id,
+                                channel=channel_id,
+                                text=f"📦 Found {total_repos} repositories. Extracting service names...",
+                                thread_ts=thread_ts,
+                            )
+
+                        # Extract service names from each repository
+                        for i, repo in enumerate(repositories[:20], 1):  # Limit to first 20 to save time
+                            repo_name = repo.get("name")
+                            if not repo_name:
+                                continue
+
+                            try:
+                                services = await extract_service_names_from_repo(
+                                    workspace_id=workspace_id,
+                                    repo=repo_name,
+                                    user_id="rca-agent",
+                                    db=db
+                                )
+
+                                if services:
+                                    for service_name in services:
+                                        service_repo_mapping[service_name] = repo_name
+                                    logger.info(f"  [{i}/{min(20, total_repos)}] {repo_name} → {services}")
+
+                            except Exception as e:
+                                logger.warning(f"Failed to extract service names from {repo_name}: {e}")
+                                continue
+
+                        logger.info(f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped")
+
+                        if team_id and channel_id:
+                            services_list = ", ".join([f"**{s}**" for s in list(service_repo_mapping.keys())[:10]])
+                            more_text = f" and {len(service_repo_mapping) - 10} more" if len(service_repo_mapping) > 10 else ""
+                            await slack_event_service.send_message(
+                                team_id=team_id,
+                                channel=channel_id,
+                                text=f"✅ Discovered services: {services_list}{more_text}\n\n_Step 2: Analyzing logs and metrics..._",
+                                thread_ts=thread_ts,
+                            )
+                    else:
+                        logger.warning(".........Failed to fetch repositories for service discovery")
+
+                except Exception as e:
+                    logger.error(f"Error during service discovery pre-processing: {e}")
+                    # If service discovery fails, do not start RCA service, just warn and exit
+                    logger.warning("....................Service discovery failed, skipping RCA analysis for this job")
+                    return
 
                 # Perform RCA analysis using AI agent
                 logger.info(f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})")
 
-                # Add workspace_id to context for RCA tools
+                # Add workspace_id and service mapping to context for RCA tools
                 analysis_context = {
                     **(job.requested_context or {}),
-                    "workspace_id": workspace_id
+                    "workspace_id": workspace_id,
+                    "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
                 }
+
+                # Create Slack progress callback for real-time updates
+                slack_callback = None
+                if team_id and channel_id:
+                    slack_callback = SlackProgressCallback(
+                        team_id=team_id,
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        send_tool_output=False,  # Don't send verbose tool outputs
+                    )
 
                 result = await rca_agent_service.analyze_with_retry(
                     user_query=query,
                     context=analysis_context,
                     max_retries=2,
+                    callbacks=[slack_callback] if slack_callback else None,
                 )
 
                 # Process result
@@ -252,4 +338,9 @@ async def main():
 if __name__ == "__main__":
     load_dotenv()
     logging.basicConfig(level=logging.INFO)
+
+    # Reduce SQLAlchemy logging verbosity
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+
     asyncio.run(main())
