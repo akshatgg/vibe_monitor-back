@@ -2,7 +2,7 @@
 Custom LangChain callbacks for streaming RCA agent progress to Slack
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from langchain.callbacks.base import AsyncCallbackHandler
 from app.slack.service import slack_event_service
 
