@@ -1,0 +1,7 @@
+# False positives - Documentation examples with placeholder tokens in SETUP_GUIDE.md
+8bc8d899da800ec77e333faa076f467bc1435be6:SETUP_GUIDE.md:curl-auth-header:453
+8bc8d899da800ec77e333faa076f467bc1435be6:SETUP_GUIDE.md:curl-auth-header:465
+8bc8d899da800ec77e333faa076f467bc1435be6:SETUP_GUIDE.md:curl-auth-header:542
+99a2a3b146dae9f1a299214a8c2e0d17a1e86a9f:SETUP_GUIDE.md:curl-auth-header:453
+99a2a3b146dae9f1a299214a8c2e0d17a1e86a9f:SETUP_GUIDE.md:curl-auth-header:465
+99a2a3b146dae9f1a299214a8c2e0d17a1e86a9f:SETUP_GUIDE.md:curl-auth-header:542
