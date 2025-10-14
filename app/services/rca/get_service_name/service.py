@@ -237,7 +237,7 @@ def _get_primary_language(metadata: dict) -> Optional[str]:
         edges = metadata.get("languages", {}).get("edges", [])
         if edges:
             return edges[0].get("node", {}).get("name")
-    except:
+    except Exception:
         pass
     return None
 
@@ -247,7 +247,7 @@ def _extract_file_names(tree: dict) -> List[str]:
     try:
         entries = tree.get("data", {}).get("entries", [])
         return [e.get("name") for e in entries if e.get("type") == "blob"]
-    except:
+    except Exception:
         return []
 
 
