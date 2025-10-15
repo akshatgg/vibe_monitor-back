@@ -85,11 +85,11 @@ async def get_github_app_install_url(workspace_id: str, user_id: str):
     state = f"{user_id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
     # Build callback URL with workspace_id as a query parameter
-    callback_url = f"{settings.API_BASE_URL}/api/v1/github/callback?workspace_id={workspace_id}"
+    # callback_url = f"{settings.API_BASE_URL}/api/v1/github/callback?workspace_id={workspace_id}"
 
     github_install_url = f"https://github.com/apps/{settings.GITHUB_APP_NAME}/installations/new"
-    full_url = f"{github_install_url}?state={state}&redirect_uri={callback_url}"
-
+    full_url = f"{github_install_url}?state={state}"
+    
     return {
         "install_url": full_url,
         "message": "Redirect to this URL to install the GitHub App"
