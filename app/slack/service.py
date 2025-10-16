@@ -217,7 +217,6 @@ class SlackEventService:
                     logger.info(f"✅ Job {job_id} enqueued to SQS")
                     return (
                         f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
-                        f"Job ID: `{job_id[:8]}...`\n"
                         f"This may take a moment while I investigate logs and metrics. "
                         f"I'll reply here once I have the analysis ready."
                     )
