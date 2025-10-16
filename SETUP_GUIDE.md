@@ -63,18 +63,68 @@ Complete setup guide for VM-API with Slack bot integration and monitoring stack.
 
 ## 📝 Setup Steps
 
+
+### Create Slack Bot
+
+**Step 1: Create App**
+
+1. Go to https://api.slack.com/apps
+2. Click "Create New App" → "From scratch"
+3. App Name: `vm-dev-yourname`
+4. Select your workspace
+
+**Step 2: Get Credentials**
+
+Go to **Basic Information** → App Credentials:
+
+Copy these values :
+- **Signing Secret**: Found under "App Credentials" section
+- **Client ID**: Found under "App Credentials" section
+- **Client Secret**: Click "Show" to reveal, then copy
+
+
+### Create Google Auth Client ID
+Go to https://console.cloud.google.com/apis/credentials
+
+Click Create Client -> Application Type - Web application -> name - vm-dev-username
+Add Authorized JavaScript origins: http://localhost:3000
+Add Authorized redirect URIs: http://localhost:8000/api/v1/auth/callback (for bakcend check)
+and http://localhost:3000/auth/google/callback (for frontend check)
+
+Create -> Copy Client ID and Client Secret
 ### 1️⃣ Clone & Setup VM-API
 
 ```bash
-# Clone repository and navigate to vm-api directory
-git clone <repo-url>
+# Move to home directory Clone repository and navigate to vm-api directory
+git clone git@github.com:Vibe-Monitor/vm-api.git
 cd vm-api
 
 # Copy environment file
 cp .env.example .env
 
+#  Update these lines in your `.env` file:
+
+# Onboarding (Google OAuth)
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+
+
+
+# Slack Integration
+SLACK_SIGNING_SECRET=your_signing_secret_here
+SLACK_CLIENT_ID=your_client_id_here
+SLACK_CLIENT_SECRET=your_client_secret_here
+
+# Recommended: Create and activate a virtual environment for dependencies
+
 # Install dependencies
 poetry install
+
+# Recommended If there are new dependencies and old docker image is cached, do this:
+docker compose -f docker-compose.dev.yml --profile full-docker build --no-cache vm-api
+
+# Bring down running services for clean start
+docker compose -f docker-compose.dev.yml --profile full-docker down
 
 # Start VM-API with Docker Compose
 docker compose -f docker-compose.dev.yml --profile full-docker up -d
@@ -91,18 +141,17 @@ curl http://localhost:8000/health
 **Step 1: Clone LGTM Repository**
 
 ```bash
-# Clone LGTM stack
-git clone <lgtm-repo-url>
-cd lgtm
+# Move to home directory and Clone LGTM stack
+git clone git@github.com:Vibe-Monitor/lgtm.git
 ```
 
 **Step 2: Clone Service Repositories**
 
 ```bash
-# Clone auth, desk, and marketplace services
-git clone <auth-repo-url>
-git clone <desk-repo-url>
-git clone <marketplace-repo-url>
+# Move to home directory and Clone auth, desk, and marketplace services
+git clone git@github.com:Vibe-Monitor/auth.git
+git clone git@github.com:Vibe-Monitor/desk.git
+git clone git@github.com:Vibe-Monitor/marketplace.git
 ```
 
 **Step 3: Copy Service Data to LGTM Structure**
@@ -121,21 +170,23 @@ cp -r marketplace/* lgtm/services/marketplace/
 **Step 4: Start LGTM Stack**
 
 ```bash
-# Navigate to LGTM directory and start
+# Navigate to LGTM directory and start. Cleanup already running services
 cd lgtm
+docker compose down
 docker compose up -d
 
 # Verify services
-docker ps  # Should show grafana, prometheus, loki
+docker ps
+# Should show grafana, prometheus, loki
 
 # Access Grafana
-# Browser: http://localhost:3000
+# Browser: http://localhost:3300
 # Login: admin/admin
 ```
 
 **Create Grafana API Token:**
 
-1. Grafana → Administration → Service Accounts
+1. Grafana → Administration → Users and access → Service Accounts
 2. Click "Add service account" → Name: `vm-api`, Role: `Admin`
 3. Click "Add service account token" → Generate
 4. **Copy token** (starts with `glsa_...`) - save it!
@@ -166,16 +217,9 @@ curl https://YOUR_NGROK_URL.ngrok.io/health
 
 ---
 
-### 4️⃣ Create Slack Bot
+### 4️⃣ Continue Slack Bot configuration
 
-**Step 1: Create App**
-
-1. Go to https://api.slack.com/apps
-2. Click "Create New App" → "From scratch"
-3. App Name: `vm-test` (or your choice)
-4. Select your workspace
-
-**Step 2: Add Bot Scopes**
+**Step 1: Add Bot Scopes**
 
 Go to **OAuth & Permissions** → Bot Token Scopes:
 
@@ -190,7 +234,7 @@ commands
 groups:read
 ```
 
-**Step 3: Add Redirect URL**
+**Step 2: Add Redirect URL**
 
 Still in **OAuth & Permissions** → Redirect URLs:
 
@@ -199,7 +243,7 @@ Add:
 https://YOUR_NGROK_URL.ngrok.io/api/v1/slack/oauth/callback
 ```
 
-**Step 4: Enable Event Subscriptions**
+**Step 3: Enable Event Subscriptions**
 
 Go to **Event Subscriptions** → Toggle ON:
 
@@ -218,7 +262,7 @@ message.groups
 message.im
 ```
 
-**Step 5: Enable Interactivity**
+**Step 4: Enable Interactivity**
 
 Go to **Interactivity & Shortcuts** → Toggle ON:
 
@@ -227,26 +271,6 @@ Request URL:
 https://YOUR_NGROK_URL.ngrok.io/api/v1/slack/interactivity
 ```
 
-**Step 6: Get Credentials**
-
-Go to **Basic Information** → App Credentials:
-
-Copy these values:
-- **Signing Secret**: Found under "App Credentials" section
-- **Client ID**: Found under "App Credentials" section
-- **Client Secret**: Click "Show" to reveal, then copy
-
-**Step 7: Create Incoming Webhook (Optional)**
-
-If you want to send notifications to a specific channel:
-
-1. Go to **Incoming Webhooks** (left sidebar)
-2. Toggle **"Activate Incoming Webhooks"** to ON
-3. Click **"Add New Webhook to Workspace"**
-4. Select a channel (e.g., `#general` or `#vm-test`)
-5. Click **"Allow"**
-6. Copy the **Webhook URL** (looks like: `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX`)
-
 ---
 
 ### 5️⃣ Update VM-API Configuration
@@ -254,12 +278,6 @@ If you want to send notifications to a specific channel:
 Update these lines in your `.env` file:
 
 ```bash
-# Slack Integration
-SLACK_SIGNING_SECRET=your_signing_secret_here
-SLACK_WEBHOOK_URL=your_slack_webhook_url_here
-SLACK_CLIENT_ID=your_client_id_here
-SLACK_CLIENT_SECRET=your_client_secret_here
-
 # Update API base URL to ngrok
 API_BASE_URL=https://YOUR_NGROK_URL.ngrok.io
 ```
@@ -289,6 +307,14 @@ VALUES (
   NOW(),
   NOW()
 ) ON CONFLICT (email) DO NOTHING;
+```
+
+**Create test workspace:**
+```sql
+INSERT INTO workspaces (id, name, domain, 
+visible_to_org, is_paid, created_at, updated_at)
+VALUES ('101', 'Workspace 101', NULL, false, false, NOW(), NOW()
+) ON CONFLICT (id) DO NOTHING;
 ```
 
 **Add user to workspace 101:**
@@ -329,9 +355,15 @@ INSERT INTO grafana_integrations (
 
 ---
 
-### 7️⃣ GitHub App Setup (Optional)
+### Setup vm-webapp on local 
+git clone git@github.com:Vibe-Monitor/vm-webapp.git
+cd vm-webapp
 
-This allows VM-API to access GitHub repositories. Skip if you don't need GitHub integration.
+#### Setup and start vm-webapp on docker following vm-webapp/README.md
+
+### 7️⃣ GitHub App Setup
+
+This allows VM-API to access GitHub repositories. 
 
 ---
 
@@ -343,18 +375,14 @@ This allows VM-API to access GitHub repositories. Skip if you don't need GitHub 
 
 **Basic Information:**
 ```
-GitHub App name: vibemonitor-dev-yourname
-Homepage URL: http://localhost:3000
+GitHub App name: vm-dev-yourname
+Homepage URL: https://www.vibemonitor.ai/
 ```
 
-**Callback URL:**
-```
-http://localhost:8000/api/v1/github/callback
-```
 
-**Post Installation (Setup URL):**
+**Post Installation (Setup URL) :**
 ```
-http://localhost:3000/github/callback
+http://localhost:3000/github/callback (for frontend check ) or http://localhost:8000/github/callback (for backend check, if u don't have frontend)
 ```
 
 **Webhook:**
@@ -363,6 +391,7 @@ http://localhost:3000/github/callback
 ```
 https://YOUR_NGROK_URL.ngrok.io/api/v1/github/webhook
 ```
+- **Webhook Secret:** Enter a secure random string (you'll need this for your `.env` file later as `GITHUB_WEBHOOK_SECRET`)
 
 **Permissions:**
 - Repository permissions:
@@ -389,43 +418,28 @@ https://YOUR_NGROK_URL.ngrok.io/api/v1/github/webhook
 
 ---
 
-**Step 3: Convert Private Key to Base64**
-
-```bash
-# Navigate to Downloads
-cd ~/Downloads
-
-# Convert PEM to base64 (single line)
-cat vibemonitor-dev-yourname.*.private-key.pem | base64 -w 0
-
-# Copy the output (very long string)
-```
-
----
-
-**Step 4: Update VM-API .env**
+**Step 3: Update VM-API .env**
 
 Add these lines to your `.env` file:
 ```bash
 # GitHub app
 GITHUB_APP_NAME=vibemonitor-dev-yourname
 GITHUB_APP_ID=2111937
-GITHUB_PRIVATE_KEY_PEM=LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLS...
+GITHUB_PRIVATE_KEY_PEM="-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAvdE...
+-----END RSA PRIVATE KEY-----
+"
 GITHUB_CLIENT_ID=Iv23liI8SDc4kEN1eIGo
+GITHUB_WEBHOOK_SECRET=Your_Github_webhook_secret_key
+
 ```
 
 ---
 
-**Step 5: Install GitHub App**
+**Step 4: Install GitHub App**
 
-1. Go to: https://github.com/settings/apps
-2. Click your app name
-3. Click **"Install App"** (left sidebar)
-4. Click **"Install"** next to your username
-5. Select repositories:
-   - ✅ Only select repositories (choose test repos)
-   - Or: All repositories
-6. Click **"Install"**
+Goto http://localhost:3000 (webapp)
+Connect with github -> install on Vibe-Monitor/auth and /desk and /marketplace
 
 ---
 
