@@ -55,6 +55,12 @@ class TargetsResponse(BaseModel):
     data: Dict[str, List[MetricTarget]] = Field(description="Targets data")
 
 
+class LabelResponse(BaseModel):
+    """Response for label queries"""
+    status: str = Field(description="Query status")
+    data: List[str] = Field(description="List of label names or values")
+
+
 class TimeRange(BaseModel):
     """Time range specification"""
     start: Union[datetime, str] = Field(description="Start time (datetime or relative like 'now-1h')")

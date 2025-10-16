@@ -32,18 +32,26 @@ class DatasourceDiscovery:
             httpx.HTTPError: If Grafana API call fails
         """
         try:
-            url = f"{grafana_url}/api/datasources/name/{datasource_name}"
+            url = f"{grafana_url}/api/datasources"
             headers = {"Authorization": f"Bearer {api_token}"}
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=headers, timeout=10.0)
                 response.raise_for_status()
-                datasource = response.json()
+                datasources = response.json()
 
-            prometheus_uid = datasource.get("uid")
+            # Find Prometheus datasource by name and type
+            prometheus_uid = None
+            for datasource in datasources:
+                if datasource.get("name") == datasource_name and datasource.get("type") == "prometheus":
+                    prometheus_uid = datasource.get("uid")
+                    break
 
             if not prometheus_uid:
-                raise ValueError(f"Datasource '{datasource_name}' found but has no UID")
+                raise ValueError(
+                    f"Prometheus datasource '{datasource_name}' not found in Grafana. "
+                    "Please configure a Prometheus datasource with this name first."
+                )
 
             return prometheus_uid
 
