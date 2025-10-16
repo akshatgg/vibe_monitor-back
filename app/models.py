@@ -51,6 +51,7 @@ class Workspace(Base):
         Boolean, default=False
     )  # If domain users can see this workspace
     is_paid = Column(Boolean, default=False)  # For future payment features
+    daily_request_limit = Column(Integer, default=10, nullable=False)  # Daily RCA request limit
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -199,4 +200,30 @@ class Job(Base):
         Index('idx_jobs_workspace_status', 'vm_workspace_id', 'status'),
         Index('idx_jobs_slack_integration', 'slack_integration_id'),
         Index('idx_jobs_created_at', 'created_at'),
+    )
+
+
+class RateLimitTracking(Base):
+    """
+    Universal rate limit tracking for any resource type.
+    Supports multiple time windows and resource types.
+    """
+    __tablename__ = "rate_limit_tracking"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    resource_type = Column(String, nullable=False)  # e.g., 'rca_request', 'api_call'
+    window_key = Column(String, nullable=False)  # e.g., '2025-10-15' (daily), '2025-10-15-14' (hourly)
+    count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="rate_limit_tracking")
+
+    # Indexes
+    __table_args__ = (
+        Index('idx_rate_limit_unique', 'workspace_id', 'resource_type', 'window_key', unique=True),
+        Index('idx_rate_limit_workspace', 'workspace_id'),
+        Index('idx_rate_limit_resource', 'resource_type'),
     )

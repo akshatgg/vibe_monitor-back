@@ -21,6 +21,8 @@ from app.models import SlackInstallation
 from app.models import Job, JobStatus
 
 from app.utils.token_processor import token_processor
+from app.utils.rate_limiter import check_rate_limit, ResourceType
+
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +192,47 @@ class SlackEventService:
 
                     slack_integration_id = slack_integration.id
                     workspace_id = slack_integration.workspace_id
+
+                    # Check rate limit before creating job
+
+                    try:
+                        allowed, current_count, limit = await check_rate_limit(
+                            session=db,
+                            workspace_id=workspace_id,
+                            resource_type=ResourceType.RCA_REQUEST
+                        )
+
+                        if not allowed:
+                            logger.warning(
+                                f"RCA rate limit exceeded for workspace {workspace_id}: "
+                                f"{current_count}/{limit}"
+                            )
+                            return (
+                                f"⚠️ *Daily RCA Request Limit Reached*\n\n"
+                                f"Your workspace has reached the daily limit of *{limit} RCA requests*.\n\n"
+                                f"📅 Current usage: {current_count}/{limit}\n"
+                                f"🔄 Limit resets: Tomorrow at midnight UTC\n\n"
+                                f"Please try again tomorrow or contact support@vibemonitor.ai to increase your limits."
+                            )
+
+                        logger.info(
+                            f"RCA rate limit check passed for workspace {workspace_id}: "
+                            f"{current_count}/{limit}"
+                        )
+
+                    except ValueError as e:
+                        logger.error(f"Rate limit check failed: {e}")
+                        return (
+                            f"❌ Sorry <@{user_id}>, there was an error checking your workspace limits. "
+                            f"Please contact support."
+                        )
+                    except Exception as e:
+                        logger.exception(f"Unexpected error in rate limit check: {e}")
+                        # Fail open: allow the request but log the error
+                        logger.warning(
+                            f"Rate limit check failed for workspace {workspace_id}, "
+                            f"allowing request to proceed"
+                        )
 
                     # Create job record
                     job = Job(
