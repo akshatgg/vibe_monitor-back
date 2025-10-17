@@ -21,13 +21,13 @@ class GroqService:
         message: str,
         model: str = "openai/gpt-oss-20b",
         temperature: float = 0.7,
-        max_tokens: int = 150
+        max_tokens: int = 150,
     ) -> str:
         request = ChatRequest(
             model=model,
             messages=[ChatMessage(role=ChatRole.USER, content=message)],
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
         )
 
         response = await self.chat_completion(request)
@@ -39,16 +39,16 @@ class GroqService:
         user_message: str,
         model: str = "openai/gpt-oss-20b",
         temperature: float = 0.7,
-        max_tokens: int = 150
+        max_tokens: int = 150,
     ) -> str:
         request = ChatRequest(
             model=model,
             messages=[
                 ChatMessage(role=ChatRole.SYSTEM, content=system_prompt),
-                ChatMessage(role=ChatRole.USER, content=user_message)
+                ChatMessage(role=ChatRole.USER, content=user_message),
             ],
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
         )
 
         response = await self.chat_completion(request)
@@ -59,13 +59,13 @@ class GroqService:
         messages: List[ChatMessage],
         model: str = "openai/gpt-oss-20b",
         temperature: float = 0.7,
-        max_tokens: int = 150
+        max_tokens: int = 150,
     ) -> str:
         request = ChatRequest(
             model=model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
         )
 
         response = await self.chat_completion(request)

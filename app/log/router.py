@@ -1,6 +1,7 @@
 """
 FastAPI router for logs endpoints
 """
+
 import logging
 from typing import Optional, Literal
 
@@ -12,7 +13,7 @@ from .models import (
     LabelResponse,
     LogQueryParams,
     TimeRange,
-    LogsHealthResponse
+    LogsHealthResponse,
 )
 from .service import logs_service
 from ..core.config import settings
@@ -28,17 +29,23 @@ IS_PRODUCTION = settings.is_production
 # Request models for API endpoints
 class LogsQueryRequest(BaseModel):
     """Request model for custom log queries"""
+
     query: str = Field(description="LogQL query string")
     start: str = Field(description="Start time (RFC3339Nano or relative like 'now-1h')")
     end: str = Field(description="End time (RFC3339Nano or relative like 'now')")
     limit: Optional[int] = Field(default=100, description="Max number of log entries")
-    direction: Optional[Literal["FORWARD", "BACKWARD"]] = Field(default="BACKWARD", description="Query direction")
+    direction: Optional[Literal["FORWARD", "BACKWARD"]] = Field(
+        default="BACKWARD", description="Query direction"
+    )
 
 
 class LogsSearchRequest(BaseModel):
     """Request model for log search"""
+
     search_term: str = Field(description="Text to search for in logs")
-    service_name: Optional[str] = Field(default=None, description="Filter by service/job name")
+    service_name: Optional[str] = Field(
+        default=None, description="Filter by service/job name"
+    )
     start: str = Field(default="now-1h", description="Start time")
     end: str = Field(default="now", description="End time")
     limit: Optional[int] = Field(default=100, description="Max number of log entries")
@@ -212,7 +219,7 @@ async def get_logs_by_level_func(
 
 async def get_logs_health_endpoint(
     workspace_id: Optional[str] = Header(None, alias="workspace-id"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogsHealthResponse:
     """Get logs system health status - FastAPI endpoint"""
     try:
@@ -224,7 +231,7 @@ async def get_logs_health_endpoint(
 
 async def get_log_labels_endpoint(
     workspace_id: str = Header(..., alias="workspace-id"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LabelResponse:
     """Get list of all available log labels - FastAPI endpoint"""
     try:
@@ -237,7 +244,7 @@ async def get_log_labels_endpoint(
 async def get_label_values_endpoint(
     label_name: str,
     workspace_id: str = Header(..., alias="workspace-id"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LabelResponse:
     """Get all values for a specific label - FastAPI endpoint"""
     try:
@@ -250,7 +257,7 @@ async def get_label_values_endpoint(
 async def query_logs_endpoint(
     request: LogsQueryRequest,
     workspace_id: str = Header(..., alias="workspace-id"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Query logs with custom LogQL query - FastAPI endpoint"""
     try:
@@ -263,7 +270,7 @@ async def query_logs_endpoint(
 async def search_logs_endpoint(
     request: LogsSearchRequest,
     workspace_id: str = Header(..., alias="workspace-id"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Search logs containing specific text - FastAPI endpoint"""
     try:
@@ -279,12 +286,16 @@ async def get_service_logs_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    direction: Literal["FORWARD", "BACKWARD"] = Query("BACKWARD", description="Query direction"),
-    service = Depends(get_logs_service)
+    direction: Literal["FORWARD", "BACKWARD"] = Query(
+        "BACKWARD", description="Query direction"
+    ),
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get logs for a specific service - FastAPI endpoint"""
     try:
-        return await get_service_logs_func(workspace_id, service_name, start, end, limit, direction)
+        return await get_service_logs_func(
+            workspace_id, service_name, start, end, limit, direction
+        )
     except Exception as e:
         logger.error(f"Failed to get service logs: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve service logs")
@@ -296,7 +307,7 @@ async def get_error_logs_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get error logs (filtered by error/ERROR keywords) - FastAPI endpoint"""
     try:
@@ -312,7 +323,7 @@ async def get_warning_logs_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get warning logs (filtered by warn/WARNING keywords) - FastAPI endpoint"""
     try:
@@ -328,7 +339,7 @@ async def get_info_logs_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get info logs (filtered by info/INFO keywords) - FastAPI endpoint"""
     try:
@@ -344,7 +355,7 @@ async def get_debug_logs_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get debug logs (filtered by debug/DEBUG keywords) - FastAPI endpoint"""
     try:
@@ -361,11 +372,13 @@ async def get_logs_by_level_endpoint(
     start: str = Query("now-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     limit: int = Query(100, description="Max number of entries"),
-    service = Depends(get_logs_service)
+    service=Depends(get_logs_service),
 ) -> LogQueryResponse:
     """Get logs filtered by custom log level - FastAPI endpoint"""
     try:
-        return await get_logs_by_level_func(workspace_id, log_level, service_name, start, end, limit)
+        return await get_logs_by_level_func(
+            workspace_id, log_level, service_name, start, end, limit
+        )
     except Exception as e:
         logger.error(f"Failed to get logs by level: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve logs by level")

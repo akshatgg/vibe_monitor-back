@@ -143,10 +143,10 @@ class SlackEventService:
                 f"Hi <@{user_id}>! Here's what I can do:\n\n"
                 "🔍 **AI-Powered Root Cause Analysis**\n"
                 "Ask me questions about your services and I'll investigate logs and metrics:\n"
-                "• _\"Why is my xyz service slow?\"_\n"
-                "• _\"Check errors in api-gateway service\"_\n"
-                "• _\"What's causing high CPU on auth-service?\"_\n"
-                "• _\"Investigate database timeouts\"_\n\n"
+                '• _"Why is my xyz service slow?"_\n'
+                '• _"Check errors in api-gateway service"_\n'
+                '• _"What\'s causing high CPU on auth-service?"_\n'
+                '• _"Investigate database timeouts"_\n\n'
                 "📋 **Commands**\n"
                 "• `help` - Show this message\n"
                 "• `status` - Check bot health\n\n"
@@ -167,7 +167,6 @@ class SlackEventService:
             # This looks like an RCA query - create Job record and enqueue to SQS
             logger.info(f"Creating RCA job for query: '{clean_message}'")
 
-
             # Generate job ID
             job_id = str(uuid.uuid4())
 
@@ -175,7 +174,9 @@ class SlackEventService:
                 # Create Job record in database
                 async with AsyncSessionLocal() as db:
                     # Get slack integration ID and workspace_id from team_id
-                    slack_integration = await SlackEventService.get_installation(team_id)
+                    slack_integration = await SlackEventService.get_installation(
+                        team_id
+                    )
                     if not slack_integration:
                         logger.error(f"No Slack installation found for team {team_id}")
                         return (
@@ -184,7 +185,9 @@ class SlackEventService:
                         )
 
                     if not slack_integration.workspace_id:
-                        logger.error(f"Slack installation {slack_integration.id} has no workspace_id")
+                        logger.error(
+                            f"Slack installation {slack_integration.id} has no workspace_id"
+                        )
                         return (
                             f"❌ Sorry <@{user_id}>, your Slack workspace is not linked to a VibeMonitor workspace. "
                             f"Please complete the setup or contact support."
@@ -259,7 +262,7 @@ class SlackEventService:
                 if success:
                     logger.info(f"✅ Job {job_id} enqueued to SQS")
                     return (
-                        f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
+                        f'🔍 Got it! I\'m analyzing: *"{clean_message}"*\n\n'
                         f"Job ID: `{job_id[:8]}...`\n"
                         f"This may take a moment while I investigate logs and metrics. "
                         f"I'll reply here once I have the analysis ready."
@@ -409,7 +412,7 @@ class SlackEventService:
             logger.info("Access token decrypted successfully for slack message")
         except Exception as err:
             logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return False 
+            return False
 
         try:
             async with httpx.AsyncClient() as client:
@@ -420,7 +423,7 @@ class SlackEventService:
                     payload["thread_ts"] = thread_ts
 
                 response = await client.post(
-                    "https://slack.com/api/chat.postMessage",
+                    f"{settings.SLACK_API_BASE_URL}/chat.postMessage",
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Content-Type": "application/json",

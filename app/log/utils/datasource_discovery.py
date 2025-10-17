@@ -12,9 +12,7 @@ class DatasourceDiscovery:
 
     @staticmethod
     async def get_loki_uid(
-        grafana_url: str,
-        api_token: str,
-        datasource_name: str = "Loki"
+        grafana_url: str, api_token: str, datasource_name: str = "Loki"
     ) -> str:
         """
         Auto-discover Loki datasource UID from Grafana by name
@@ -70,10 +68,7 @@ class DatasourceDiscovery:
 _datasource_cache: Dict[str, str] = {}
 
 
-async def get_loki_uid_cached(
-    grafana_url: str,
-    api_token: str
-) -> str:
+async def get_loki_uid_cached(grafana_url: str, api_token: str) -> str:
     """
     Cached wrapper for get_loki_uid
 

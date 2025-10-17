@@ -35,9 +35,7 @@ async def get_github_integration_status(workspace_id: str, db: AsyncSession):
     from ...models import GitHubIntegration
 
     result = await db.execute(
-        select(GitHubIntegration).where(
-            GitHubIntegration.workspace_id == workspace_id
-        )
+        select(GitHubIntegration).where(GitHubIntegration.workspace_id == workspace_id)
     )
     integration = result.scalar_one_or_none()
 
@@ -48,14 +46,12 @@ async def get_github_integration_status(workspace_id: str, db: AsyncSession):
                 "id": integration.id,
                 "github_username": integration.github_username,
                 "installation_id": integration.installation_id,
-                "last_synced_at": integration.last_synced_at
-            }
+                "last_synced_at": integration.last_synced_at,
+                "is_active": integration.is_active,
+            },
         }
     else:
-        return {
-            "connected": False,
-            "integration": None
-        }
+        return {"connected": False, "integration": None}
 
 
 async def list_github_repositories(workspace_id: str, db: AsyncSession):
@@ -69,7 +65,7 @@ async def list_github_repositories(workspace_id: str, db: AsyncSession):
     return {
         "success": True,
         "total_count": repos_data.get("total_count", 0),
-        "repositories": repos_data.get("repositories", [])
+        "repositories": repos_data.get("repositories", []),
     }
 
 
@@ -87,12 +83,13 @@ async def get_github_app_install_url(workspace_id: str, user_id: str):
     # Build callback URL with workspace_id as a query parameter
     # callback_url = f"{settings.API_BASE_URL}/api/v1/github/callback?workspace_id={workspace_id}"
 
-    github_install_url = f"https://github.com/apps/{settings.GITHUB_APP_NAME}/installations/new"
+    github_install_url = (
+        f"{settings.GITHUB_APP_INSTALL_URL}/{settings.GITHUB_APP_NAME}/installations/new"
+    )
     full_url = f"{github_install_url}?state={state}"
-    
     return {
         "install_url": full_url,
-        "message": "Redirect to this URL to install the GitHub App"
+        "message": "Redirect to this URL to install the GitHub App",
     }
 
 
@@ -108,30 +105,26 @@ async def disconnect_github_app(workspace_id: str, user_id: str, db: AsyncSessio
     # Verify user has access to workspace
     membership_result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == workspace_id
+            Membership.user_id == user_id, Membership.workspace_id == workspace_id
         )
     )
     membership = membership_result.scalar_one_or_none()
 
     if not membership:
         raise HTTPException(
-            status_code=403,
-            detail="User does not have access to this workspace"
+            status_code=403, detail="User does not have access to this workspace"
         )
 
     # Find active integration
     result = await db.execute(
-        select(GitHubIntegration).where(
-            GitHubIntegration.workspace_id == workspace_id
-        )
+        select(GitHubIntegration).where(GitHubIntegration.workspace_id == workspace_id)
     )
     integration = result.scalar_one_or_none()
 
     if not integration:
         raise HTTPException(
             status_code=404,
-            detail="No active GitHub integration found for this workspace"
+            detail="No active GitHub integration found for this workspace",
         )
 
     # Uninstall from GitHub via API
@@ -147,7 +140,7 @@ async def disconnect_github_app(workspace_id: str, user_id: str, db: AsyncSessio
 
     return {
         "success": True,
-        "message": "GitHub App disconnected and uninstalled successfully"
+        "message": "GitHub App disconnected and uninstalled successfully",
     }
 
 
@@ -157,7 +150,7 @@ async def github_app_installation_callback(
     state: Optional[str],
     workspace_id: Optional[str],
     jwt_token: Optional[str],
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     GitHub redirects here after installation
@@ -199,6 +192,7 @@ async def github_app_installation_callback(
 
     # Validate that workspace exists and user has access
     from ...models import Workspace, Membership
+
     workspace_result = await db.execute(
         select(Workspace).where(Workspace.id == final_workspace_id)
     )
@@ -210,30 +204,34 @@ async def github_app_installation_callback(
     # Check if user is a member of the workspace
     membership_result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == final_workspace_id
+            Membership.user_id == user_id, Membership.workspace_id == final_workspace_id
         )
     )
     membership = membership_result.scalar_one_or_none()
 
     if not membership:
         raise HTTPException(
-            status_code=403,
-            detail="User does not have access to this workspace"
+            status_code=403, detail="User does not have access to this workspace"
         )
 
-    installation_info = await github_app_service.get_installation_info_by_id(installation_id)
+    installation_info = await github_app_service.get_installation_info_by_id(
+        installation_id
+    )
 
-    integration = await github_app_service.create_or_update_app_integration_with_installation(
-        workspace_id=final_workspace_id,
-        installation_id=installation_id,
-        installation_info=installation_info,
-        db=db
+    integration = (
+        await github_app_service.create_or_update_app_integration_with_installation(
+            workspace_id=final_workspace_id,
+            installation_id=installation_id,
+            installation_info=installation_info,
+            db=db,
+        )
     )
 
     # Get and store access token immediately after installation
     try:
-        token_data = await github_app_service.get_installation_access_token(installation_id)
+        token_data = await github_app_service.get_installation_access_token(
+            installation_id
+        )
         from dateutil import parser as date_parser
 
         integration.access_token = token_processor.encrypt(token_data["token"])
@@ -251,8 +249,8 @@ async def github_app_installation_callback(
         "integration": {
             "id": integration.id,
             "github_username": integration.github_username,
-            "installation_id": integration.installation_id
-        }
+            "installation_id": integration.installation_id,
+        },
     }
 
 
@@ -264,8 +262,8 @@ async def github_app_installation_callback(
 @router.get("/status")
 async def get_github_integration_status_endpoint(
     workspace_id: str = Query(..., description="Workspace ID to check"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Check if workspace has GitHub App connected - FastAPI endpoint
@@ -281,8 +279,8 @@ async def get_github_integration_status_endpoint(
 @router.get("/repositories")
 async def list_github_repositories_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List all repositories accessible by the GitHub integration - FastAPI endpoint
@@ -300,8 +298,10 @@ async def list_github_repositories_endpoint(
 
 @router.get("/install")
 async def get_github_app_install_url_endpoint(
-    workspace_id: str = Query(..., description="Workspace ID where GitHub App will be installed"),
-    user = Depends(auth_service.get_current_user)
+    workspace_id: str = Query(
+        ..., description="Workspace ID where GitHub App will be installed"
+    ),
+    user=Depends(auth_service.get_current_user),
 ):
     """
     Get GitHub App installation URL - FastAPI endpoint
@@ -319,8 +319,8 @@ async def get_github_app_install_url_endpoint(
 @router.delete("/disconnect")
 async def disconnect_github_app_endpoint(
     workspace_id: str = Query(..., description="Workspace ID to disconnect"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Disconnect GitHub App from workspace - FastAPI endpoint
@@ -341,9 +341,11 @@ async def github_app_installation_callback_endpoint(
     installation_id: str = Query(...),
     setup_action: str = Query(...),
     state: Optional[str] = Query(None),
-    workspace_id: Optional[str] = Query(None, description="Workspace ID (required for testing with JWT)"),
+    workspace_id: Optional[str] = Query(
+        None, description="Workspace ID (required for testing with JWT)"
+    ),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     GitHub redirects here after installation - FastAPI endpoint

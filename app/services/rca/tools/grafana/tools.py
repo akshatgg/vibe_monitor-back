@@ -1,6 +1,7 @@
 """
 LangChain tools for RCA agent to interact with logs and metrics services
 """
+
 import logging
 from typing import Optional
 from langchain.tools import tool
@@ -39,7 +40,9 @@ def _format_logs_response(response, limit: int = 50) -> str:
 
         summary = f"Found {count} log entries:\n\n" + "\n".join(logs)
         if count >= limit:
-            summary += f"\n\n(Showing first {limit} entries. More logs may be available.)"
+            summary += (
+                f"\n\n(Showing first {limit} entries. More logs may be available.)"
+            )
 
         return summary
 

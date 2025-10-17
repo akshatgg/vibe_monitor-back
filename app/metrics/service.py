@@ -1,6 +1,7 @@
 """
 Metrics service layer for business logic
 """
+
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -15,12 +16,11 @@ from .models import (
     InstantMetricResponse,
     RangeMetricResponse,
     TargetsResponse,
-    MetricQueryParams,
     MetricTarget,
     MetricSeries,
     MetricValue,
     TimeRange,
-    LabelResponse
+    LabelResponse,
 )
 from .utils import get_prometheus_uid_cached
 
@@ -42,14 +42,17 @@ class MetricsService:
             integration = result.scalar_one_or_none()
 
             if not integration:
-                raise ValueError(f"No Grafana configuration found for workspace {workspace_id}")
+                raise ValueError(
+                    f"No Grafana configuration found for workspace {workspace_id}"
+                )
 
             # Auto-discover Prometheus UID from Grafana
             datasource_uid = await get_prometheus_uid_cached(
-                grafana_url=integration.grafana_url,
-                api_token=integration.api_token
+                grafana_url=integration.grafana_url, api_token=integration.api_token
             )
-            logger.info(f"Auto-discovered Prometheus UID for workspace {workspace_id}: {datasource_uid}")
+            logger.info(
+                f"Auto-discovered Prometheus UID for workspace {workspace_id}: {datasource_uid}"
+            )
 
             return integration.grafana_url, integration.api_token, datasource_uid
 
@@ -61,7 +64,7 @@ class MetricsService:
         if not value:
             return value
         # Escape backslashes first, then quotes
-        return value.replace('\\', '\\\\').replace('"', '\\"')
+        return value.replace("\\", "\\\\").replace('"', '\\"')
 
     def _get_headers(self, api_token: str) -> Dict[str, str]:
         """Get headers for Grafana API requests"""
@@ -93,18 +96,18 @@ class MetricsService:
                 return int(datetime.now(timezone.utc).timestamp() * 1000)
             elif time_value.startswith("now-"):
                 # Parse relative time like "now-5m", "now-1h", "now-1d"
-                match = re.match(r'now-(\d+)([smhd])', time_value)
+                match = re.match(r"now-(\d+)([smhd])", time_value)
                 if match:
                     amount, unit = match.groups()
                     amount = int(amount)
 
-                    if unit == 's':
+                    if unit == "s":
                         delta = timedelta(seconds=amount)
-                    elif unit == 'm':
+                    elif unit == "m":
                         delta = timedelta(minutes=amount)
-                    elif unit == 'h':
+                    elif unit == "h":
                         delta = timedelta(hours=amount)
-                    elif unit == 'd':
+                    elif unit == "d":
                         delta = timedelta(days=amount)
                     else:
                         return int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -130,7 +133,7 @@ class MetricsService:
     def _build_label_filter(
         self,
         service_name: Optional[str] = None,
-        labels: Optional[Dict[str, str]] = None
+        labels: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Build label filter string for PromQL
@@ -157,7 +160,7 @@ class MetricsService:
                 label_filters.append(f'{escaped_key}="{escaped_value}"')
 
         if label_filters:
-            return '{' + ','.join(label_filters) + '}'
+            return "{" + ",".join(label_filters) + "}"
         return ""
 
     def _build_promql_query(
@@ -165,7 +168,7 @@ class MetricsService:
         base_metric: str,
         service_name: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
-        aggregation: Optional[str] = None
+        aggregation: Optional[str] = None,
     ) -> str:
         """Build PromQL query with optional filters - for simple metrics only"""
         label_filter = self._build_label_filter(service_name, labels)
@@ -187,7 +190,7 @@ class MetricsService:
         end_time: int,
         step: str = "60s",
         workspace_id: str = None,
-        retry_on_auth_error: bool = True
+        retry_on_auth_error: bool = True,
     ) -> Dict[str, Any]:
         """Query Prometheus via Grafana datasource proxy API"""
         # Use Grafana's datasource proxy to query Prometheus
@@ -198,11 +201,13 @@ class MetricsService:
             "query": promql_query,
             "start": int(start_time / 1000),  # Convert milliseconds to seconds
             "end": int(end_time / 1000),
-            "step": step
+            "step": step,
         }
 
         headers = self._get_headers(api_token)
-        logger.debug(f"Querying Grafana datasource proxy: {url} with query: {promql_query}")
+        logger.debug(
+            f"Querying Grafana datasource proxy: {url} with query: {promql_query}"
+        )
 
         try:
             response = await client.get(url, params=payload, headers=headers)
@@ -212,7 +217,9 @@ class MetricsService:
             logger.error(f"Request error to Grafana: {e}")
             raise
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}"
+            )
             raise
 
     async def _query_instant(
@@ -223,7 +230,7 @@ class MetricsService:
         datasource_uid: str,
         promql_query: str,
         workspace_id: str = None,
-        retry_on_auth_error: bool = True
+        retry_on_auth_error: bool = True,
     ) -> Dict[str, Any]:
         """Query Prometheus via Grafana datasource proxy for instant metrics"""
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
@@ -232,7 +239,9 @@ class MetricsService:
         payload = {"query": promql_query}
 
         headers = self._get_headers(api_token)
-        logger.debug(f"Querying Grafana datasource proxy (instant): {url} with query: {promql_query}")
+        logger.debug(
+            f"Querying Grafana datasource proxy (instant): {url} with query: {promql_query}"
+        )
 
         try:
             response = await client.get(url, params=payload, headers=headers)
@@ -242,7 +251,9 @@ class MetricsService:
             logger.error(f"Request error to Grafana: {e}")
             raise
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}"
+            )
             raise
 
     async def get_instant_metrics(
@@ -251,21 +262,25 @@ class MetricsService:
         workspace_id: str,
         service_name: str = None,
         labels: dict = None,
-        timeout: str = None
+        timeout: str = None,
     ) -> InstantMetricResponse:
         """Get instant metric values"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
 
         promql_query = self._build_promql_query(
-            metric_name,
-            service_name=service_name,
-            labels=labels
+            metric_name, service_name=service_name, labels=labels
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response_data = await self._query_instant(
-                client, base_url, api_token, datasource_uid, promql_query,
-                workspace_id=workspace_id
+                client,
+                base_url,
+                api_token,
+                datasource_uid,
+                promql_query,
+                workspace_id=workspace_id,
             )
 
             return InstantMetricResponse(
@@ -273,7 +288,7 @@ class MetricsService:
                 data=response_data.get("data", {}),
                 metric_name=metric_name,
                 result_type=response_data.get("data", {}).get("resultType", ""),
-                result=response_data.get("data", {}).get("result", [])
+                result=response_data.get("data", {}).get("result", []),
             )
 
     async def get_range_metrics(
@@ -283,15 +298,15 @@ class MetricsService:
         workspace_id: str,
         service_name: str = None,
         labels: dict = None,
-        timeout: str = None
+        timeout: str = None,
     ) -> RangeMetricResponse:
         """Get metric values over a time range"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
 
         promql_query = self._build_promql_query(
-            metric_name,
-            service_name=service_name,
-            labels=labels
+            metric_name, service_name=service_name, labels=labels
         )
 
         start_time = self._format_time(time_range.start)
@@ -299,9 +314,15 @@ class MetricsService:
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response_data = await self._query_grafana(
-                client, base_url, api_token, datasource_uid,
-                promql_query, start_time, end_time, time_range.step,
-                workspace_id=workspace_id
+                client,
+                base_url,
+                api_token,
+                datasource_uid,
+                promql_query,
+                start_time,
+                end_time,
+                time_range.step,
+                workspace_id=workspace_id,
             )
 
             # Parse result into MetricSeries objects
@@ -311,29 +332,29 @@ class MetricsService:
             for series in result_data:
                 values = []
                 for timestamp, value in series.get("values", []):
-                    values.append(MetricValue(
-                        timestamp=datetime.fromtimestamp(float(timestamp), tz=timezone.utc),
-                        value=float(value)
-                    ))
+                    values.append(
+                        MetricValue(
+                            timestamp=datetime.fromtimestamp(
+                                float(timestamp), tz=timezone.utc
+                            ),
+                            value=float(value),
+                        )
+                    )
 
-                parsed_results.append(MetricSeries(
-                    metric=series.get("metric", {}),
-                    values=values
-                ))
+                parsed_results.append(
+                    MetricSeries(metric=series.get("metric", {}), values=values)
+                )
 
             return RangeMetricResponse(
                 status=response_data.get("status", "error"),
                 data=response_data.get("data", {}),
                 metric_name=metric_name,
                 result_type=response_data.get("data", {}).get("resultType", "matrix"),
-                result=parsed_results
+                result=parsed_results,
             )
 
     async def get_cpu_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get CPU usage metrics for a service"""
         if time_range is None:
@@ -346,10 +367,7 @@ class MetricsService:
         return await self.get_range_metrics(query, time_range, workspace_id)
 
     async def get_memory_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get memory usage metrics for a service"""
         if time_range is None:
@@ -361,10 +379,7 @@ class MetricsService:
         return await self.get_range_metrics(query, time_range, workspace_id)
 
     async def get_http_request_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get HTTP request rate metrics for a service"""
         if time_range is None:
@@ -380,7 +395,7 @@ class MetricsService:
         workspace_id: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        percentile: float = 0.95
+        percentile: float = 0.95,
     ) -> RangeMetricResponse:
         """Get HTTP request latency metrics for a service"""
         if time_range is None:
@@ -392,10 +407,7 @@ class MetricsService:
         return await self.get_range_metrics(query, time_range, workspace_id)
 
     async def get_error_rate_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get error rate metrics for a service"""
         if time_range is None:
@@ -404,7 +416,9 @@ class MetricsService:
         # Build label filter with service_name and status filter
         if service_name:
             # Combine status filter with service filter
-            query = f'rate(http_requests_total{{status=~"5..",job="{service_name}"}}[5m])'
+            query = (
+                f'rate(http_requests_total{{status=~"5..",job="{service_name}"}}[5m])'
+            )
         else:
             # Status filter only
             query = 'rate(http_requests_total{status=~"5.."}[5m])'
@@ -412,10 +426,7 @@ class MetricsService:
         return await self.get_range_metrics(query, time_range, workspace_id)
 
     async def get_throughput_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get throughput metrics for a service"""
         if time_range is None:
@@ -433,10 +444,7 @@ class MetricsService:
         return await self.get_range_metrics(query, time_range, workspace_id)
 
     async def get_availability_metrics(
-        self,
-        workspace_id: str,
-        service_name: str = None,
-        time_range: TimeRange = None
+        self, workspace_id: str, service_name: str = None, time_range: TimeRange = None
     ) -> RangeMetricResponse:
         """Get service availability metrics"""
         if time_range is None:
@@ -447,9 +455,13 @@ class MetricsService:
 
         return await self.get_range_metrics(query, time_range, workspace_id)
 
-    async def get_all_metric_names(self, workspace_id: str, retry_on_auth_error: bool = True) -> List[str]:
+    async def get_all_metric_names(
+        self, workspace_id: str, retry_on_auth_error: bool = True
+    ) -> List[str]:
         """Get list of all available metric names via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/label/__name__/values"
 
@@ -466,15 +478,21 @@ class MetricsService:
                     logger.error(f"Failed to get metric names: {response_data}")
                     return []
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting metric names: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting metric names: {e.response.status_code} - {e.response.text}"
+                )
                 return []
             except Exception as e:
                 logger.error(f"Error getting metric names: {e}")
                 return []
 
-    async def get_targets_status(self, workspace_id: str, retry_on_auth_error: bool = True) -> TargetsResponse:
+    async def get_targets_status(
+        self, workspace_id: str, retry_on_auth_error: bool = True
+    ) -> TargetsResponse:
         """Get monitoring targets status via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/targets"
 
@@ -500,9 +518,13 @@ class MetricsService:
                                 scrapeUrl=target.get("scrapeUrl", ""),
                                 globalUrl=target.get("globalUrl", ""),
                                 lastError=target.get("lastError"),
-                                lastScrape=datetime.fromisoformat(target.get("lastScrape", "").replace("Z", "+00:00")),
-                                lastScrapeDuration=float(target.get("lastScrapeDuration", 0)),
-                                health=target.get("health", "unknown")
+                                lastScrape=datetime.fromisoformat(
+                                    target.get("lastScrape", "").replace("Z", "+00:00")
+                                ),
+                                lastScrapeDuration=float(
+                                    target.get("lastScrapeDuration", 0)
+                                ),
+                                health=target.get("health", "unknown"),
                             )
                             parsed_targets[target_type].append(parsed_target)
                         except Exception as e:
@@ -510,11 +532,12 @@ class MetricsService:
                             continue
 
                 return TargetsResponse(
-                    status=response_data.get("status", "error"),
-                    data=parsed_targets
+                    status=response_data.get("status", "error"), data=parsed_targets
                 )
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting targets status: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting targets status: {e.response.status_code} - {e.response.text}"
+                )
                 return TargetsResponse(status="error", data={})
             except Exception as e:
                 logger.error(f"Error getting targets status: {e}")
@@ -581,12 +604,16 @@ class MetricsService:
     async def health_check(self, workspace_id: str) -> bool:
         """Check if Grafana datasource proxy is healthy"""
         try:
-            base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+            base_url, api_token, datasource_uid = await self._get_workspace_config(
+                workspace_id
+            )
             # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
             url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/query"
             headers = self._get_headers(api_token)
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, params={"query": "up"}, headers=headers)
+                response = await client.get(
+                    url, params={"query": "up"}, headers=headers
+                )
                 return response.status_code == 200
         except Exception as e:
             logger.error(f"Grafana health check failed: {e}")

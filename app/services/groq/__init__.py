@@ -1,12 +1,6 @@
 from .service import GroqService, groq_service
 from .client import GroqClient
-from .schemas import (
-    ChatRequest,
-    ChatResponse,
-    ChatMessage,
-    ChatRole,
-    GroqError
-)
+from .schemas import ChatRequest, ChatResponse, ChatMessage, ChatRole, GroqError
 
 __all__ = [
     "GroqService",
@@ -16,5 +10,5 @@ __all__ = [
     "ChatResponse",
     "ChatMessage",
     "ChatRole",
-    "GroqError"
+    "GroqError",
 ]

@@ -144,6 +144,205 @@ docker compose -f docker-compose.dev.yml up -d
 poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+## Adding Environment Variables
+
+When you need to add a new environment variable to the project, you must update **3 files** to ensure it works in both development and production:
+
+### 1. `.env.example`
+Add your variable with a placeholder value:
+```bash
+NEW_VARIABLE_NAME=placeholder_value_here
+```
+
+### 2. `app/core/config.py`
+Add the variable to the `Settings` class:
+```python
+class Settings(BaseSettings):
+    # ... existing variables ...
+    NEW_VARIABLE_NAME: Optional[str] = None  # Description of what it does
+```
+
+### 3. `taskdef.json`
+Add the variable to the `secrets` array for production deployment:
+```json
+{"name": "NEW_VARIABLE_NAME", "valueFrom": "/vm-api/new-variable-name"}
+```
+
+**Note:** The `valueFrom` path uses kebab-case and follows the pattern `/vm-api/variable-name-in-kebab-case`.
+
+### Example
+For a new `GITHUB_WEBHOOK_SECRET` variable:
+- ✅ `.env.example`: `GITHUB_WEBHOOK_SECRET=your_webhook_secret`
+- ✅ `app/core/config.py`: `GITHUB_WEBHOOK_SECRET: Optional[str] = None`
+- ✅ `taskdef.json`: `{"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"}`
+
+## Setting Up GitHub Webhooks
+
+To enable GitHub integration features (install/uninstall tracking, suspension handling), configure webhooks in your GitHub App settings:
+
+### 1. Navigate to GitHub App Settings
+Go to your GitHub App settings: `https://github.com/settings/apps/[your-app-name]`
+
+### 2. Configure Webhook URL
+Set the Webhook URL to point to your API endpoint:
+```
+https://your-api.com/api/v1/github/webhook
+```
+
+**For local development with ngrok:**
+```bash
+# Start ngrok tunnel
+ngrok http 8000
+
+# Use the ngrok URL in GitHub App settings
+https://abc123.ngrok.io/api/v1/github/webhook
+```
+
+### 3. Set Webhook Secret
+Use the value from your `GITHUB_WEBHOOK_SECRET` environment variable. This secret is used to verify webhook signatures for security.
+
+**Important:** The same secret must be configured in both:
+- Your `.env` file (`GITHUB_WEBHOOK_SECRET=your_secret_here`)
+- GitHub App webhook settings
+
+### 4. Subscribe to Events
+Enable the following webhook events:
+- ✅ **Installation** (`installation`) - Tracks when users install/uninstall the app
+- ✅ **Installation repositories** (`installation_repositories`) - Tracks repository access changes
+
+### 5. Enable Webhook
+Set webhook status to **Active**
+
+### 6. Test Your Webhook
+GitHub provides a "Recent Deliveries" tab where you can:
+- View webhook payloads sent to your API
+- See response status codes
+- Redeliver webhooks for testing
+
+### Webhook Event Flow
+
+**When a user uninstalls the app:**
+1. User goes to GitHub → Settings → Applications → Uninstall "your-app"
+2. GitHub sends `POST /api/v1/github/webhook` with `{"action": "deleted"}`
+3. Webhook signature is verified using `GITHUB_WEBHOOK_SECRET`
+4. Integration is deleted from database
+5. Frontend now shows "not connected" ✅
+
+**Supported webhook events:**
+- `installation.deleted` - User uninstalled the app → Delete integration from DB
+- `installation.suspend` - App was suspended → Mark integration as inactive
+- `installation.unsuspend` - App was unsuspended → Reactivate integration with new token
+- `installation_repositories.*` - Repository access changed → Logged for awareness
+
+## Database Migrations
+
+This project uses **Alembic** for database schema migrations. Migrations ensure safe and version-controlled database changes.
+
+### Why Migrations?
+
+- ✅ **Version control for database schema** - Track all schema changes in git
+- ✅ **Safe production deployments** - Apply changes without data loss
+- ✅ **Rollback capability** - Revert problematic changes
+- ✅ **Team collaboration** - Everyone stays in sync with schema changes
+
+### Running Migrations
+
+**Important**: Always run migrations before starting the application in production.
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+
+# Check current migration version
+alembic current
+
+# View migration history
+alembic history
+```
+
+### Creating New Migrations
+
+When you modify database models in `app/models.py`, you **must** create a migration:
+
+```bash
+# 1. Make changes to models in app/models.py
+
+# 2. Auto-generate migration from model changes
+alembic revision --autogenerate -m "Description of changes"
+
+# 3. Review the generated migration file in alembic/versions/
+# 4. Edit if needed to ensure it's correct
+
+# 5. Test the migration locally
+alembic upgrade head    # Apply migration
+alembic downgrade -1    # Test rollback
+alembic upgrade head    # Re-apply
+
+# 6. Commit the migration file with your code changes
+git add alembic/versions/*.py
+git commit -m "Add migration for [your changes]"
+```
+
+### Migration Best Practices
+
+1. **Always review auto-generated migrations** - Alembic's autogenerate is smart but not perfect
+2. **Add `server_default` for NOT NULL columns** - Prevents errors with existing data
+3. **Test both upgrade and downgrade** - Ensure migrations are reversible
+4. **One migration per feature** - Keep migrations focused and atomic
+5. **Never edit applied migrations** - Create a new migration to fix issues
+
+### Common Migration Scenarios
+
+#### Adding a new column (nullable)
+```python
+# Auto-generated is usually fine
+op.add_column('table_name', sa.Column('new_column', sa.String(), nullable=True))
+```
+
+#### Adding a new column (NOT NULL)
+```python
+# Must provide server_default for existing rows
+op.add_column(
+    'table_name',
+    sa.Column('new_column', sa.Boolean(), nullable=False, server_default=sa.text('true'))
+)
+```
+
+#### Removing a column
+```python
+op.drop_column('table_name', 'column_name')
+```
+
+### Production Deployment
+
+Migrations should run automatically in production before the app starts. Update your deployment process:
+
+```bash
+# In production deployment script (or Docker entrypoint):
+alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Troubleshooting
+
+**"Target database is not up to date"**
+```bash
+# This means you have unapplied migrations. Run:
+alembic upgrade head
+```
+
+**"Can't locate revision"**
+```bash
+# Database and migration files are out of sync. Check:
+alembic current  # What version DB thinks it's at
+alembic history  # What migrations exist
+```
+
+**Fresh database setup**
+```bash
+# For a completely new database:
+alembic upgrade head  # Creates all tables and applies all migrations
+```
+
 
 
 

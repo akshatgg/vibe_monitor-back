@@ -1,6 +1,7 @@
 """
 RCA (Root Cause Analysis) service module
 """
+
 from .agent import rca_agent_service
 from .tools.grafana.tools import (
     fetch_logs_tool,
@@ -19,7 +20,7 @@ from .tools.github.tools import (
     list_pull_requests_tool,
     get_repository_commits_tool,
     get_repository_metadata_tool,
-    get_branch_recent_commits_tool
+    get_branch_recent_commits_tool,
 )
 
 __all__ = [
@@ -38,5 +39,5 @@ __all__ = [
     "list_pull_requests_tool",
     "get_repository_commits_tool",
     "get_repository_metadata_tool",
-    "get_branch_recent_commits_tool"
+    "get_branch_recent_commits_tool",
 ]

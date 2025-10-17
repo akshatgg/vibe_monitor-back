@@ -10,7 +10,7 @@ from .service import (
     execute_github_rest_api,
     get_owner_or_default,
     verify_workspace_access,
-    get_default_branch
+    get_default_branch,
 )
 from ...core.database import get_db
 from ...core.config import settings
@@ -32,11 +32,7 @@ IS_PRODUCTION = settings.is_production
 
 
 async def list_repositories_graphql(
-    workspace_id: str,
-    first: int,
-    after: Optional[str],
-    user_id: str,
-    db: AsyncSession
+    workspace_id: str, first: int, after: Optional[str], user_id: str, db: AsyncSession
 ):
     """
     List all repositories using GitHub GraphQL API
@@ -89,7 +85,7 @@ async def list_repositories_graphql(
     variables = {
         "first": first,
         "after": after,
-        "affiliations": ["OWNER", "COLLABORATOR", "ORGANIZATION_MEMBER"]
+        "affiliations": ["OWNER", "COLLABORATOR", "ORGANIZATION_MEMBER"],
     }
 
     # Execute GraphQL query
@@ -100,12 +96,9 @@ async def list_repositories_graphql(
 
     return {
         "success": True,
-        "viewer": {
-            "login": viewer_data.get("login"),
-            "name": viewer_data.get("name")
-        },
+        "viewer": {"login": viewer_data.get("login"), "name": viewer_data.get("name")},
         "repositories": repos_data.get("nodes", []),
-        "pageInfo": repos_data.get("pageInfo", {})
+        "pageInfo": repos_data.get("pageInfo", {}),
     }
 
 
@@ -115,7 +108,7 @@ async def get_repository_tree(
     owner: Optional[str],
     expression: str,
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Read repository files and directory structure using GitHub GraphQL API
@@ -126,7 +119,9 @@ async def get_repository_tree(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -157,11 +152,7 @@ async def get_repository_tree(
     }
     """
 
-    variables = {
-        "owner": owner,
-        "name": name,
-        "expression": expression
-    }
+    variables = {"owner": owner, "name": name, "expression": expression}
 
     # Execute GraphQL query
     data = await execute_github_graphql(query, variables, access_token)
@@ -172,7 +163,7 @@ async def get_repository_tree(
     if not object_data:
         raise HTTPException(
             status_code=404,
-            detail=f"Expression '{expression}' not found in repository {owner}/{name}"
+            detail=f"Expression '{expression}' not found in repository {owner}/{name}",
         )
 
     return {
@@ -180,7 +171,7 @@ async def get_repository_tree(
         "owner": owner,
         "name": name,
         "expression": expression,
-        "data": object_data
+        "data": object_data,
     }
 
 
@@ -191,7 +182,7 @@ async def read_repository_file(
     owner: Optional[str],
     branch: str,
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Read a specific file from a repository using GitHub GraphQL API
@@ -203,7 +194,9 @@ async def read_repository_file(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -226,11 +219,7 @@ async def read_repository_file(
     }
     """
 
-    variables = {
-        "owner": owner,
-        "name": name,
-        "expression": expression
-    }
+    variables = {"owner": owner, "name": name, "expression": expression}
 
     # Execute GraphQL query
     data = await execute_github_graphql(query, variables, access_token)
@@ -241,14 +230,14 @@ async def read_repository_file(
     if not object_data:
         raise HTTPException(
             status_code=404,
-            detail=f"File '{file_path}' not found in repository {owner}/{name} on branch {branch}"
+            detail=f"File '{file_path}' not found in repository {owner}/{name} on branch {branch}",
         )
 
     # Check if it's a blob (file)
     if object_data.get("__typename") != "Blob":
         raise HTTPException(
             status_code=400,
-            detail=f"'{file_path}' is not a file (type: {object_data.get('__typename')})"
+            detail=f"'{file_path}' is not a file (type: {object_data.get('__typename')})",
         )
 
     return {
@@ -259,7 +248,7 @@ async def read_repository_file(
         "file_path": file_path,
         "expression": expression,
         "byte_size": object_data.get("byteSize"),
-        "content": object_data.get("text")
+        "content": object_data.get("text"),
     }
 
 
@@ -271,7 +260,7 @@ async def get_branch_recent_commits(
     first: int,
     after: Optional[str],
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Get recent commits from a specific branch using GitHub GraphQL API
@@ -282,7 +271,9 @@ async def get_branch_recent_commits(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -334,7 +325,7 @@ async def get_branch_recent_commits(
         "name": name,
         "ref": ref,
         "first": first,
-        "after": after
+        "after": after,
     }
 
     # Execute GraphQL query
@@ -346,7 +337,7 @@ async def get_branch_recent_commits(
     if not branch_data:
         raise HTTPException(
             status_code=404,
-            detail=f"Branch reference '{ref}' not found in repository {owner}/{name}"
+            detail=f"Branch reference '{ref}' not found in repository {owner}/{name}",
         )
 
     target_data = branch_data.get("target", {})
@@ -358,7 +349,7 @@ async def get_branch_recent_commits(
         "name": name,
         "ref": ref,
         "commits": recent_data.get("nodes", []),
-        "pageInfo": recent_data.get("pageInfo", {})
+        "pageInfo": recent_data.get("pageInfo", {}),
     }
 
 
@@ -369,7 +360,7 @@ async def get_repository_commits(
     first: int,
     after: Optional[str],
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Get all commit history for a repository using GitHub GraphQL API
@@ -380,7 +371,9 @@ async def get_repository_commits(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -427,12 +420,7 @@ async def get_repository_commits(
     }
     """
 
-    variables = {
-        "owner": owner,
-        "name": name,
-        "first": first,
-        "after": after
-    }
+    variables = {"owner": owner, "name": name, "first": first, "after": after}
 
     # Execute GraphQL query
     data = await execute_github_graphql(query, variables, access_token)
@@ -443,7 +431,7 @@ async def get_repository_commits(
     if not default_branch_ref:
         raise HTTPException(
             status_code=404,
-            detail=f"No default branch found for repository {owner}/{name}"
+            detail=f"No default branch found for repository {owner}/{name}",
         )
 
     branch_name = default_branch_ref.get("name")
@@ -456,7 +444,7 @@ async def get_repository_commits(
         "name": name,
         "default_branch": branch_name,
         "commits": history_data.get("nodes", []),
-        "pageInfo": history_data.get("pageInfo", {})
+        "pageInfo": history_data.get("pageInfo", {}),
     }
 
 
@@ -468,7 +456,7 @@ async def list_pull_requests(
     first: int,
     after: Optional[str],
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     List Pull Requests for a repository using GitHub GraphQL API
@@ -479,7 +467,9 @@ async def list_pull_requests(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -494,7 +484,7 @@ async def list_pull_requests(
             if state.upper() not in valid_states:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid state: {state}. Valid states are: {', '.join(valid_states)}"
+                    detail=f"Invalid state: {state}. Valid states are: {', '.join(valid_states)}",
                 )
 
         # Convert states to uppercase
@@ -555,7 +545,7 @@ async def list_pull_requests(
         "name": name,
         "states": states,
         "first": first,
-        "after": after
+        "after": after,
     }
 
     # Execute GraphQL query
@@ -570,7 +560,7 @@ async def list_pull_requests(
         "name": name,
         "states": states,
         "pull_requests": pull_requests_data.get("nodes", []),
-        "pageInfo": pull_requests_data.get("pageInfo", {})
+        "pageInfo": pull_requests_data.get("pageInfo", {}),
     }
 
 
@@ -580,7 +570,7 @@ async def get_repository_metadata(
     owner: Optional[str],
     first: int,
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Get repository metadata including languages and topics using GitHub GraphQL API
@@ -593,7 +583,9 @@ async def get_repository_metadata(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -624,11 +616,7 @@ async def get_repository_metadata(
     }
     """
 
-    variables = {
-        "owner": owner,
-        "name": name,
-        "first": first
-    }
+    variables = {"owner": owner, "name": name, "first": first}
 
     # Execute GraphQL query
     data = await execute_github_graphql(query, variables, access_token)
@@ -637,15 +625,18 @@ async def get_repository_metadata(
 
     if not repository_data:
         raise HTTPException(
-            status_code=404,
-            detail=f"Repository {owner}/{name} not found"
+            status_code=404, detail=f"Repository {owner}/{name} not found"
         )
 
     languages_data = repository_data.get("languages", {})
     topics_data = repository_data.get("repositoryTopics", {})
 
     # Extract topic names
-    topics = [node.get("topic", {}).get("name") for node in topics_data.get("nodes", []) if node.get("topic")]
+    topics = [
+        node.get("topic", {}).get("name")
+        for node in topics_data.get("nodes", [])
+        if node.get("topic")
+    ]
 
     return {
         "success": True,
@@ -654,9 +645,9 @@ async def get_repository_metadata(
         "languages": {
             "edges": languages_data.get("edges", []),
             "total_size": languages_data.get("totalSize", 0),
-            "total_count": languages_data.get("totalCount", 0)
+            "total_count": languages_data.get("totalCount", 0),
         },
-        "topics": topics
+        "topics": topics,
     }
 
 
@@ -667,7 +658,7 @@ async def download_file_by_path(
     owner: Optional[str],
     ref: str,
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Download/fetch file content from a repository using GitHub Contents API
@@ -688,7 +679,9 @@ async def download_file_by_path(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -704,14 +697,14 @@ async def download_file_by_path(
         endpoint=endpoint,
         access_token=access_token,
         method="GET",
-        params=params if params else None
+        params=params if params else None,
     )
 
     # Check if it's a file (not a directory)
     if data.get("type") != "file":
         raise HTTPException(
             status_code=400,
-            detail=f"'{file_path}' is not a file (type: {data.get('type')})"
+            detail=f"'{file_path}' is not a file (type: {data.get('type')})",
         )
 
     # Prepare response
@@ -726,12 +719,13 @@ async def download_file_by_path(
         "url": data.get("url"),
         "html_url": data.get("html_url"),
         "download_url": data.get("download_url"),
-        "encoding": data.get("encoding", "base64")
+        "encoding": data.get("encoding", "base64"),
     }
 
     # Always decode content from base64 to UTF-8
     if data.get("content"):
         import base64
+
         try:
             # Remove newlines and decode base64
             content_base64 = data.get("content", "").replace("\n", "")
@@ -759,7 +753,7 @@ async def search_code(
     per_page: int,
     page: int,
     user_id: str,
-    db: AsyncSession
+    db: AsyncSession,
 ):
     """
     Search code in the organization or specific repository using GitHub Code Search API
@@ -770,7 +764,9 @@ async def search_code(
     await verify_workspace_access(user_id, workspace_id, db)
 
     # Get integration and access token
-    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+    integration, access_token = await get_github_integration_with_token(
+        workspace_id, db
+    )
 
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
@@ -787,15 +783,12 @@ async def search_code(
     params = {
         "q": search_string,
         "per_page": min(per_page, 100),  # GitHub max is 100
-        "page": page
+        "page": page,
     }
 
     # Execute REST API call
     data = await execute_github_rest_api(
-        endpoint="/search/code",
-        access_token=access_token,
-        method="GET",
-        params=params
+        endpoint="/search/code", access_token=access_token, method="GET", params=params
     )
 
     # Filter items to only include required fields
@@ -809,15 +802,12 @@ async def search_code(
                 "name": item.get("repository", {}).get("name"),
                 "id": item.get("repository", {}).get("id"),
                 "full_name": item.get("repository", {}).get("full_name"),
-                "private": item.get("repository", {}).get("private")
+                "private": item.get("repository", {}).get("private"),
             },
             "text_matches": [
-                {
-                    "fragment": match.get("fragment"),
-                    "matches": match.get("matches", [])
-                }
+                {"fragment": match.get("fragment"), "matches": match.get("matches", [])}
                 for match in item.get("text_matches", [])
-            ]
+            ],
         }
         filtered_items.append(filtered_item)
 
@@ -829,7 +819,7 @@ async def search_code(
         "query_string": search_string,
         "total_count": data.get("total_count", 0),
         "incomplete_results": data.get("incomplete_results", False),
-        "items": filtered_items
+        "items": filtered_items,
     }
 
 
@@ -837,12 +827,13 @@ async def search_code(
 # These wrap the standalone functions with FastAPI dependencies
 # =======================================================================
 
+
 async def list_repositories_graphql_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     first: int = Query(50, description="Number of repositories to fetch"),
     after: Optional[str] = Query(None, description="Cursor for pagination"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """List all repositories using GitHub GraphQL API - FastAPI endpoint"""
     try:
@@ -857,10 +848,15 @@ async def list_repositories_graphql_endpoint(
 async def get_repository_tree_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
-    expression: Optional[str] = Query(None, description="Git expression (e.g., 'main:', 'HEAD:', 'main:src/'). Defaults to '<default-branch>:'"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
+    expression: Optional[str] = Query(
+        None,
+        description="Git expression (e.g., 'main:', 'HEAD:', 'main:src/'). Defaults to '<default-branch>:'",
+    ),
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Read repository files and directory structure - FastAPI endpoint"""
     try:
@@ -868,10 +864,14 @@ async def get_repository_tree_endpoint(
         resolved_owner = get_owner_or_default(owner, integration)
 
         if not expression:
-            default_branch = await get_default_branch(workspace_id, name, resolved_owner, db)
+            default_branch = await get_default_branch(
+                workspace_id, name, resolved_owner, db
+            )
             expression = f"{default_branch}:"
 
-        return await get_repository_tree(workspace_id, name, owner, expression, user.id, db)
+        return await get_repository_tree(
+            workspace_id, name, owner, expression, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -882,11 +882,18 @@ async def get_repository_tree_endpoint(
 async def read_repository_file_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    file_path: str = Query(..., description="File path (e.g., 'package.json', 'src/app/main.py')"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
-    branch: Optional[str] = Query(None, description="Branch/tag/commit ref (defaults to repository's default branch)"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    file_path: str = Query(
+        ..., description="File path (e.g., 'package.json', 'src/app/main.py')"
+    ),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
+    branch: Optional[str] = Query(
+        None,
+        description="Branch/tag/commit ref (defaults to repository's default branch)",
+    ),
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Read a specific file from a repository - FastAPI endpoint"""
     try:
@@ -896,7 +903,9 @@ async def read_repository_file_endpoint(
         if not branch:
             branch = await get_default_branch(workspace_id, name, resolved_owner, db)
 
-        return await read_repository_file(workspace_id, name, file_path, owner, branch, user.id, db)
+        return await read_repository_file(
+            workspace_id, name, file_path, owner, branch, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -907,12 +916,16 @@ async def read_repository_file_endpoint(
 async def get_branch_recent_commits_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
-    ref: Optional[str] = Query(None, description="Branch reference (defaults to 'refs/heads/<default-branch>')"),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
+    ref: Optional[str] = Query(
+        None, description="Branch reference (defaults to 'refs/heads/<default-branch>')"
+    ),
     first: int = Query(20, description="Number of commits to fetch (default: 20)"),
     after: Optional[str] = Query(None, description="Cursor for pagination"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get recent commits from a specific branch - FastAPI endpoint"""
     try:
@@ -920,10 +933,14 @@ async def get_branch_recent_commits_endpoint(
         resolved_owner = get_owner_or_default(owner, integration)
 
         if not ref:
-            default_branch = await get_default_branch(workspace_id, name, resolved_owner, db)
+            default_branch = await get_default_branch(
+                workspace_id, name, resolved_owner, db
+            )
             ref = f"refs/heads/{default_branch}"
 
-        return await get_branch_recent_commits(workspace_id, name, owner, ref, first, after, user.id, db)
+        return await get_branch_recent_commits(
+            workspace_id, name, owner, ref, first, after, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -934,15 +951,19 @@ async def get_branch_recent_commits_endpoint(
 async def get_repository_commits_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
     first: int = Query(50, description="Number of commits to fetch (default: 50)"),
     after: Optional[str] = Query(None, description="Cursor for pagination"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get all commit history for a repository - FastAPI endpoint"""
     try:
-        return await get_repository_commits(workspace_id, name, owner, first, after, user.id, db)
+        return await get_repository_commits(
+            workspace_id, name, owner, first, after, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -953,16 +974,22 @@ async def get_repository_commits_endpoint(
 async def list_pull_requests_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
-    states: Optional[List[str]] = Query(None, description="PR states: OPEN, CLOSED, MERGED (if not provided, shows all)"),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
+    states: Optional[List[str]] = Query(
+        None, description="PR states: OPEN, CLOSED, MERGED (if not provided, shows all)"
+    ),
     first: int = Query(20, description="Number of PRs to fetch (default: 20)"),
     after: Optional[str] = Query(None, description="Cursor for pagination"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """List Pull Requests for a repository - FastAPI endpoint"""
     try:
-        return await list_pull_requests(workspace_id, name, owner, states, first, after, user.id, db)
+        return await list_pull_requests(
+            workspace_id, name, owner, states, first, after, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -973,14 +1000,18 @@ async def list_pull_requests_endpoint(
 async def get_repository_metadata_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     name: str = Query(..., description="Repository name"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
     first: int = Query(12, description="Number of languages to fetch (default: 12)"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get repository metadata including languages and topics - FastAPI endpoint"""
     try:
-        return await get_repository_metadata(workspace_id, name, owner, first, user.id, db)
+        return await get_repository_metadata(
+            workspace_id, name, owner, first, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -991,11 +1022,18 @@ async def get_repository_metadata_endpoint(
 async def download_file_by_path_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
     repo: str = Query(..., description="Repository name"),
-    file_path: str = Query(..., description="File path in repository (e.g., 'src/main.py')"),
-    owner: Optional[str] = Query(None, description="Repository owner (defaults to GitHub integration username)"),
-    ref: Optional[str] = Query(None, description="Branch/tag/commit ref (defaults to repository's default branch)"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    file_path: str = Query(
+        ..., description="File path in repository (e.g., 'src/main.py')"
+    ),
+    owner: Optional[str] = Query(
+        None, description="Repository owner (defaults to GitHub integration username)"
+    ),
+    ref: Optional[str] = Query(
+        None,
+        description="Branch/tag/commit ref (defaults to repository's default branch)",
+    ),
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Download/fetch file content from a repository - FastAPI endpoint"""
     try:
@@ -1005,7 +1043,9 @@ async def download_file_by_path_endpoint(
         if not ref:
             ref = await get_default_branch(workspace_id, repo, resolved_owner, db)
 
-        return await download_file_by_path(workspace_id, repo, file_path, owner, ref, user.id, db)
+        return await download_file_by_path(
+            workspace_id, repo, file_path, owner, ref, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1015,17 +1055,29 @@ async def download_file_by_path_endpoint(
 
 async def search_code_endpoint(
     workspace_id: str = Query(..., description="Workspace ID"),
-    search_query: str = Query(..., description="Search query (e.g., 'import', 'function', etc.)"),
-    owner: Optional[str] = Query(None, description="Repository owner/org (defaults to GitHub integration username)"),
-    repo: Optional[str] = Query(None, description="Repository name (optional, if not provided searches entire org)"),
-    per_page: int = Query(100, description="Number of results per page (default: 100, max: 100)"),
+    search_query: str = Query(
+        ..., description="Search query (e.g., 'import', 'function', etc.)"
+    ),
+    owner: Optional[str] = Query(
+        None,
+        description="Repository owner/org (defaults to GitHub integration username)",
+    ),
+    repo: Optional[str] = Query(
+        None,
+        description="Repository name (optional, if not provided searches entire org)",
+    ),
+    per_page: int = Query(
+        100, description="Number of results per page (default: 100, max: 100)"
+    ),
     page: int = Query(1, description="Page number for pagination (default: 1)"),
-    user = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Search code in the organization or specific repository - FastAPI endpoint"""
     try:
-        return await search_code(workspace_id, search_query, owner, repo, per_page, page, user.id, db)
+        return await search_code(
+            workspace_id, search_query, owner, repo, per_page, page, user.id, db
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1046,63 +1098,62 @@ if not IS_PRODUCTION:
         "/repositories",
         list_repositories_graphql_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/tree",
         get_repository_tree_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/read-file",
         read_repository_file_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/context",
         get_branch_recent_commits_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/commits",
         get_repository_commits_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/pull-requests",
         list_pull_requests_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/metadata",
         get_repository_metadata_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
         "/repository/download-file",
         download_file_by_path_endpoint,
         methods=["POST"],
-        response_model=None
+        response_model=None,
     )
 
     router.add_api_route(
-        "/search/code",
-        search_code_endpoint,
-        methods=["POST"],
-        response_model=None
+        "/search/code", search_code_endpoint, methods=["POST"], response_model=None
     )
 else:
-    logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: GitHub tools routes disabled (functions available for LLM usage)")
+    logger.info(
+        f"ENVIRONMENT={settings.ENVIRONMENT}: GitHub tools routes disabled (functions available for LLM usage)"
+    )
