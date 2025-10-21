@@ -1,6 +1,8 @@
 """
 Custom LangChain callbacks for streaming RCA agent progress to Slack
 """
+import json
+import re
 import logging
 from typing import Any, Dict, Optional
 from langchain.callbacks.base import AsyncCallbackHandler
@@ -47,9 +49,18 @@ class SlackProgressCallback(AsyncCallbackHandler):
         self.step_counter += 1
         tool_name = serialized.get("name", "unknown_tool")
 
+        # Log for debugging
+        logger.info(f"Tool start - name: {tool_name}, input_str: {input_str[:200] if input_str else 'None'}, kwargs keys: {list(kwargs.keys())}")
+
         # Get user-friendly message from enum mapping
         enum_message = TOOL_NAME_TO_MESSAGE.get(tool_name)
-        message = enum_message.value if enum_message else f"🔧 Using {tool_name}..."
+        base_message = enum_message.value if enum_message else f"🔧 Using {tool_name}..."
+
+        # Extract contextual information from input
+        context_info = self._extract_context_info(tool_name, input_str, kwargs)
+
+        # Build final message with context
+        message = f"{base_message} {context_info}" if context_info else base_message
 
         try:
             await slack_event_service.send_message(
@@ -60,6 +71,114 @@ class SlackProgressCallback(AsyncCallbackHandler):
             )
         except Exception as e:
             logger.error(f"Failed to send tool start message to Slack: {e}")
+
+    def _extract_context_info(self, tool_name: str, input_str: str, kwargs: Dict[str, Any]) -> str:
+        """
+        Extract service name, repo name, or file path from tool input
+
+        Args:
+            tool_name: Name of the tool being executed
+            input_str: Input string (JSON or plain text)
+            kwargs: Additional kwargs from callback
+
+        Returns:
+            Formatted context string (e.g., "`service-name`" or "`repo-name`")
+        """
+        try:
+            # Log the input for debugging
+            logger.info(f"Extracting context for {tool_name} with input: {input_str[:200] if input_str else 'None'}")
+            if kwargs:
+                logger.info(f"kwargs: {kwargs}")
+
+            # Try multiple parsing strategies
+            input_data = {}
+
+            # Strategy 0: Check if there's an 'inputs' dict in kwargs (LangChain standard)
+            if "inputs" in kwargs and isinstance(kwargs["inputs"], dict):
+                input_data = kwargs["inputs"]
+                logger.info(f"Using inputs from kwargs: {input_data}")
+
+            # Strategy 1: Check if there's a tool_input in kwargs
+            elif "tool_input" in kwargs:
+                tool_input = kwargs["tool_input"]
+                if isinstance(tool_input, dict):
+                    input_data = tool_input
+                    logger.info(f"Using tool_input from kwargs: {input_data}")
+
+            # Strategy 2: Try to parse input_str as JSON
+            elif input_str:
+                try:
+                    input_data = json.loads(input_str)
+                    logger.info(f"Successfully parsed JSON: {input_data}")
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    # Strategy 3: Try to parse as Python literal (handles single quotes)
+                    try:
+                        import ast
+                        input_data = ast.literal_eval(input_str)
+                        logger.info(f"Successfully parsed Python literal: {input_data}")
+                    except (ValueError, SyntaxError):
+                        # Strategy 4: Try to extract from dict-like string representation
+                        # Match patterns like service_name='value' or service_name="value"
+                        matches = re.findall(r'(\w+)\s*[:=]\s*["\']([^"\']+)["\']', input_str)
+                        if matches:
+                            input_data = dict(matches)
+                            logger.info(f"Extracted from regex: {input_data}")
+                        else:
+                            # Strategy 5: Try to extract from key=value pairs
+                            matches = re.findall(r'(\w+)\s*[:=]\s*(\S+)', input_str)
+                            if matches:
+                                input_data = {k: v.strip(',') for k, v in matches}
+                                logger.info(f"Extracted from key=value pairs: {input_data}")
+
+            # Extract service name for logs/metrics tools
+            if tool_name in [
+                "fetch_error_logs_tool",
+                "fetch_logs_tool",
+                "fetch_cpu_metrics_tool",
+                "fetch_memory_metrics_tool",
+                "fetch_http_latency_tool",
+                "fetch_metrics_tool"
+            ]:
+                service_name = input_data.get("service_name")
+                if service_name:
+                    logger.info(f"Found service_name: {service_name}")
+                    return f"for `{service_name}`"
+                else:
+                    logger.warning(f"No service_name found in input_data: {input_data}")
+
+            # Extract repo name for GitHub tools
+            if tool_name in [
+                "discover_service_name_tool",
+                "scan_repository_for_services_tool",
+                "read_repository_file_tool",
+                "search_code_tool",
+                "get_repository_commits_tool",
+                "list_pull_requests_tool",
+                "download_file_tool",
+                "get_repository_tree_tool",
+                "get_branch_recent_commits_tool",
+                "get_repository_metadata_tool"
+            ]:
+                repo = input_data.get("repo") or input_data.get("name")
+                file_path = input_data.get("file_path") or input_data.get("path")
+
+                if repo and file_path:
+                    logger.info(f"Found repo: {repo}, file_path: {file_path}")
+                    return f"in `{repo}` → `{file_path}`"
+                elif repo:
+                    logger.info(f"Found repo: {repo}")
+                    return f"in `{repo}`"
+                elif file_path:
+                    logger.info(f"Found file_path: {file_path}")
+                    return f"`{file_path}`"
+                else:
+                    logger.warning(f"No repo/file_path found in input_data: {input_data}")
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"Failed to extract context info: {e}", exc_info=True)
+            return ""
 
     async def on_tool_end(
         self,
