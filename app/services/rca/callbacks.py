@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, Optional
 from langchain.callbacks.base import AsyncCallbackHandler
 from app.slack.service import slack_event_service
+from app.services.rca.get_service_name.enums import TOOL_NAME_TO_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -46,29 +47,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         self.step_counter += 1
         tool_name = serialized.get("name", "unknown_tool")
 
-        # Map tool names to user-friendly messages
-        friendly_messages = {
-            "fetch_error_logs_tool": "🔍 Checking error logs...",
-            "fetch_logs_tool": "📜 Fetching logs...",
-            "fetch_cpu_metrics_tool": "📊 Analyzing CPU metrics...",
-            "fetch_memory_metrics_tool": "💾 Analyzing memory usage...",
-            "fetch_http_latency_tool": "⏱️ Checking HTTP latency...",
-            "fetch_metrics_tool": "📈 Fetching metrics...",
-            "list_repositories_tool": "📦 Listing GitHub repositories...",
-            "list_all_services_tool": "🔎 Discovering all services in workspace...",
-            "discover_service_name_tool": "🏷️ Identifying service name from repository...",
-            "scan_repository_for_services_tool": "🔍 Scanning repository for service names...",
-            "read_repository_file_tool": "📄 Reading code file...",
-            "search_code_tool": "🔎 Searching codebase...",
-            "get_repository_commits_tool": "📝 Checking recent commits...",
-            "list_pull_requests_tool": "🔀 Reviewing pull requests...",
-            "download_file_tool": "⬇️ Downloading file...",
-            "get_repository_tree_tool": "🌳 Exploring repository structure...",
-            "get_branch_recent_commits_tool": "🌿 Checking branch commits...",
-            "get_repository_metadata_tool": "ℹ️ Fetching repository metadata...",
-        }
-
-        message = friendly_messages.get(tool_name, f"🔧 Using {tool_name}...")
+        # Get user-friendly message from enum mapping
+        enum_message = TOOL_NAME_TO_MESSAGE.get(tool_name)
+        message = enum_message.value if enum_message else f"🔧 Using {tool_name}..."
 
         try:
             await slack_event_service.send_message(

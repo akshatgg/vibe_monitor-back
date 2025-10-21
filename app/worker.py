@@ -113,7 +113,6 @@ class RCAOrchestratorWorker(BaseWorker):
 
                     if repos_response.get("success"):
                         repositories = repos_response.get("repositories", [])
-                        print(repositories, "............................................")
                         total_repos = len(repositories)
                         logger.info(f"Found {total_repos} repositories to scan")
 
@@ -160,12 +159,17 @@ class RCAOrchestratorWorker(BaseWorker):
                                 thread_ts=thread_ts,
                             )
                     else:
-                        logger.warning(".........Failed to fetch repositories for service discovery")
+                        logger.warning("Failed to fetch repositories for service discovery")
 
                 except Exception as e:
                     logger.error(f"Error during service discovery pre-processing: {e}")
-                    # If service discovery fails, do not start RCA service, just warn and exit
-                    logger.warning("....................Service discovery failed, skipping RCA analysis for this job")
+                    # Mark job as failed 
+                    job.status = JobStatus.FAILED
+                    job.finished_at = datetime.now(timezone.utc)
+                    job.error_message = f"Service discovery failed: {str(e)}"
+                    await db.commit()
+                    
+                    logger.warning("Service discovery failed, marking job as FAILED and exiting")
                     return
 
                 # Perform RCA analysis using AI agent

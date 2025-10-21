@@ -18,35 +18,13 @@ from app.github.tools.router import (
     download_file_by_path,
 )
 from app.github.tools.service import get_github_integration_with_token
+from app.services.rca.get_service_name.constants import (
+    LANGUAGE_FILES,
+    UNIVERSAL_FILES,
+    SERVICE_PATTERNS,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# Priority files to check based on language
-LANGUAGE_FILES = {
-    "Python": ["main.py", "app.py", "server.py", "__init__.py"],
-    "JavaScript": ["index.js", "server.js", "app.js"],
-    "TypeScript": ["index.ts", "server.ts", "app.ts"],
-    "Go": ["main.go", "server.go"],
-}
-
-UNIVERSAL_FILES = ["Dockerfile", ".env", "package.json", "pyproject.toml"]
-
-# Regex patterns for service name detection (ordered by priority)
-SERVICE_PATTERNS = {
-    # TOP PRIORITY: Dockerfile LABEL service.name="xxx"
-    "dockerfile_label_service_name": r'LABEL\s+service\.name\s*=\s*["\']([a-zA-Z0-9_\-]+)["\']',
-
-    # Other Dockerfile patterns
-    "dockerfile_label_service": r'LABEL\s+service\s*=\s*["\']?([a-zA-Z0-9_\-]+)["\']?',
-    "dockerfile_env": r'ENV\s+(?:SERVICE_NAME|APP_NAME)\s*=\s*["\']?([a-zA-Z0-9_\-]+)["\']?',
-
-    # Application patterns
-    "python_logger": r'logger\s*=\s*logging\.getLogger\(["\']([a-zA-Z0-9_\-\.]+)["\']\)',
-    "fastapi_app": r'FastAPI\([^)]*title\s*=\s*["\']([^"\']+)["\']',
-    "env_var": r'(?:SERVICE_NAME|APP_NAME)\s*=\s*["\']?([a-zA-Z0-9_\-]+)["\']?',
-    "package_name": r'"name"\s*:\s*"([a-zA-Z0-9_\-@/]+)"',
-}
 
 
 async def extract_service_names_from_repo(
