@@ -315,12 +315,88 @@ op.drop_column('table_name', 'column_name')
 
 ### Production Deployment
 
-Migrations should run automatically in production before the app starts. Update your deployment process:
+**Migrations run automatically in production!** 🎉
 
+The Docker container includes an `entrypoint.sh` script that:
+1. Runs `alembic upgrade head` to apply all pending migrations
+2. Starts the application only if migrations succeed
+3. Exits with error code if migrations fail (prevents bad deployments)
+
+This means:
+- ✅ No manual migration steps needed for production deployments
+- ✅ Database schema always matches deployed code
+- ✅ Safe rollouts (ECS won't deploy if migrations fail)
+- ✅ Zero-downtime deployments (Alembic handles concurrent migration attempts safely)
+
+**How it works:**
 ```bash
-# In production deployment script (or Docker entrypoint):
-alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Dockerfile CMD runs entrypoint.sh automatically:
+./entrypoint.sh
+  ├── alembic upgrade head  # Apply migrations
+  └── uvicorn app.main:app  # Start application (only if migrations succeed)
 ```
+
+**Important notes:**
+- First container to start acquires database lock and runs migrations
+- Other containers wait for migrations to complete
+- If migration fails, container exits and ECS rolls back deployment
+- Migrations are idempotent - safe to run multiple times
+
+### ECS Production Configuration
+
+**Health Check Configuration:**
+
+This deployment uses **ALB target group health checks** (not container-level health checks):
+- Health check path: `/health`
+- Health check protocol: HTTP
+- Grace period: 60 seconds (configured in ECS service)
+- Interval: 15 seconds
+- Healthy threshold: 2 consecutive successes
+- Unhealthy threshold: 3 consecutive failures
+
+**Recommended grace period settings:**
+- Default: 60 seconds (sufficient for most migrations)
+- If migrations take >30 seconds: Increase to 90-120 seconds
+- Monitor CloudWatch logs during first deployment to verify migration duration
+
+**Why ALB health checks instead of container health checks:**
+- ALB already performs HTTP checks on `/health` endpoint
+- Avoids unnecessary dependencies (curl) in container
+- Simpler configuration and troubleshooting
+
+### Migration Rollback Strategy
+
+**What happens during rollback:**
+- ECS can roll back to previous task definition (previous code)
+- Database migrations are **forward-only** and cannot be automatically rolled back
+- This creates a potential state mismatch if migrations ran but deployment failed
+
+**Best practices:**
+1. **Make migrations backward-compatible:**
+   - When adding columns: make them nullable initially
+   - When removing columns: deprecate first, remove later
+   - Never rename columns in a single migration
+
+2. **Example backward-compatible migration:**
+   ```python
+   # GOOD: Add nullable column first
+   op.add_column('users', sa.Column('new_field', sa.String(), nullable=True))
+
+   # Later, after deployment succeeds, make it non-null if needed
+   op.alter_column('users', 'new_field', nullable=False)
+   ```
+
+3. **If deployment fails after migrations:**
+   - Old code must still work with new schema
+   - Test migrations in staging with old code first
+   - Have a rollback SQL script ready for destructive changes
+
+4. **Emergency rollback procedure:**
+   ```bash
+   # If you must rollback a migration manually:
+   alembic downgrade -1  # Rollback one migration
+   alembic current       # Verify current version
+   ```
 
 ### Troubleshooting
 

@@ -32,16 +32,21 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code
 COPY app/ ./app/
+# Copy Alembic migration files
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
+# Copy entrypoint script
+COPY entrypoint.sh ./
 
 # Create non-root user and data dir
 RUN useradd -r -u 10001 -g users appuser \
     && mkdir -p /app/data \
-    && chown -R appuser:users /app
+    && chown -R appuser:users /app \
+    && chmod +x /app/entrypoint.sh
 USER appuser
 
 # Expose port 8000
 EXPOSE 8000
 
-
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use entrypoint script to run migrations before starting app
+CMD ["./entrypoint.sh"]
