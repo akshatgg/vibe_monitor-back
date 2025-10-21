@@ -1,6 +1,7 @@
 """
 LangChain tools for RCA agent to interact with GitHub repositories
 """
+
 import logging
 from typing import Optional, List
 from langchain.tools import tool
@@ -14,7 +15,7 @@ from app.github.tools.router import (
     download_file_by_path,
     get_repository_tree,
     get_branch_recent_commits,
-    get_repository_metadata,    
+    get_repository_metadata,
 )
 from app.core.database import AsyncSessionLocal
 
@@ -73,7 +74,10 @@ def _format_file_content_response(response: dict) -> str:
         # Truncate very large files
         max_chars = 10000
         if len(content) > max_chars:
-            content = content[:max_chars] + f"\n\n... (truncated, total size: {byte_size} bytes)"
+            content = (
+                content[:max_chars]
+                + f"\n\n... (truncated, total size: {byte_size} bytes)"
+            )
 
         return f"File: {file_path}\nSize: {byte_size} bytes\n\n```\n{content}\n```"
 
@@ -232,7 +236,7 @@ async def list_repositories_tool(
                 first=first,
                 after=after,
                 user_id="rca-agent",  # Placeholder for agent context
-                db=db
+                db=db,
             )
 
         return _format_repositories_response(response)
@@ -278,7 +282,7 @@ async def read_repository_file_tool(
                 owner=owner,
                 branch=branch,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_file_content_response(response)
@@ -328,7 +332,7 @@ async def search_code_tool(
                 per_page=per_page,
                 page=page,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_code_search_response(response)
@@ -374,7 +378,7 @@ async def get_repository_commits_tool(
                 first=first,
                 after=after,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_commits_response(response)
@@ -423,7 +427,7 @@ async def list_pull_requests_tool(
                 first=first,
                 after=after,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_pull_requests_response(response)
@@ -469,7 +473,7 @@ async def download_file_tool(
                 owner=owner,
                 ref=ref,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_file_content_response(response)
@@ -500,7 +504,10 @@ def _format_tree_response(response: dict) -> str:
             # Truncate very large files
             max_chars = 10000
             if len(text) > max_chars:
-                text = text[:max_chars] + f"\n\n... (truncated, total size: {byte_size} bytes)"
+                text = (
+                    text[:max_chars]
+                    + f"\n\n... (truncated, total size: {byte_size} bytes)"
+                )
 
             return f"File: {expression}\nSize: {byte_size} bytes\n\n```\n{text}\n```"
 
@@ -557,7 +564,9 @@ def _format_metadata_response(response: dict) -> str:
 
                 formatted.append(f"  • {name}: {percentage:.1f}% ({size:,} bytes)")
 
-            formatted.append(f"\nTotal: {total_size:,} bytes across {languages_data.get('total_count', 0)} languages")
+            formatted.append(
+                f"\nTotal: {total_size:,} bytes across {languages_data.get('total_count', 0)} languages"
+            )
         else:
             formatted.append("**Languages:** None detected")
 
@@ -612,7 +621,7 @@ async def get_repository_tree_tool(
                 expression=expression,
                 owner=owner,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_tree_response(response)
@@ -663,7 +672,7 @@ async def get_branch_recent_commits_tool(
                 first=first,
                 after=None,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_commits_response(response)
@@ -707,7 +716,7 @@ async def get_repository_metadata_tool(
                 owner=owner,
                 first=first,
                 user_id="rca-agent",
-                db=db
+                db=db,
             )
 
         return _format_metadata_response(response)

@@ -47,6 +47,7 @@ langchain = "^0.3.27"
 langchain-groq = "^0.3.8"
 langchain-core = "^0.3.78"
 greenlet = "^3.2.4"
+slowapi = "^0.1.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

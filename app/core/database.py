@@ -3,20 +3,25 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 
-from app.models import Base 
+from app.models import Base
 from .config import settings
+
 
 def get_database_url() -> str:
     """Get database URL based on environment"""
     if settings.is_production:
         # Production: Use Supabase hosted database URL
         if not settings.SUPABASE_DATABASE_URL:
-            raise ValueError("SUPABASE_DATABASE_URL is required for production environment")
+            raise ValueError(
+                "SUPABASE_DATABASE_URL is required for production environment"
+            )
 
         # Convert postgresql:// to postgresql+asyncpg:// for async driver if needed
         url = settings.SUPABASE_DATABASE_URL
         if url.startswith("postgresql://") or url.startswith("postgres://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://").replace("postgres://", "postgresql+asyncpg://")
+            url = url.replace("postgresql://", "postgresql+asyncpg://").replace(
+                "postgres://", "postgresql+asyncpg://"
+            )
         return url
 
     else:
@@ -32,6 +37,7 @@ def get_database_url() -> str:
             base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
         return base_url
 
+
 # Get database URL based on environment
 DATABASE_URL = get_database_url()
 
@@ -41,9 +47,13 @@ engine = create_async_engine(
     echo=False,  # Disable SQLAlchemy query logging (use Python logging config instead)
     future=True,
     pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600 if settings.is_production else -1,  # Recycle connections in production
+    pool_recycle=3600
+    if settings.is_production
+    else -1,  # Recycle connections in production
     pool_size=10 if settings.is_production else 5,  # Connection pool size
-    max_overflow=20 if settings.is_production else 10,  # Max connections beyond pool_size
+    max_overflow=20
+    if settings.is_production
+    else 10,  # Max connections beyond pool_size
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
         "server_settings": {
@@ -53,14 +63,14 @@ engine = create_async_engine(
 )
 
 # Create async session factory
-AsyncSessionLocal = sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
 
 async def create_tables():
     """Create all database tables"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session"""
@@ -69,6 +79,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
+
 
 async def init_database():
     """Initialize database with tables"""

@@ -1,6 +1,7 @@
 """
 RCA Agent Service using LangChain with Groq LLM
 """
+
 import logging
 from functools import partial
 from typing import Dict, Any, Optional
@@ -18,7 +19,7 @@ from .tools.grafana.tools import (
     fetch_cpu_metrics_tool,
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
-    fetch_metrics_tool  
+    fetch_metrics_tool,
 )
 
 from .tools.github.tools import (
@@ -29,7 +30,7 @@ from .tools.github.tools import (
     read_repository_file_tool,
     get_repository_tree_tool,
     get_branch_recent_commits_tool,
-    get_repository_metadata_tool
+    get_repository_metadata_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,6 @@ ALL_RCA_TOOLS = [
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
     fetch_metrics_tool,
-
     # GitHub tools
     read_repository_file_tool,
     search_code_tool,
@@ -94,7 +94,9 @@ class RCAAgentService:
             logger.error(f"Failed to initialize RCA agent LLM: {e}")
             raise
 
-    def _create_schema_without_workspace_id(self, original_schema: type[BaseModel]) -> type[BaseModel]:
+    def _create_schema_without_workspace_id(
+        self, original_schema: type[BaseModel]
+    ) -> type[BaseModel]:
         """
         Create a new Pydantic schema excluding the workspace_id field.
 
@@ -113,8 +115,7 @@ class RCAAgentService:
 
         # Create new model without workspace_id
         new_schema = create_model(
-            f"{original_schema.__name__}WithoutWorkspace",
-            **fields
+            f"{original_schema.__name__}WithoutWorkspace", **fields
         )
 
         return new_schema
@@ -205,7 +206,9 @@ class RCAAgentService:
                     "error": error_msg,
                 }
 
-            logger.info(f"Starting RCA analysis for query: '{user_query}' (workspace: {workspace_id})")
+            logger.info(
+                f"Starting RCA analysis for query: '{user_query}' (workspace: {workspace_id})"
+            )
 
             # Create workspace-specific agent executor
             agent_executor = self._create_agent_executor_for_workspace(workspace_id)
@@ -235,10 +238,14 @@ class RCAAgentService:
             else:
                 result = await agent_executor.ainvoke(agent_input)
 
-            logger.info(f"RCA analysis completed successfully for workspace: {workspace_id}")
+            logger.info(
+                f"RCA analysis completed successfully for workspace: {workspace_id}"
+            )
 
             return {
-                "output": result.get("output", "Analysis completed but no output generated."),
+                "output": result.get(
+                    "output", "Analysis completed but no output generated."
+                ),
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "success": True,
                 "error": None,
@@ -280,7 +287,9 @@ class RCAAgentService:
                     return result
 
                 # If analysis didn't succeed but didn't error, retry
-                logger.warning(f"Analysis attempt {attempt + 1} did not succeed, retrying...")
+                logger.warning(
+                    f"Analysis attempt {attempt + 1} did not succeed, retrying..."
+                )
 
             except Exception as e:
                 logger.error(f"Attempt {attempt + 1} failed: {e}")

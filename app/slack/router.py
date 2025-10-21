@@ -23,8 +23,7 @@ slack_router = APIRouter(prefix="/slack", tags=["slack"])
 
 @slack_router.get("/install")
 async def initiate_slack_install(
-    workspace_id: str,
-    user = Depends(auth_service.get_current_user)
+    workspace_id: str, user=Depends(auth_service.get_current_user)
 ):
     """
     Generate Slack OAuth URL with workspace_id and user_id embedded in state parameter
@@ -44,14 +43,16 @@ async def initiate_slack_install(
     state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
     oauth_url = (
-        f"https://slack.com/oauth/v2/authorize?"
+        f"{settings.SLACK_OAUTH_AUTHORIZE_URL}?"
         f"client_id={settings.SLACK_CLIENT_ID}&"
         f"scope=app_mentions:read,channels:read,chat:write,chat:write.public,commands,groups:read,channels:history&"
         f"user_scope=&"
         f"state={state}"
     )
 
-    logger.info(f"Initiating Slack OAuth for workspace: {workspace_id} by user: {user.id}")
+    logger.info(
+        f"Initiating Slack OAuth for workspace: {workspace_id} by user: {user.id}"
+    )
     return JSONResponse({"oauth_url": oauth_url})
 
 
@@ -112,7 +113,7 @@ async def slack_oauth_callback(
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     OAuth 2.0 callback endpoint - handles Slack app installation
@@ -155,7 +156,9 @@ async def slack_oauth_callback(
             if len(parts) >= 2:
                 user_id = parts[0]
                 workspace_id = parts[1]
-                logger.info(f"Extracted user_id: {user_id}, workspace_id: {workspace_id} from state")
+                logger.info(
+                    f"Extracted user_id: {user_id}, workspace_id: {workspace_id} from state"
+                )
         except Exception as e:
             logger.error(f"Failed to parse state parameter: {e}")
             raise HTTPException(status_code=400, detail="Invalid state parameter")
@@ -183,8 +186,7 @@ async def slack_oauth_callback(
     # Check if user is a member of the workspace
     membership_result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == workspace_id
+            Membership.user_id == user_id, Membership.workspace_id == workspace_id
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -192,8 +194,7 @@ async def slack_oauth_callback(
     if not membership:
         logger.error(f"User {user_id} does not have access to workspace {workspace_id}")
         raise HTTPException(
-            status_code=403,
-            detail="User does not have access to this workspace"
+            status_code=403, detail="User does not have access to this workspace"
         )
 
     logger.info(f"✅ Verified user {user_id} has access to workspace {workspace_id}")
@@ -207,11 +208,11 @@ async def slack_oauth_callback(
 
     try:
         # Exchange authorization code for access token
-        logger.info(f"Exchanging OAuth code for access token")
+        logger.info("Exchanging OAuth code for access token")
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "https://slack.com/api/oauth.v2.access",
+                f"{settings.SLACK_API_BASE_URL}/oauth.v2.access",
                 data={
                     "client_id": settings.SLACK_CLIENT_ID,
                     "client_secret": settings.SLACK_CLIENT_SECRET,
@@ -254,7 +255,11 @@ async def slack_oauth_callback(
 
         logger.info(
             f"✅ Slack App Successfully installed for: {team_name}"
-            + (f" (linked to workspace: {workspace_id})" if workspace_id else " (no workspace linked)")
+            + (
+                f" (linked to workspace: {workspace_id})"
+                if workspace_id
+                else " (no workspace linked)"
+            )
         )
 
         # Redirect to success page

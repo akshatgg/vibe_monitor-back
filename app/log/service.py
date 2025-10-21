@@ -1,6 +1,7 @@
 """
 Logs service layer for business logic
 """
+
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional
@@ -17,7 +18,7 @@ from .models import (
     LogQueryParams,
     TimeRange,
     LogQueryData,
-    LogStream
+    LogStream,
 )
 from .utils import get_loki_uid_cached
 
@@ -39,14 +40,17 @@ class LogsService:
             integration = result.scalar_one_or_none()
 
             if not integration:
-                raise ValueError(f"No Grafana configuration found for workspace {workspace_id}")
+                raise ValueError(
+                    f"No Grafana configuration found for workspace {workspace_id}"
+                )
 
             # Auto-discover Loki UID from Grafana
             datasource_uid = await get_loki_uid_cached(
-                grafana_url=integration.grafana_url,
-                api_token=integration.api_token
+                grafana_url=integration.grafana_url, api_token=integration.api_token
             )
-            logger.info(f"Auto-discovered Loki UID for workspace {workspace_id}: {datasource_uid}")
+            logger.info(
+                f"Auto-discovered Loki UID for workspace {workspace_id}: {datasource_uid}"
+            )
 
             return integration.grafana_url, integration.api_token, datasource_uid
 
@@ -65,7 +69,7 @@ class LogsService:
         if not value:
             return value
         # Escape backslashes first, then quotes
-        return value.replace('\\', '\\\\').replace('"', '\\"')
+        return value.replace("\\", "\\\\").replace('"', '\\"')
 
     def _escape_regex(self, pattern: str) -> str:
         """
@@ -96,22 +100,24 @@ class LogsService:
                 return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
             elif time_value.startswith("now-"):
                 # Parse relative time like "now-5m", "now-1h", "now-1d"
-                match = re.match(r'now-(\d+)([smhd])', time_value)
+                match = re.match(r"now-(\d+)([smhd])", time_value)
                 if match:
                     amount, unit = match.groups()
                     amount = int(amount)
 
-                    if unit == 's':
+                    if unit == "s":
                         delta = timedelta(seconds=amount)
-                    elif unit == 'm':
+                    elif unit == "m":
                         delta = timedelta(minutes=amount)
-                    elif unit == 'h':
+                    elif unit == "h":
                         delta = timedelta(hours=amount)
-                    elif unit == 'd':
+                    elif unit == "d":
                         delta = timedelta(days=amount)
                     else:
                         # %f gives microseconds (6 digits), pad with 3 zeros for nanoseconds (9 digits)
-                        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
+                        return datetime.now(timezone.utc).strftime(
+                            "%Y-%m-%dT%H:%M:%S.%f000Z"
+                        )
 
                     target_time = datetime.now(timezone.utc) - delta
                     # %f gives microseconds (6 digits), pad with 3 zeros for nanoseconds (9 digits)
@@ -124,7 +130,7 @@ class LogsService:
         self,
         service_name: Optional[str] = None,
         filters: Optional[Dict[str, str]] = None,
-        search_term: Optional[str] = None
+        search_term: Optional[str] = None,
     ) -> str:
         """
         Build LogQL query with optional filters
@@ -153,7 +159,7 @@ class LogsService:
 
         # Base query with labels
         if labels:
-            query = '{' + ','.join(labels) + '}'
+            query = "{" + ",".join(labels) + "}"
         else:
             query = '{job=~".+"}'  # Match all jobs if no filter
 
@@ -178,7 +184,7 @@ class LogsService:
         direction: str = "BACKWARD",
         step: Optional[str] = None,
         workspace_id: str = None,
-        retry_on_auth_error: bool = True
+        retry_on_auth_error: bool = True,
     ) -> Dict:
         """Query Loki via Grafana datasource proxy API"""
         # Use Grafana's datasource proxy to query Loki
@@ -190,7 +196,7 @@ class LogsService:
             "start": self._format_time(start),
             "end": self._format_time(end),
             "limit": limit,
-            "direction": direction
+            "direction": direction,
         }
 
         if step:
@@ -207,27 +213,32 @@ class LogsService:
             logger.error(f"Request error to Loki: {e}")
             raise
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error from Loki: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error from Loki: {e.response.status_code} - {e.response.text}"
+            )
             raise
 
     async def query_logs(
-        self,
-        workspace_id: str,
-        params: LogQueryParams
+        self, workspace_id: str, params: LogQueryParams
     ) -> LogQueryResponse:
         """Query logs over a time range from Loki"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response_data = await self._query_loki(
-                client, base_url, api_token, datasource_uid,
+                client,
+                base_url,
+                api_token,
+                datasource_uid,
                 logql_query=params.query,
                 start=params.start,
                 end=params.end,
                 limit=params.limit,
                 direction=params.direction,
                 step=params.step,
-                workspace_id=workspace_id
+                workspace_id=workspace_id,
             )
 
             # Parse Loki response
@@ -240,10 +251,8 @@ class LogsService:
             return LogQueryResponse(
                 status=response_data.get("status", "error"),
                 data=LogQueryData(
-                    resultType="streams",
-                    result=log_streams,
-                    stats=data.get("stats")
-                )
+                    resultType="streams", result=log_streams, stats=data.get("stats")
+                ),
             )
 
     async def get_logs_by_service(
@@ -252,7 +261,7 @@ class LogsService:
         service_name: str,
         time_range: TimeRange,
         limit: int = 100,
-        direction: str = "BACKWARD"
+        direction: str = "BACKWARD",
     ) -> LogQueryResponse:
         """Get logs for a specific service"""
         logql_query = self._build_logql_query(service_name=service_name)
@@ -262,7 +271,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction=direction
+            direction=direction,
         )
 
         return await self.query_logs(workspace_id, params)
@@ -272,7 +281,7 @@ class LogsService:
         workspace_id: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Get error logs (filtered by error/ERROR keywords)"""
         if time_range is None:
@@ -287,7 +296,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
@@ -298,15 +307,14 @@ class LogsService:
         search_term: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Search logs containing specific text"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         logql_query = self._build_logql_query(
-            service_name=service_name,
-            search_term=search_term
+            service_name=service_name, search_term=search_term
         )
 
         params = LogQueryParams(
@@ -314,14 +322,18 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
 
-    async def get_all_labels(self, workspace_id: str, retry_on_auth_error: bool = True) -> LabelResponse:
+    async def get_all_labels(
+        self, workspace_id: str, retry_on_auth_error: bool = True
+    ) -> LabelResponse:
         """Get list of all available log labels via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/loki/api/v1/labels"
 
@@ -334,22 +346,27 @@ class LogsService:
 
                 if response_data.get("status") == "success":
                     return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
+                        status="success", data=response_data.get("data", [])
                     )
                 else:
                     logger.error(f"Failed to get labels: {response_data}")
                     return LabelResponse(status="error", data=[])
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting labels: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting labels: {e.response.status_code} - {e.response.text}"
+                )
                 return LabelResponse(status="error", data=[])
             except Exception as e:
                 logger.error(f"Error getting labels: {e}")
                 return LabelResponse(status="error", data=[])
 
-    async def get_label_values(self, workspace_id: str, label_name: str, retry_on_auth_error: bool = True) -> LabelResponse:
+    async def get_label_values(
+        self, workspace_id: str, label_name: str, retry_on_auth_error: bool = True
+    ) -> LabelResponse:
         """Get all values for a specific label via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/loki/api/v1/label/{label_name}/values"
 
@@ -362,14 +379,15 @@ class LogsService:
 
                 if response_data.get("status") == "success":
                     return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
+                        status="success", data=response_data.get("data", [])
                     )
                 else:
                     logger.error(f"Failed to get label values: {response_data}")
                     return LabelResponse(status="error", data=[])
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting label values: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting label values: {e.response.status_code} - {e.response.text}"
+                )
                 return LabelResponse(status="error", data=[])
             except Exception as e:
                 logger.error(f"Error getting label values: {e}")
@@ -380,7 +398,7 @@ class LogsService:
         workspace_id: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Get warning logs (filtered by warn/WARNING keywords)"""
         if time_range is None:
@@ -395,7 +413,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
@@ -405,7 +423,7 @@ class LogsService:
         workspace_id: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Get info logs (filtered by info/INFO keywords)"""
         if time_range is None:
@@ -420,7 +438,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
@@ -430,7 +448,7 @@ class LogsService:
         workspace_id: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Get debug logs (filtered by debug/DEBUG keywords)"""
         if time_range is None:
@@ -445,7 +463,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
@@ -456,7 +474,7 @@ class LogsService:
         log_level: str,
         service_name: str = None,
         time_range: TimeRange = None,
-        limit: int = 100
+        limit: int = 100,
     ) -> LogQueryResponse:
         """Get logs filtered by custom log level"""
         if time_range is None:
@@ -473,7 +491,7 @@ class LogsService:
             start=time_range.start,
             end=time_range.end,
             limit=limit,
-            direction="BACKWARD"
+            direction="BACKWARD",
         )
 
         return await self.query_logs(workspace_id, params)
@@ -481,7 +499,9 @@ class LogsService:
     async def health_check(self, workspace_id: str) -> bool:
         """Check if Loki datasource proxy is healthy"""
         try:
-            base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+            base_url, api_token, datasource_uid = await self._get_workspace_config(
+                workspace_id
+            )
             # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
             url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/loki/api/v1/labels"
             headers = self._get_headers(api_token)

@@ -20,7 +20,10 @@ class GroqClient:
         try:
             logger.debug(f"Making chat completion request with model: {request.model}")
 
-            messages = [{"role": msg.role.value, "content": msg.content} for msg in request.messages]
+            messages = [
+                {"role": msg.role.value, "content": msg.content}
+                for msg in request.messages
+            ]
 
             completion = self.client.chat.completions.create(
                 model=request.model,
@@ -28,7 +31,7 @@ class GroqClient:
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
                 top_p=request.top_p,
-                stream=request.stream
+                stream=request.stream,
             )
 
             response = ChatResponse(
@@ -41,20 +44,22 @@ class GroqClient:
                         "index": choice.index,
                         "message": {
                             "role": choice.message.role,
-                            "content": choice.message.content
+                            "content": choice.message.content,
                         },
-                        "finish_reason": choice.finish_reason
+                        "finish_reason": choice.finish_reason,
                     }
                     for choice in completion.choices
                 ],
                 usage={
                     "prompt_tokens": completion.usage.prompt_tokens,
                     "completion_tokens": completion.usage.completion_tokens,
-                    "total_tokens": completion.usage.total_tokens
-                }
+                    "total_tokens": completion.usage.total_tokens,
+                },
             )
 
-            logger.debug(f"Chat completion successful, tokens used: {response.usage.total_tokens}")
+            logger.debug(
+                f"Chat completion successful, tokens used: {response.usage.total_tokens}"
+            )
             return response
 
         except Exception as e:
@@ -66,7 +71,7 @@ class GroqClient:
             test_request = ChatRequest(
                 model="openai/gpt-oss-20b",
                 messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=5
+                max_tokens=5,
             )
             self.chat_completion(test_request)
             return True

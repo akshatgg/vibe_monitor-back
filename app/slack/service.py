@@ -21,6 +21,8 @@ from app.models import SlackInstallation
 from app.models import Job, JobStatus
 
 from app.utils.token_processor import token_processor
+from app.utils.rate_limiter import check_rate_limit, ResourceType
+
 
 logger = logging.getLogger(__name__)
 
@@ -141,10 +143,10 @@ class SlackEventService:
                 f"Hi <@{user_id}>! Here's what I can do:\n\n"
                 "🔍 **AI-Powered Root Cause Analysis**\n"
                 "Ask me questions about your services and I'll investigate logs and metrics:\n"
-                "• _\"Why is my xyz service slow?\"_\n"
-                "• _\"Check errors in api-gateway service\"_\n"
-                "• _\"What's causing high CPU on auth-service?\"_\n"
-                "• _\"Investigate database timeouts\"_\n\n"
+                '• _"Why is my xyz service slow?"_\n'
+                '• _"Check errors in api-gateway service"_\n'
+                '• _"What\'s causing high CPU on auth-service?"_\n'
+                '• _"Investigate database timeouts"_\n\n'
                 "📋 **Commands**\n"
                 "• `help` - Show this message\n"
                 "• `status` - Check bot health\n\n"
@@ -165,7 +167,6 @@ class SlackEventService:
             # This looks like an RCA query - create Job record and enqueue to SQS
             logger.info(f"Creating RCA job for query: '{clean_message}'")
 
-
             # Generate job ID
             job_id = str(uuid.uuid4())
 
@@ -173,7 +174,9 @@ class SlackEventService:
                 # Create Job record in database
                 async with AsyncSessionLocal() as db:
                     # Get slack integration ID and workspace_id from team_id
-                    slack_integration = await SlackEventService.get_installation(team_id)
+                    slack_integration = await SlackEventService.get_installation(
+                        team_id
+                    )
                     if not slack_integration:
                         logger.error(f"No Slack installation found for team {team_id}")
                         return (
@@ -182,7 +185,9 @@ class SlackEventService:
                         )
 
                     if not slack_integration.workspace_id:
-                        logger.error(f"Slack installation {slack_integration.id} has no workspace_id")
+                        logger.error(
+                            f"Slack installation {slack_integration.id} has no workspace_id"
+                        )
                         return (
                             f"❌ Sorry <@{user_id}>, your Slack workspace is not linked to a VibeMonitor workspace. "
                             f"Please complete the setup or contact support."
@@ -190,6 +195,47 @@ class SlackEventService:
 
                     slack_integration_id = slack_integration.id
                     workspace_id = slack_integration.workspace_id
+
+                    # Check rate limit before creating job
+
+                    try:
+                        allowed, current_count, limit = await check_rate_limit(
+                            session=db,
+                            workspace_id=workspace_id,
+                            resource_type=ResourceType.RCA_REQUEST
+                        )
+
+                        if not allowed:
+                            logger.warning(
+                                f"RCA rate limit exceeded for workspace {workspace_id}: "
+                                f"{current_count}/{limit}"
+                            )
+                            return (
+                                f"⚠️ *Daily RCA Request Limit Reached*\n\n"
+                                f"Your workspace has reached the daily limit of *{limit} RCA requests*.\n\n"
+                                f"📅 Current usage: {current_count}/{limit}\n"
+                                f"🔄 Limit resets: Tomorrow at midnight UTC\n\n"
+                                f"Please try again tomorrow or contact support@vibemonitor.ai to increase your limits."
+                            )
+
+                        logger.info(
+                            f"RCA rate limit check passed for workspace {workspace_id}: "
+                            f"{current_count}/{limit}"
+                        )
+
+                    except ValueError as e:
+                        logger.error(f"Rate limit check failed: {e}")
+                        return (
+                            f"❌ Sorry <@{user_id}>, there was an error checking your workspace limits. "
+                            f"Please contact support."
+                        )
+                    except Exception as e:
+                        logger.exception(f"Unexpected error in rate limit check: {e}")
+                        # Fail open: allow the request but log the error
+                        logger.warning(
+                            f"Rate limit check failed for workspace {workspace_id}, "
+                            f"allowing request to proceed"
+                        )
 
                     # Create job record
                     job = Job(
@@ -365,7 +411,7 @@ class SlackEventService:
             logger.info("Access token decrypted successfully for slack message")
         except Exception as err:
             logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return False 
+            return False
 
         try:
             async with httpx.AsyncClient() as client:
@@ -376,7 +422,7 @@ class SlackEventService:
                     payload["thread_ts"] = thread_ts
 
                 response = await client.post(
-                    "https://slack.com/api/chat.postMessage",
+                    f"{settings.SLACK_API_BASE_URL}/chat.postMessage",
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Content-Type": "application/json",

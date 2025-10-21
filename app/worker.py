@@ -9,6 +9,7 @@ from app.services.rca.agent import rca_agent_service
 from app.services.rca.callbacks import SlackProgressCallback
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
+from app.core.config import settings
 from app.models import Job, JobStatus
 from app.github.tools.router import list_repositories_graphql
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
@@ -53,28 +54,35 @@ class RCAOrchestratorWorker(BaseWorker):
 
                 # Check if job is in correct state
                 if job.status != JobStatus.QUEUED:
-                    logger.warning(f"Job {job_id} is not queued (status: {job.status.value}), skipping")
+                    logger.warning(
+                        f"Job {job_id} is not queued (status: {job.status.value}), skipping"
+                    )
                     return
 
                 # Check if job should be delayed (backoff)
                 if job.backoff_until and job.backoff_until > datetime.now(timezone.utc):
                     # Calculate delay in seconds
-                    delay = (job.backoff_until - datetime.now(timezone.utc)).total_seconds()
+                    delay = (
+                        job.backoff_until - datetime.now(timezone.utc)
+                    ).total_seconds()
 
                     # SQS has a maximum delay of 900 seconds (15 minutes)
                     # If delay is longer, use max and let it check again
                     delay_seconds = min(int(delay), 900)
 
-                    logger.info(f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing with {delay_seconds}s delay")
+                    logger.info(
+                        f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing with {delay_seconds}s delay"
+                    )
 
                     # Re-enqueue to SQS with delay
                     await sqs_client.send_message(
-                        message_body={"job_id": job_id},
-                        delay_seconds=delay_seconds
+                        message_body={"job_id": job_id}, delay_seconds=delay_seconds
                     )
                     return
 
-                logger.info(f"🔍 Processing job {job_id}: {job.requested_context.get('query')}")
+                logger.info(
+                    f"🔍 Processing job {job_id}: {job.requested_context.get('query')}"
+                )
 
                 # Update job status to RUNNING
                 job.status = JobStatus.RUNNING
@@ -173,7 +181,9 @@ class RCAOrchestratorWorker(BaseWorker):
                     return
 
                 # Perform RCA analysis using AI agent
-                logger.info(f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})")
+                logger.info(
+                    f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})"
+                )
 
                 # Add workspace_id and service mapping to context for RCA tools
                 analysis_context = {
@@ -227,22 +237,29 @@ class RCAOrchestratorWorker(BaseWorker):
                     job.retries += 1
 
                     if job.retries < job.max_retries:
-                        # Retry with exponential backoff
-                        backoff_seconds = 2 ** job.retries * 60  # 2min, 4min, 8min
+                        # Retry with exponential backoff (2^retries * base_backoff)
+                        backoff_seconds = (
+                            2**job.retries * settings.JOB_RETRY_BASE_BACKOFF_SECONDS
+                        )  # 1min, 2min, 4min, etc.
                         job.status = JobStatus.QUEUED
-                        job.backoff_until = datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
-                        job.error_message = f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
+                        job.backoff_until = datetime.now(timezone.utc) + timedelta(
+                            seconds=backoff_seconds
+                        )
+                        job.error_message = (
+                            f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
+                        )
                         await db.commit()
 
                         # SQS has max delay of 900s (15 min), use that as cap
                         delay_seconds = min(backoff_seconds, 900)
 
-                        logger.info(f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})")
+                        logger.info(
+                            f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})"
+                        )
 
                         # Re-enqueue to SQS for retry with delay
                         await sqs_client.send_message(
-                            message_body={"job_id": job_id},
-                            delay_seconds=delay_seconds
+                            message_body={"job_id": job_id}, delay_seconds=delay_seconds
                         )
 
                         # Notify user about retry
@@ -264,7 +281,9 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = error_msg
                         await db.commit()
 
-                        logger.error(f"❌ Job {job_id} failed after {job.retries} retries")
+                        logger.error(
+                            f"❌ Job {job_id} failed after {job.retries} retries"
+                        )
 
                         # Send final error message to user
                         if team_id and channel_id:
@@ -314,7 +333,7 @@ class RCAOrchestratorWorker(BaseWorker):
 async def main():
     """
     Run the RCA orchestrator worker until a termination signal is received and perform graceful shutdown.
-    
+
     Starts the RCAOrchestratorWorker, installs handlers for SIGINT and SIGTERM to trigger shutdown, waits for the shutdown event, and on exit stops the worker and closes the SQS client to ensure resources are cleaned up.
     """
     logger.info("Starting worker process...")

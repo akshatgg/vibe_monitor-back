@@ -18,36 +18,31 @@ class GitHubAppService:
     def __init__(self):
         self.GITHUB_APP_ID = settings.GITHUB_APP_ID
         self.GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY_PEM
-        self.GITHUB_API_BASE = "https://api.github.com"
+        self.GITHUB_API_BASE = settings.GITHUB_API_BASE_URL
 
     def generate_jwt(self) -> str:
         """Generate JWT for GitHub App authentication"""
         if not self.GITHUB_APP_ID or not self.GITHUB_PRIVATE_KEY:
             raise HTTPException(
-                status_code=500,
-                detail="GitHub App not configured properly"
+                status_code=500, detail="GitHub App not configured properly"
             )
 
         now = int(time.time())
-        payload = {
-            "iat": now - 60,
-            "exp": now + (10 * 60),
-            "iss": self.GITHUB_APP_ID
-        }
+        payload = {"iat": now - 60, "exp": now + (10 * 60), "iss": self.GITHUB_APP_ID}
 
         try:
             private_key = self.GITHUB_PRIVATE_KEY.strip()
             if not private_key.startswith("-----BEGIN"):
                 import textwrap
-                key_body = textwrap.fill(private_key.replace('"', ''), 64)
+
+                key_body = textwrap.fill(private_key.replace('"', ""), 64)
                 private_key = f"-----BEGIN RSA PRIVATE KEY-----\n{key_body}\n-----END RSA PRIVATE KEY-----"
 
             token = jwt.encode(payload, private_key, algorithm="RS256")
             return token
         except Exception as e:
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to generate JWT: {str(e)}"
+                status_code=500, detail=f"Failed to generate JWT: {str(e)}"
             )
 
     async def get_installation_info_by_id(self, installation_id: str) -> Dict:
@@ -57,7 +52,7 @@ class GitHubAppService:
         headers = {
             "Authorization": f"Bearer {jwt_token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
+            "X-GitHub-Api-Version": settings.GITHUB_API_VERSION,
         }
 
         url = f"{self.GITHUB_API_BASE}/app/installations/{installation_id}"
@@ -68,7 +63,7 @@ class GitHubAppService:
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Failed to get installation info: {response.text}"
+                    detail=f"Failed to get installation info: {response.text}",
                 )
 
             return response.json()
@@ -78,7 +73,7 @@ class GitHubAppService:
         workspace_id: str,
         installation_id: str,
         installation_info: Dict,
-        db: AsyncSession
+        db: AsyncSession,
     ) -> GitHubIntegration:
         """Create or update GitHub App integration
 
@@ -94,14 +89,14 @@ class GitHubAppService:
         if not workspace_id:
             raise HTTPException(
                 status_code=400,
-                detail="workspace_id is required for GitHub App installation"
+                detail="workspace_id is required for GitHub App installation",
             )
 
         # Check if installation already exists for this specific workspace
         result = await db.execute(
             select(GitHubIntegration).where(
                 GitHubIntegration.installation_id == installation_id,
-                GitHubIntegration.workspace_id == workspace_id
+                GitHubIntegration.workspace_id == workspace_id,
             )
         )
         existing_integration = result.scalar_one_or_none()
@@ -110,8 +105,12 @@ class GitHubAppService:
             # Update existing integration
             existing_integration.workspace_id = workspace_id
             existing_integration.last_synced_at = datetime.now(timezone.utc)
-            existing_integration.github_username = installation_info.get("account", {}).get("login", "")
-            existing_integration.github_user_id = str(installation_info.get("account", {}).get("id", ""))
+            existing_integration.github_username = installation_info.get(
+                "account", {}
+            ).get("login", "")
+            existing_integration.github_user_id = str(
+                installation_info.get("account", {}).get("id", "")
+            )
 
             await db.commit()
             await db.refresh(existing_integration)
@@ -140,7 +139,8 @@ class GitHubAppService:
             github_username=installation_info.get("account", {}).get("login", ""),
             installation_id=installation_id,
             scopes="app_permissions",
-            last_synced_at=datetime.now(timezone.utc)
+            is_active=True,  # New integrations are active by default
+            last_synced_at=datetime.now(timezone.utc),
         )
 
         db.add(new_integration)
@@ -168,10 +168,12 @@ class GitHubAppService:
         headers = {
             "Authorization": f"Bearer {jwt_token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
+            "X-GitHub-Api-Version": settings.GITHUB_API_VERSION,
         }
 
-        url = f"{self.GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens"
+        url = (
+            f"{self.GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens"
+        )
 
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers)
@@ -179,20 +181,18 @@ class GitHubAppService:
             if response.status_code != 201:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Failed to get access token: {response.text}"
+                    detail=f"Failed to get access token: {response.text}",
                 )
 
             data = response.json()
             return {
                 "token": data["token"],
-                "expires_at": data["expires_at"]  # ISO 8601 format: "2025-10-03T13:00:00Z"
+                "expires_at": data[
+                    "expires_at"
+                ],  # ISO 8601 format: "2025-10-03T13:00:00Z"
             }
 
-    async def get_valid_access_token(
-        self,
-        workspace_id: str,
-        db: AsyncSession
-    ) -> str:
+    async def get_valid_access_token(self, workspace_id: str, db: AsyncSession) -> str:
         """Get a valid access token for the workspace, refreshing if expired
 
         This function:
@@ -222,7 +222,14 @@ class GitHubAppService:
         if not integration:
             raise HTTPException(
                 status_code=404,
-                detail=f"No GitHub integration found for workspace {workspace_id}"
+                detail=f"No GitHub integration found for workspace {workspace_id}",
+            )
+
+        # Check if integration is active (not suspended)
+        if not integration.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="GitHub integration is suspended. Please check your GitHub App installation status.",
             )
 
         # Check if we have a valid token
@@ -230,7 +237,11 @@ class GitHubAppService:
         token_is_valid = (
             integration.access_token is not None
             and integration.token_expires_at is not None
-            and integration.token_expires_at > now + timedelta(minutes=5)  # Refresh 5 min before expiry
+            and integration.token_expires_at
+            > now
+            + timedelta(
+                minutes=settings.GITHUB_TOKEN_REFRESH_THRESHOLD_MINUTES
+            )  # Refresh before expiry
         )
 
         if token_is_valid:
@@ -238,7 +249,9 @@ class GitHubAppService:
             return token_processor.decrypt(integration.access_token)
 
         # Token expired or missing - get a new one
-        token_data = await self.get_installation_access_token(integration.installation_id)
+        token_data = await self.get_installation_access_token(
+            integration.installation_id
+        )
 
         # Parse expiry time and save to database
         expires_at = date_parser.isoparse(token_data["expires_at"])
@@ -250,11 +263,7 @@ class GitHubAppService:
 
         return token_data["token"]
 
-    async def list_repositories(
-        self,
-        workspace_id: str,
-        db: AsyncSession
-    ) -> Dict:
+    async def list_repositories(self, workspace_id: str, db: AsyncSession) -> Dict:
         """List all repositories accessible by this GitHub integration
 
         Example function demonstrating how to use the stored access token.
@@ -272,7 +281,7 @@ class GitHubAppService:
         headers = {
             "Authorization": f"token {access_token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
+            "X-GitHub-Api-Version": "2022-11-28",
         }
 
         url = f"{self.GITHUB_API_BASE}/installation/repositories"
@@ -283,7 +292,7 @@ class GitHubAppService:
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Failed to list repositories: {response.text}"
+                    detail=f"Failed to list repositories: {response.text}",
                 )
 
             return response.json()
@@ -302,7 +311,7 @@ class GitHubAppService:
         headers = {
             "Authorization": f"Bearer {jwt_token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
+            "X-GitHub-Api-Version": settings.GITHUB_API_VERSION,
         }
 
         url = f"{self.GITHUB_API_BASE}/app/installations/{installation_id}"
@@ -315,5 +324,5 @@ class GitHubAppService:
             else:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Failed to uninstall GitHub App: {response.text}"
+                    detail=f"Failed to uninstall GitHub App: {response.text}",
                 )

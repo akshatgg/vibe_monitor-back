@@ -28,7 +28,6 @@
         {"name": "ALLOWED_ORIGINS", "valueFrom": "/vm-api/allowed-origins"},
         {"name": "GOOGLE_CLIENT_ID", "valueFrom": "/vm-api/google-client-id"},
         {"name": "GOOGLE_CLIENT_SECRET", "valueFrom": "/vm-api/google-client-secret"},
-        {"name": "GOOGLE_REDIRECT_URI", "valueFrom": "/vm-api/google-redirect-uri"},
         {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api/supabase-anon-key"},
         {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api/supabase-service-key"},
         {"name": "MAILGUN_API_KEY", "valueFrom": "/vm-api/mailgun-api-key"},
@@ -47,7 +46,8 @@
         {"name": "GITHUB_APP_NAME", "valueFrom": "/vm-api/github-app-name"},
         {"name": "GITHUB_APP_ID", "valueFrom": "/vm-api/github-app-id"},
         {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api/github-client-id"},
-        {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"}
+        {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"},
+        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"}
       ]
     }
   ]

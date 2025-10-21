@@ -387,7 +387,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 ```bash
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/auth/callback
+
 ```
 
 ### Slack Integration

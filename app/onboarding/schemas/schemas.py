@@ -20,7 +20,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     created_at: Optional[datetime] = None
-    
+
     model_config = {"from_attributes": True}
 
 
@@ -43,7 +43,7 @@ class WorkspaceResponse(BaseModel):
     visible_to_org: bool
     is_paid: bool
     created_at: Optional[datetime] = None
-    
+
     model_config = {"from_attributes": True}
 
 
@@ -54,17 +54,18 @@ class MembershipResponse(BaseModel):
     workspace_id: str
     role: Role
     created_at: Optional[datetime] = None
-    
+
     # Optional nested objects
     user: Optional[UserResponse] = None
     workspace: Optional[WorkspaceResponse] = None
-    
+
     model_config = {"from_attributes": True}
 
 
 # Combined response schemas
 class WorkspaceWithMembership(BaseModel):
     """Workspace with user's membership role"""
+
     id: str
     name: str
     domain: Optional[str] = None
@@ -72,7 +73,7 @@ class WorkspaceWithMembership(BaseModel):
     is_paid: bool
     created_at: Optional[datetime] = None
     user_role: Role  # The current user's role in this workspace
-    
+
     model_config = {"from_attributes": True}
 
 

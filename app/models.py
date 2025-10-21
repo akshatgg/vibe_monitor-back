@@ -3,12 +3,24 @@ Unified database models for the application.
 All SQLAlchemy models are defined here.
 """
 
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Enum, Integer, Text, Index
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Enum,
+    Integer,
+    Text,
+    Index,
+)
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
+
+from app.core.config import settings
 
 Base = declarative_base()
 
@@ -51,6 +63,9 @@ class Workspace(Base):
         Boolean, default=False
     )  # If domain users can see this workspace
     is_paid = Column(Boolean, default=False)  # For future payment features
+    daily_request_limit = Column(
+        Integer, default=settings.DEFAULT_DAILY_REQUEST_LIMIT, nullable=False
+    )  # Daily RCA request limit
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -127,6 +142,8 @@ class SlackInstallation(Base):
     )  # Optional link to internal workspace
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class GitHubIntegration(Base):
     __tablename__ = "github_integrations"
 
@@ -140,7 +157,12 @@ class GitHubIntegration(Base):
 
     # Access token storage
     access_token = Column(String, nullable=True)  # GitHub installation access token
-    token_expires_at = Column(DateTime(timezone=True), nullable=True)  # Token expiry time
+    token_expires_at = Column(
+        DateTime(timezone=True), nullable=True
+    )  # Token expiry time
+
+    # Status tracking
+    is_active = Column(Boolean, default=True, nullable=False)  # False when suspended
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -148,6 +170,11 @@ class GitHubIntegration(Base):
 
     # Relationships
     workspace = relationship("Workspace", backref="github_integrations")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_github_integration_installation", "installation_id"),
+    )
 
 
 # Job Orchestration Models
@@ -168,17 +195,25 @@ class Job(Base):
     vm_workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
 
     # Slack context
-    slack_integration_id = Column(String, ForeignKey("slack_installations.id"), nullable=True)
+    slack_integration_id = Column(
+        String, ForeignKey("slack_installations.id"), nullable=True
+    )
     trigger_channel_id = Column(String, nullable=True)  # Slack channel ID (C...)
     trigger_thread_ts = Column(String, nullable=True)  # Root thread timestamp
-    trigger_message_ts = Column(String, nullable=True)  # Message timestamp that triggered bot
+    trigger_message_ts = Column(
+        String, nullable=True
+    )  # Message timestamp that triggered bot
 
     # Lifecycle
     status = Column(Enum(JobStatus), nullable=False, default=JobStatus.QUEUED)
     priority = Column(Integer, default=0)  # Higher = more important
     retries = Column(Integer, default=0)  # Number of retry attempts
-    max_retries = Column(Integer, default=3)  # Maximum retry attempts
-    backoff_until = Column(DateTime(timezone=True), nullable=True)  # Don't retry before this time
+    max_retries = Column(
+        Integer, default=settings.MAX_JOB_RETRIES
+    )  # Maximum retry attempts
+    backoff_until = Column(
+        DateTime(timezone=True), nullable=True
+    )  # Don't retry before this time
 
     # Context + timing + error
     requested_context = Column(JSON, nullable=True)  # User query, context data
@@ -196,27 +231,44 @@ class Job(Base):
 
     # Indexes for query performance
     __table_args__ = (
-        Index('idx_jobs_workspace_status', 'vm_workspace_id', 'status'),
-        Index('idx_jobs_slack_integration', 'slack_integration_id'),
-        Index('idx_jobs_created_at', 'created_at'),
+        Index("idx_jobs_workspace_status", "vm_workspace_id", "status"),
+        Index("idx_jobs_slack_integration", "slack_integration_id"),
+        Index("idx_jobs_created_at", "created_at"),
     )
-    
 
-class RepositoryService(Base):
-    __tablename__ = "repository_services"
+
+class RateLimitTracking(Base):
+    """
+    Universal rate limit tracking for any resource type.
+    Supports multiple time windows and resource types.
+    """
+
+    __tablename__ = "rate_limit_tracking"
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    repo_name = Column(String, nullable=False)  # Full repo name (owner/repo)
-    services = Column(JSON, nullable=False)  # Detected services (e.g., CI/CD, Docker, etc.)
+    resource_type = Column(
+        String, nullable=False
+    )  # e.g., 'rca_request', 'api_call'
+    window_key = Column(
+        String, nullable=False
+    )  # e.g., '2025-10-15' (daily), '2025-10-15-14' (hourly)
+    count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="repository_services")
+    workspace = relationship("Workspace", backref="rate_limit_tracking")
 
-    # Unique constraint to prevent duplicate entries
+    # Indexes
     __table_args__ = (
-        Index('idx_repo_workspace', 'workspace_id', 'repo_name', unique=True),
+        Index(
+            "idx_rate_limit_unique",
+            "workspace_id",
+            "resource_type",
+            "window_key",
+            unique=True,
+        ),
+        Index("idx_rate_limit_workspace", "workspace_id"),
+        Index("idx_rate_limit_resource", "resource_type"),
     )
-    
