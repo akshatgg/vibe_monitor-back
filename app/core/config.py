@@ -96,6 +96,9 @@ class Settings(BaseSettings):
         60  # Base backoff unit for exponential backoff (60s = 1 min)
     )
 
+    # Scheduler Authentication
+    SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.onboarding.services.auth_service import AuthService
 from app.models import User, MailgunEmail, SlackInstallation, Membership
-from app.mailgun.service import mailgun_service
+from app.mailgun.service import mailgun_service, verify_scheduler_token
 from app.mailgun.schemas import EmailResponse
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ async def send_welcome_email(
 @router.post("/send-slack-nudge-emails")
 async def send_slack_nudge_emails(
     db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
 ):
     """
     Send Slack integration nudge emails to eligible users.

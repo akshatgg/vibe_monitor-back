@@ -6,6 +6,7 @@ import logging
 import requests
 from datetime import datetime, timezone
 from pathlib import Path
+from fastapi import HTTPException, status, Header
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
@@ -15,6 +16,34 @@ logger = logging.getLogger(__name__)
 
 # Get the templates directory path
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def verify_scheduler_token(x_scheduler_token: str = Header(...)):
+    """
+    Verify the scheduler secret token from request header.
+
+    Args:
+        x_scheduler_token: Token from X-Scheduler-Token header
+
+    Raises:
+        HTTPException: If token is invalid or missing
+
+    Returns:
+        bool: True if token is valid
+    """
+    if not settings.SCHEDULER_SECRET_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Scheduler token not configured on server",
+        )
+
+    if x_scheduler_token != settings.SCHEDULER_SECRET_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid scheduler token",
+        )
+
+    return True
 
 
 class MailgunService:
