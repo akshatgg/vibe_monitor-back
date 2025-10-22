@@ -159,7 +159,7 @@ async def send_slack_nudge_emails(
 
         return {
             "success": True,
-            "message": f"Slack nudge emails processed",
+            "message": "Slack nudge emails processed",
             "sent": sent_count,
             "failed": failed_count,
             "total_eligible": len(eligible_users),
