@@ -70,8 +70,8 @@ async def send_slack_nudge_emails(
         Summary of emails sent
     """
     try:
-        # Subject for Slack integration emails
-        slack_email_subject = "Don't Miss Critical Server Alerts - Integrate Slack"
+        # Subject for Slack integration emails (must match exactly with service.py)
+        slack_email_subject = "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
 
         # Calculate 5 days ago
         five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
@@ -106,11 +106,12 @@ async def send_slack_nudge_emails(
                 # User already integrated Slack in  workspace, skip
                 continue
 
-            # Count how many Slack nudge emails this user has received
+            # Count how many SUCCESSFULLY sent Slack nudge emails this user has received
             email_count_result = await db.execute(
                 select(func.count(MailgunEmail.id))
                 .where(MailgunEmail.user_id == user.id)
                 .where(MailgunEmail.subject == slack_email_subject)
+                .where(MailgunEmail.status == "sent")  # Only count successful emails
             )
             email_count = email_count_result.scalar()
 
@@ -118,11 +119,12 @@ async def send_slack_nudge_emails(
                 # User already received 5 emails, skip
                 continue
 
-            # Get last email sent to this user
+            # Get last SUCCESSFULLY sent email to this user
             last_email_result = await db.execute(
                 select(MailgunEmail)
                 .where(MailgunEmail.user_id == user.id)
                 .where(MailgunEmail.subject == slack_email_subject)
+                .where(MailgunEmail.status == "sent")  # Only check successful emails
                 .order_by(MailgunEmail.sent_at.desc())
                 .limit(1)
             )
@@ -130,12 +132,14 @@ async def send_slack_nudge_emails(
 
             # Determine if user is eligible
             if last_email:
-                # User has received email before, check if 5+ days ago
-                if last_email.sent_at <= five_days_ago:
+                # User has received email before, check if it's been MORE THAN 5 days
+                # last_email.sent_at should be OLDER than five_days_ago
+                if last_email.sent_at < five_days_ago:
                     eligible_users.append(user)
+                # else: Email sent within last 5 days, skip
             else:
-                # User never received this email, check if account is 5+ days old
-                if user.created_at <= five_days_ago:
+                # User never received this email, check if account is MORE THAN 5 days old
+                if user.created_at < five_days_ago:
                     eligible_users.append(user)
 
         # Send emails to eligible users
