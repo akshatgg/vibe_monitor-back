@@ -272,3 +272,35 @@ class RateLimitTracking(Base):
         Index("idx_rate_limit_workspace", "workspace_id"),
         Index("idx_rate_limit_resource", "resource_type"),
     )
+
+
+class MailgunEmail(Base):
+    """
+    Tracks emails sent via Mailgun.
+    Stores which user was sent an email and when.
+    """
+
+    __tablename__ = "mailgun_emails"
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    sent_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )  # When the email was sent
+    subject = Column(String, nullable=True)  # Email subject
+    message_id = Column(String, nullable=True)  # Mailgun message ID for tracking
+    status = Column(
+        String, nullable=True
+    )  # Status: 'sent', 'delivered', 'failed', etc.
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="mailgun_emails")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_mailgun_emails_user", "user_id"),
+        Index("idx_mailgun_emails_sent_at", "sent_at"),
+        Index("idx_mailgun_emails_status", "status"),
+    )

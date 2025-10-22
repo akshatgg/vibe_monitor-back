@@ -1,0 +1,168 @@
+"""
+Mailgun API routes.
+"""
+import logging
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.onboarding.services.auth_service import AuthService
+from app.models import User, MailgunEmail, SlackInstallation, Membership
+from app.mailgun.service import mailgun_service
+from app.mailgun.schemas import EmailResponse
+
+logger = logging.getLogger(__name__)
+auth_service = AuthService()
+
+router = APIRouter(prefix="/mailgun", tags=["mailgun"])
+
+
+@router.post("/nudge-email", response_model=EmailResponse)
+async def send_welcome_email(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Send a welcome email to the currently authenticated user.
+
+    This endpoint sends a beautifully formatted welcome email using the
+    welcome.html template from the templates folder.
+
+    Args:
+        db: Async database session
+        current_user: Currently authenticated user
+
+    Returns:
+        EmailResponse with email sending status
+    """
+    try:
+        result = await mailgun_service.send_email(
+            user_id=current_user.id,
+            db=db,
+        )
+        return EmailResponse(**result)
+
+    except Exception as e:
+        logger.error(f"Failed to send welcome email: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send welcome email",
+        )
+
+
+@router.post("/send-slack-nudge-emails")
+async def send_slack_nudge_emails(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send Slack integration nudge emails to eligible users.
+
+    Eligibility criteria:
+    - User created account 5+ days ago (for first email)
+    - OR last email sent 5+ days ago (for follow-up emails)
+    - User has NOT integrated Slack yet
+    - User has received less than 5 emails (max limit)
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        # Subject for Slack integration emails
+        slack_email_subject = "Don't Miss Critical Server Alerts - Integrate Slack"
+
+        # Calculate 5 days ago
+        five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
+
+        # Get all users
+        users_result = await db.execute(select(User))
+        all_users = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in all_users:
+            # Check if user has Slack integration in any of their workspaces
+            # Get all workspace IDs for this user
+            user_workspaces = await db.execute(
+                select(Membership.workspace_id).where(Membership.user_id == user.id)
+            )
+            workspace_ids = [ws_id for (ws_id,) in user_workspaces.all()]
+
+            if not workspace_ids:
+                # User has no workspaces, skip
+                continue
+
+            # Check if any of the user's workspaces have Slack integrated
+            slack_check = await db.execute(
+                select(SlackInstallation).where(
+                    SlackInstallation.workspace_id.in_(workspace_ids)
+                )
+            )
+            has_slack = slack_check.scalar_one_or_none() is not None
+
+            if has_slack:
+                # User already integrated Slack in  workspace, skip
+                continue
+
+            # Count how many Slack nudge emails this user has received
+            email_count_result = await db.execute(
+                select(func.count(MailgunEmail.id))
+                .where(MailgunEmail.user_id == user.id)
+                .where(MailgunEmail.subject == slack_email_subject)
+            )
+            email_count = email_count_result.scalar()
+
+            if email_count >= 5:
+                # User already received 5 emails, skip
+                continue
+
+            # Get last email sent to this user
+            last_email_result = await db.execute(
+                select(MailgunEmail)
+                .where(MailgunEmail.user_id == user.id)
+                .where(MailgunEmail.subject == slack_email_subject)
+                .order_by(MailgunEmail.sent_at.desc())
+                .limit(1)
+            )
+            last_email = last_email_result.scalar_one_or_none()
+
+            # Determine if user is eligible
+            if last_email:
+                # User has received email before, check if 5+ days ago
+                if last_email.sent_at <= five_days_ago:
+                    eligible_users.append(user)
+            else:
+                # User never received this email, check if account is 5+ days old
+                if user.created_at <= five_days_ago:
+                    eligible_users.append(user)
+
+        # Send emails to eligible users
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await mailgun_service.send_slack_integration_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send slack nudge email to user {user.id}: {str(e)}")
+                failed_count += 1
+
+        return {
+            "success": True,
+            "message": f"Slack nudge emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process slack nudge emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process slack nudge emails: {str(e)}",
+        )
