@@ -38,7 +38,7 @@ async def send_welcome_email(
         EmailResponse with email sending status
     """
     try:
-        result = await mailgun_service.send_email(
+        result = await mailgun_service.send_welcome_email(
             user_id=current_user.id,
             db=db,
         )
