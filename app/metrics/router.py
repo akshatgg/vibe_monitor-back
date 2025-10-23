@@ -1,7 +1,6 @@
 """
 FastAPI router for metrics endpoints
 """
-
 import logging
 from typing import List, Optional, Dict, Any
 
@@ -13,7 +12,7 @@ from .models import (
     RangeMetricResponse,
     TargetsResponse,
     TimeRange,
-    LabelResponse,
+    LabelResponse
 )
 from .service import metrics_service
 from ..core.config import settings
@@ -29,30 +28,21 @@ IS_PRODUCTION = settings.is_production
 # Request/Response models for API endpoints
 class CustomMetricRequest(BaseModel):
     """Request model for custom metric queries"""
-
     metric_name: str = Field(description="Name of the metric to query")
-    service_name: Optional[str] = Field(
-        default=None, description="Filter by service name"
-    )
-    labels: Optional[Dict[str, str]] = Field(
-        default=None, description="Additional label filters"
-    )
+    service_name: Optional[str] = Field(default=None, description="Filter by service name")
+    labels: Optional[Dict[str, str]] = Field(default=None, description="Additional label filters")
     timeout: Optional[str] = Field(default="30s", description="Query timeout")
 
 
 class RangeMetricRequest(CustomMetricRequest):
     """Request model for range metric queries"""
-
-    start_time: str = Field(
-        description="Start time (ISO format or relative like 'now-1h')"
-    )
+    start_time: str = Field(description="Start time (ISO format or relative like 'now-1h')")
     end_time: str = Field(description="End time (ISO format or relative like 'now')")
     step: Optional[str] = Field(default="60s", description="Query resolution step")
 
 
 class MetricsHealthResponse(BaseModel):
     """Response model for metrics health check"""
-
     status: str = Field(description="Health status")
     provider_type: str = Field(description="Current metrics provider type")
     provider_healthy: bool = Field(description="Whether the provider is healthy")
@@ -228,7 +218,7 @@ async def get_availability_metrics_func(
 
 async def get_metrics_health_endpoint(
     workspace_id: Optional[str] = Header(None, alias="workspace-id"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> MetricsHealthResponse:
     """Get metrics system health status - FastAPI endpoint"""
     try:
@@ -265,7 +255,7 @@ async def get_label_values_endpoint(
 
 async def get_metric_names_endpoint(
     workspace_id: str = Header(..., alias="workspace-id"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> List[str]:
     """Get list of all available metric names - FastAPI endpoint"""
     try:
@@ -277,7 +267,7 @@ async def get_metric_names_endpoint(
 
 async def get_targets_status_endpoint(
     workspace_id: str = Header(..., alias="workspace-id"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> TargetsResponse:
     """Get monitoring targets status - FastAPI endpoint"""
     try:
@@ -290,7 +280,7 @@ async def get_targets_status_endpoint(
 async def query_instant_metrics_endpoint(
     request: CustomMetricRequest,
     workspace_id: str = Header(..., alias="workspace-id"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> InstantMetricResponse:
     """Query instant metric values - FastAPI endpoint"""
     try:
@@ -303,7 +293,7 @@ async def query_instant_metrics_endpoint(
 async def query_range_metrics_endpoint(
     request: RangeMetricRequest,
     workspace_id: str = Header(..., alias="workspace-id"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Query metric values over a time range - FastAPI endpoint"""
     try:
@@ -319,7 +309,7 @@ async def get_cpu_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get CPU usage metrics - FastAPI endpoint"""
     try:
@@ -335,7 +325,7 @@ async def get_memory_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get memory usage metrics - FastAPI endpoint"""
     try:
@@ -351,18 +341,14 @@ async def get_http_request_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get HTTP request rate metrics - FastAPI endpoint"""
     try:
-        return await get_http_request_metrics_func(
-            workspace_id, service_name, start_time, end_time, step
-        )
+        return await get_http_request_metrics_func(workspace_id, service_name, start_time, end_time, step)
     except Exception as e:
         logger.error(f"Failed to get HTTP request metrics: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve HTTP request metrics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve HTTP request metrics")
 
 
 async def get_http_latency_metrics_endpoint(
@@ -372,20 +358,16 @@ async def get_http_latency_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get HTTP request latency metrics - FastAPI endpoint"""
     try:
-        return await get_http_latency_metrics_func(
-            workspace_id, service_name, percentile, start_time, end_time, step
-        )
+        return await get_http_latency_metrics_func(workspace_id, service_name, percentile, start_time, end_time, step)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to get HTTP latency metrics: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve HTTP latency metrics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve HTTP latency metrics")
 
 
 async def get_error_rate_metrics_endpoint(
@@ -394,18 +376,14 @@ async def get_error_rate_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get error rate metrics - FastAPI endpoint"""
     try:
-        return await get_error_rate_metrics_func(
-            workspace_id, service_name, start_time, end_time, step
-        )
+        return await get_error_rate_metrics_func(workspace_id, service_name, start_time, end_time, step)
     except Exception as e:
         logger.error(f"Failed to get error rate metrics: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve error rate metrics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve error rate metrics")
 
 
 async def get_throughput_metrics_endpoint(
@@ -414,18 +392,14 @@ async def get_throughput_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get throughput metrics - FastAPI endpoint"""
     try:
-        return await get_throughput_metrics_func(
-            workspace_id, service_name, start_time, end_time, step
-        )
+        return await get_throughput_metrics_func(workspace_id, service_name, start_time, end_time, step)
     except Exception as e:
         logger.error(f"Failed to get throughput metrics: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve throughput metrics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve throughput metrics")
 
 
 async def get_availability_metrics_endpoint(
@@ -434,18 +408,14 @@ async def get_availability_metrics_endpoint(
     start_time: str = Query("now-1h", description="Start time"),
     end_time: str = Query("now", description="End time"),
     step: str = Query("60s", description="Query step"),
-    service: Any = Depends(get_metrics_service),
+    service: Any = Depends(get_metrics_service)
 ) -> RangeMetricResponse:
     """Get service availability metrics - FastAPI endpoint"""
     try:
-        return await get_availability_metrics_func(
-            workspace_id, service_name, start_time, end_time, step
-        )
+        return await get_availability_metrics_func(workspace_id, service_name, start_time, end_time, step)
     except Exception as e:
         logger.error(f"Failed to get availability metrics: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve availability metrics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve availability metrics")
 
 
 # ==================== CONDITIONAL ROUTE REGISTRATION ====================
@@ -460,101 +430,98 @@ if not IS_PRODUCTION:
         "/health",
         get_metrics_health_endpoint,
         methods=["GET"],
-        response_model=MetricsHealthResponse,
+        response_model=MetricsHealthResponse
     )
 
     router.add_api_route(
         "/labels",
         get_metric_labels_endpoint,
         methods=["GET"],
-        response_model=LabelResponse,
+        response_model=LabelResponse
     )
 
     router.add_api_route(
         "/labels/{label_name}/values",
         get_label_values_endpoint,
         methods=["GET"],
-        response_model=LabelResponse,
+        response_model=LabelResponse
     )
 
     router.add_api_route(
         "/names",
         get_metric_names_endpoint,
         methods=["GET"],
-        response_model=List[str],
+        response_model=List[str]
     )
 
     router.add_api_route(
         "/targets",
         get_targets_status_endpoint,
         methods=["GET"],
-        response_model=TargetsResponse,
+        response_model=TargetsResponse
     )
 
     router.add_api_route(
         "/query/instant",
         query_instant_metrics_endpoint,
         methods=["POST"],
-        response_model=InstantMetricResponse,
+        response_model=InstantMetricResponse
     )
 
     router.add_api_route(
         "/query/range",
         query_range_metrics_endpoint,
         methods=["POST"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/cpu",
         get_cpu_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/memory",
         get_memory_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/http/requests",
         get_http_request_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/http/latency",
         get_http_latency_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/errors",
         get_error_rate_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/throughput",
         get_throughput_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 
     router.add_api_route(
         "/availability",
         get_availability_metrics_endpoint,
         methods=["GET"],
-        response_model=RangeMetricResponse,
+        response_model=RangeMetricResponse
     )
 else:
-    logger.info(
-        f"ENVIRONMENT={settings.ENVIRONMENT}: Metrics routes disabled "
-        "(functions available for LLM usage)"
-    )
+    logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: Metrics routes disabled (functions available for LLM usage)")

@@ -2,14 +2,16 @@ import logging
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.routers.routers import api_router
 from app.core.config import settings
 from app.core.database import init_database
+from app.core.metrics import setup_metrics
 from app.github.webhook.router import limiter
 
 from app.worker import RCAOrchestratorWorker
@@ -88,6 +90,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
+# Setup Prometheus metrics BEFORE including routers
+instrumentator = setup_metrics(app)
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

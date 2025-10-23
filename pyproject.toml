@@ -48,6 +48,8 @@ langchain-groq = "^0.3.8"
 langchain-core = "^0.3.78"
 greenlet = "^3.2.4"
 slowapi = "^0.1.9"
+prometheus-client = "^0.20.0"
+prometheus-fastapi-instrumentator = "^7.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
