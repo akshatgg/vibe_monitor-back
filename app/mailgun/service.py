@@ -3,7 +3,7 @@ Mailgun service for sending emails.
 """
 import uuid
 import logging
-import requests
+import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import HTTPException, status, Header
@@ -54,7 +54,7 @@ class MailgunService:
         self.domain = settings.MAILGUN_DOMAIN_NAME
         self.base_url = f"https://api.mailgun.net/v3/{self.domain}/messages"
 
-    def send_email(
+    async def send_email(
         self,
         to_email: str,
         subject: str,
@@ -87,15 +87,16 @@ class MailgunService:
             data["html"] = html
 
         try:
-            response = requests.post(
-                self.base_url,
-                auth=("api", self.api_key),
-                data=data,
-                timeout=10,
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.base_url,
+                    auth=("api", self.api_key),
+                    data=data,
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
             logger.error(f"Failed to send email via Mailgun: {str(e)}")
             raise
 
@@ -162,10 +163,10 @@ class MailgunService:
 
         try:
             # Send email via Mailgun (auto-generates plain text from HTML)
-            response = self.send_email(
+            response = await self.send_email(
                 to_email=user.email,
                 subject=subject,
-                text="", 
+                text="",
                 html=html,
             )
 
@@ -236,7 +237,7 @@ class MailgunService:
 
         try:
             # Send email via Mailgun (auto-generates plain text from HTML)
-            response = self.send_email(
+            response = await self.send_email(
                 to_email=user.email,
                 subject=subject,
                 text="",  # Mailgun auto-generates from HTML
