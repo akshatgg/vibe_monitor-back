@@ -93,8 +93,11 @@ async def handle_slack_events(request: Request):
     try:
         event_payload = SlackEventPayload(**payload_dict)
 
-        # Process only app_mention events
-        if event_payload.event.get("type") == "app_mention":
+        # Process app_mention events or member joined channel events
+        if (
+            event_payload.event.get("type") == "app_mention"
+            or event_payload.event.get("subtype") == "channel_join"
+        ):
             result = await slack_event_service.handle_slack_event(event_payload)
             return JSONResponse(result)
 
