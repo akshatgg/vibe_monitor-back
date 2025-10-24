@@ -6,18 +6,11 @@ positions:
   filename: /tmp/positions.yaml
 
 clients:
-  # ==================== LOKI URL CONFIGURATION ====================
-  # IMPORTANT: Update this based on where you're deploying
-
-  # CURRENT: For local development or EC2-A → EC2-B (different servers)
-  - url: http://54.67.106.73:3100/loki/api/v1/push
-
-  # FOR EC2 DEPLOYMENT (same server): Uncomment below, comment above
-  # - url: http://loki:3100/loki/api/v1/push
-
-  # FOR EC2 DEPLOYMENT (different server): Use EC2-B's IP
-  # - url: http://54.67.106.73:3100/loki/api/v1/push  # Use private IP if in same VPC
-  # ================================================================
+  # Loki URL is configured via LOKI_URL environment variable in docker-compose.yml
+  # 
+  
+  # To change: Set LOKI_URL in .env file
+  - url: ${LOKI_URL}/loki/api/v1/push
 
 scrape_configs:
   # Scrape Docker container logs
