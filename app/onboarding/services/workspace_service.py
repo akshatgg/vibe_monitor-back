@@ -212,14 +212,46 @@ class WorkspaceService:
 
         return WorkspaceResponse.model_validate(workspace)
 
+    async def update_workspace_name(
+        self, workspace_id: str, user_id: str, new_name: str, db: AsyncSession
+    ) -> WorkspaceResponse:
+        """Update workspace name (only owners can update)"""
+
+        # First verify user is owner of the workspace
+        membership_query = (
+            select(Membership)
+            .options(selectinload(Membership.workspace))
+            .where(
+                Membership.workspace_id == workspace_id,
+                Membership.user_id == user_id,
+                Membership.role == Role.OWNER,
+            )
+        )
+
+        result = await db.execute(membership_query)
+        membership = result.scalar_one_or_none()
+
+        if not membership:
+            raise HTTPException(
+                status_code=403,
+                detail="Only workspace owners can update workspace name",
+            )
+
+        workspace = membership.workspace
+        workspace.name = new_name
+
+        await db.commit()
+        await db.refresh(workspace)
+
+        return WorkspaceResponse.model_validate(workspace)
+
     async def create_personal_workspace(
         self, user: User, db: AsyncSession
     ) -> WorkspaceResponse:
         """Create a personal workspace for a user"""
 
-        # Extract username from email for workspace name
-        username = user.email.split("@")[0]
-        workspace_name = f"{username}-personal"
+        # Use full name for workspace name
+        workspace_name = f"{user.name}'s Workspace"
 
         workspace_data = WorkspaceCreate(
             name=workspace_name,
