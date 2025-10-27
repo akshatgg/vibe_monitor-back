@@ -38,7 +38,6 @@ api_router.include_router(github_app_router, tags=["github-oauth"])
 if not settings.is_production:
     api_router.include_router(github_tools_router, tags=["github-tools"])
     api_router.include_router(get_servicename, tags=["repository-services"]) 
-api_router.include_router(github_tools_router)
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(grafana_router, tags=["grafana"])
 
