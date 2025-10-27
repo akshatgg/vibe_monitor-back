@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names
     RCA_MAX_FILES_TO_ANALYZE: int = 10  # Maximum number of files to analyze per repository
     RCA_SLACK_MESSAGE_MAX_LENGTH: int = 500  # Maximum length for Slack progress messages
+    RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = 3  # Max consecutive Slack failures before circuit breaker opens
 
     class Config:
         env_file = ".env"

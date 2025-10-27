@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class SlackProgressCallback(AsyncCallbackHandler):
     """
     Callback handler that sends agent thinking process to Slack in real-time
+    Implements circuit breaker pattern to handle Slack API failures gracefully
     """
 
     def __init__(
@@ -24,6 +25,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
         channel_id: str,
         thread_ts: Optional[str] = None,
         send_tool_output: bool = True,
+        max_consecutive_failures: Optional[int] = None,
     ):
         """
         Initialize Slack progress callback
@@ -33,12 +35,72 @@ class SlackProgressCallback(AsyncCallbackHandler):
             channel_id: Channel to send updates to
             thread_ts: Thread timestamp (for threaded replies)
             send_tool_output: Whether to send full tool outputs (can be verbose)
+            max_consecutive_failures: Max failures before circuit breaker opens (uses config default if None)
         """
         self.team_id = team_id
         self.channel_id = channel_id
         self.thread_ts = thread_ts
         self.send_tool_output = send_tool_output
         self.step_counter = 0
+
+        # Circuit breaker state
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = (
+            max_consecutive_failures
+            if max_consecutive_failures is not None
+            else settings.RCA_SLACK_MAX_CONSECUTIVE_FAILURES
+        )
+        self.circuit_open = False
+
+    def _record_success(self) -> None:
+        """Record successful Slack message send and reset circuit breaker"""
+        if self.consecutive_failures > 0:
+            logger.info("Slack messaging recovered, resetting circuit breaker")
+        self.consecutive_failures = 0
+        self.circuit_open = False
+
+    def _record_failure(self, error: Exception, context: str) -> None:
+        """
+        Record failed Slack message send and open circuit breaker if threshold reached
+
+        Args:
+            error: The exception that occurred
+            context: Context message for logging
+        """
+        self.consecutive_failures += 1
+        logger.error(f"Failed to send {context} to Slack (failure #{self.consecutive_failures}): {error}")
+
+        if self.consecutive_failures >= self.max_consecutive_failures and not self.circuit_open:
+            self.circuit_open = True
+            logger.warning(
+                f"⚠️ Circuit breaker OPENED: {self.consecutive_failures} consecutive Slack failures. "
+                f"Disabling Slack notifications to prevent further errors. "
+                f"RCA analysis will continue without progress updates."
+            )
+
+    async def _send_to_slack(self, text: str, context: str) -> None:
+        """
+        Send message to Slack with circuit breaker protection
+
+        Args:
+            text: Message text to send
+            context: Context for logging (e.g., "tool start message")
+        """
+        # Check circuit breaker
+        if self.circuit_open:
+            logger.debug(f"Circuit breaker open, skipping Slack message: {context}")
+            return
+
+        try:
+            await slack_event_service.send_message(
+                team_id=self.team_id,
+                channel=self.channel_id,
+                text=text,
+                thread_ts=self.thread_ts,
+            )
+            self._record_success()
+        except Exception as e:
+            self._record_failure(e, context)
 
     async def on_tool_start(
         self,
@@ -63,15 +125,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
         # Build final message with context
         message = f"{base_message} {context_info}" if context_info else base_message
 
-        try:
-            await slack_event_service.send_message(
-                team_id=self.team_id,
-                channel=self.channel_id,
-                text=f"*Step {self.step_counter}:* {message}",
-                thread_ts=self.thread_ts,
-            )
-        except Exception as e:
-            logger.error(f"Failed to send tool start message to Slack: {e}")
+        await self._send_to_slack(
+            text=f"*Step {self.step_counter}:* {message}",
+            context="tool start message"
+        )
 
     def _extract_context_info(self, tool_name: str, input_str: str, kwargs: Dict[str, Any]) -> str:
         """
@@ -189,20 +246,15 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when a tool finishes executing"""
         # Only send tool output if explicitly enabled (can be verbose)
         if self.send_tool_output and output:
-            try:
-                # Truncate very long outputs
-                truncated_output = output[:settings.RCA_SLACK_MESSAGE_MAX_LENGTH]
-                if len(output) > settings.RCA_SLACK_MESSAGE_MAX_LENGTH:
-                    truncated_output += f"\n\n_(truncated, {len(output) - settings.RCA_SLACK_MESSAGE_MAX_LENGTH} more chars)_"
+            # Truncate very long outputs
+            truncated_output = output[:settings.RCA_SLACK_MESSAGE_MAX_LENGTH]
+            if len(output) > settings.RCA_SLACK_MESSAGE_MAX_LENGTH:
+                truncated_output += f"\n\n_(truncated, {len(output) - settings.RCA_SLACK_MESSAGE_MAX_LENGTH} more chars)_"
 
-                await slack_event_service.send_message(
-                    team_id=self.team_id,
-                    channel=self.channel_id,
-                    text=f"```\n{truncated_output}\n```",
-                    thread_ts=self.thread_ts,
-                )
-            except Exception as e:
-                logger.error(f"Failed to send tool output to Slack: {e}")
+            await self._send_to_slack(
+                text=f"```\n{truncated_output}\n```",
+                context="tool output"
+            )
 
     async def on_tool_error(
         self,
@@ -210,15 +262,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when a tool encounters an error"""
-        try:
-            await slack_event_service.send_message(
-                team_id=self.team_id,
-                channel=self.channel_id,
-                text=f"⚠️ Tool encountered an issue: {str(error)[:200]}",
-                thread_ts=self.thread_ts,
-            )
-        except Exception as e:
-            logger.error(f"Failed to send tool error to Slack: {e}")
+        await self._send_to_slack(
+            text=f"⚠️ Tool encountered an issue: {str(error)[:200]}",
+            context="tool error"
+        )
 
     async def on_agent_action(
         self,
@@ -237,15 +284,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 thought_text = log_text[thought_start:].split("\n")[0].strip()
 
                 if thought_text and len(thought_text) > 10:  # Meaningful thought
-                    try:
-                        await slack_event_service.send_message(
-                            team_id=self.team_id,
-                            channel=self.channel_id,
-                            text=f"💭 _{thought_text}_",
-                            thread_ts=self.thread_ts,
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to send agent thought to Slack: {e}")
+                    await self._send_to_slack(
+                        text=f"💭 _{thought_text}_",
+                        context="agent thought"
+                    )
 
     async def on_agent_finish(
         self,
@@ -253,15 +295,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when agent finishes"""
-        try:
-            await slack_event_service.send_message(
-                team_id=self.team_id,
-                channel=self.channel_id,
-                text="✅ *Analysis complete!*",
-                thread_ts=self.thread_ts,
-            )
-        except Exception as e:
-            logger.error(f"Failed to send agent finish message to Slack: {e}")
+        await self._send_to_slack(
+            text="✅ *Analysis complete!*",
+            context="agent finish message"
+        )
 
     async def on_chain_error(
         self,
@@ -269,12 +306,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when chain encounters an error"""
-        try:
-            await slack_event_service.send_message(
-                team_id=self.team_id,
-                channel=self.channel_id,
-                text=f"❌ *Analysis encountered an error:* {str(error)[:300]}",
-                thread_ts=self.thread_ts,
-            )
-        except Exception as e:
-            logger.error(f"Failed to send chain error to Slack: {e}")
+        await self._send_to_slack(
+            text=f"❌ *Analysis encountered an error:* {str(error)[:300]}",
+            context="chain error"
+        )

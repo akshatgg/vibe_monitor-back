@@ -15,6 +15,7 @@ from app.github.oauth.router import router as github_app_router
 # Dev-only routers
 from app.github.tools.router import router as github_tools_router
 from app.github.webhook.router import router as github_webhook_router
+from app.services.rca.get_service_name.router import router as get_servicename
 
 # Config
 from app.core.config import settings
@@ -32,5 +33,12 @@ api_router.include_router(log_router)
 api_router.include_router(metrics_router)
 api_router.include_router(datasources_router)
 api_router.include_router(github_app_router, tags=["github-oauth"])
+
+# Include dev-only routers (not exposed in production)
+if not settings.is_production:
+    api_router.include_router(github_tools_router, tags=["github-tools"])
+    api_router.include_router(get_servicename, tags=["repository-services"]) 
 api_router.include_router(github_tools_router)
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
+api_router.include_router(grafana_router, tags=["grafana"])
+
