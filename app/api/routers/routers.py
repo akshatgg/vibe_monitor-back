@@ -22,6 +22,8 @@ from app.core.config import settings
 
 from app.grafana.router import router as grafana_router
 
+from app.mailgun.router import router as mailgun_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -39,5 +41,5 @@ if not settings.is_production:
     api_router.include_router(github_tools_router, tags=["github-tools"])
     api_router.include_router(get_servicename, tags=["repository-services"]) 
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
+api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
-
