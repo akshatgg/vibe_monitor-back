@@ -5,13 +5,9 @@ Standalone functions for discovering service names using deterministic heuristic
 
 import re
 import logging
-import uuid
 from typing import List, Optional
-from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 
-from app.models import RepositoryService
 from app.github.tools.router import (
     get_repository_metadata,
     get_repository_tree,
@@ -46,7 +42,7 @@ async def extract_service_names_from_repo(
         List of discovered service names
     """
     try:
-        # Get GitHub integration and owner automatically from DB
+        # Get GitHub integration and owner from DB
         integration, _ = await get_github_integration_with_token(workspace_id, db)
         owner = integration.github_username
 
@@ -130,82 +126,7 @@ async def extract_service_names_from_repo(
         return [_normalize_name(repo)]
 
 
-async def save_repository_services(
-    workspace_id: str,
-    repo_name: str,
-    services: List[str],
-    db: AsyncSession
-) -> RepositoryService:
-    """
-    Save or update repository services in database
 
-    Args:
-        workspace_id: Workspace ID
-        repo_name: Full repository name (owner/repo)
-        services: List of service names
-        db: Database session
-
-    Returns:
-        RepositoryService object
-    """
-    # Check if entry exists
-    query = select(RepositoryService).where(
-        and_(
-            RepositoryService.workspace_id == workspace_id,
-            RepositoryService.repo_name == repo_name
-        )
-    )
-    result = await db.execute(query)
-    existing = result.scalar_one_or_none()
-
-    if existing:
-        # Update existing
-        existing.services = services
-        existing.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(existing)
-        return existing
-    else:
-        # Create new
-        new_service = RepositoryService(
-            id=str(uuid.uuid4()),
-            workspace_id=workspace_id,
-            repo_name=repo_name,
-            services=services
-        )
-        db.add(new_service)
-        await db.commit()
-        await db.refresh(new_service)
-        return new_service
-
-
-async def get_repository_services(
-    workspace_id: str,
-    repo_name: Optional[str],
-    db: AsyncSession
-) -> List[RepositoryService]:
-    """
-    Get repository services from database
-
-    Args:
-        workspace_id: Workspace ID
-        repo_name: Optional filter by repository name
-        db: Database session
-
-    Returns:
-        List of RepositoryService objects
-    """
-    query = select(RepositoryService).where(
-        RepositoryService.workspace_id == workspace_id
-    )
-
-    if repo_name:
-        query = query.where(RepositoryService.repo_name == repo_name)
-
-    query = query.order_by(RepositoryService.updated_at.desc())
-
-    result = await db.execute(query)
-    return result.scalars().all()
 
 
 # Helper functions
