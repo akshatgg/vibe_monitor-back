@@ -13,16 +13,53 @@ echo ""
 
 # Step 1: Install Python dependencies
 echo -e "${YELLOW}[1/4] Installing Python dependencies...${NC}"
+
+# Check for Python 3.12
+if ! command -v python3.12 &> /dev/null; then
+    echo -e "${YELLOW}Python 3.12 not found. Please install it first.${NC}"
+    exit 1
+fi
+
+# Check for poetry in common locations
+POETRY_CMD=""
 if command -v poetry &> /dev/null; then
-    poetry install
-    if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}Poetry install failed. Please check your pyproject.toml${NC}"
+    POETRY_CMD="poetry"
+elif [ -f "$HOME/.local/bin/poetry" ]; then
+    POETRY_CMD="$HOME/.local/bin/poetry"
+elif [ -f "$HOME/.local/share/pypoetry/venv/bin/poetry" ]; then
+    POETRY_CMD="$HOME/.local/share/pypoetry/venv/bin/poetry"
+fi
+
+# Install poetry if not found
+if [ -z "$POETRY_CMD" ]; then
+    echo -e "${YELLOW}Poetry not found. Installing poetry...${NC}"
+    curl -sSL https://install.python-poetry.org | python3.12 -
+
+    # Set poetry command after installation
+    if [ -f "$HOME/.local/bin/poetry" ]; then
+        POETRY_CMD="$HOME/.local/bin/poetry"
+    elif [ -f "$HOME/.local/share/pypoetry/venv/bin/poetry" ]; then
+        # Create symlink if it doesn't exist
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$HOME/.local/share/pypoetry/venv/bin/poetry" "$HOME/.local/bin/poetry"
+        POETRY_CMD="$HOME/.local/bin/poetry"
+    else
+        echo -e "${YELLOW}Poetry installation failed.${NC}"
         exit 1
     fi
-else
-    echo -e "${YELLOW}Poetry not found. Installing via pip...${NC}"
-    pip install poetry
-    poetry install
+    echo -e "${GREEN}✓ Poetry installed successfully${NC}"
+fi
+
+# Configure poetry to use Python 3.12
+echo -e "${YELLOW}Configuring poetry to use Python 3.12...${NC}"
+$POETRY_CMD env use python3.12
+
+# Install dependencies
+echo -e "${YELLOW}Installing project dependencies...${NC}"
+$POETRY_CMD install
+if [ $? -ne 0 ]; then
+    echo -e "${YELLOW}Poetry install failed. Please check your pyproject.toml${NC}"
+    exit 1
 fi
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
@@ -102,9 +139,5 @@ echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
 echo ""
 
-# Start uvicorn with poetry or directly
-if command -v poetry &> /dev/null; then
-    poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-else
-    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-fi
+# Start uvicorn with poetry
+$POETRY_CMD run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
