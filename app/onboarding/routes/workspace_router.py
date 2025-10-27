@@ -103,8 +103,19 @@ async def update_workspace(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update workspace settings (only owners can update visibility)"""
+    """Update workspace settings (only owners can update)"""
     try:
+        workspace = None
+
+        # Handle name update
+        if workspace_update.name is not None:
+            workspace = await workspace_service.update_workspace_name(
+                workspace_id=workspace_id,
+                user_id=current_user.id,
+                new_name=workspace_update.name,
+                db=db,
+            )
+
         # Handle visibility update with auto-domain setting
         if workspace_update.visible_to_org is not None:
             workspace = await workspace_service.update_workspace_visibility(
@@ -113,10 +124,12 @@ async def update_workspace(
                 visible_to_org=workspace_update.visible_to_org,
                 db=db,
             )
-            return workspace
 
-        # For other updates (like name), you can extend this logic
-        raise HTTPException(status_code=400, detail="No valid updates provided")
+        # If no updates were provided
+        if workspace is None:
+            raise HTTPException(status_code=400, detail="No valid updates provided")
+
+        return workspace
 
     except HTTPException:
         raise

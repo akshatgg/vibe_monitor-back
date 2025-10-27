@@ -12,7 +12,7 @@ from app.slack.service import slack_event_service
 from app.core.config import settings
 from app.core.database import get_db
 from app.onboarding.services.auth_service import AuthService
-from app.models import Workspace, Membership
+from app.models import SlackInstallation, Workspace, Membership
 from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,160 @@ async def handle_slack_events(request: Request):
         logger.error(f"Error processing Slack event: {e}")
         raise HTTPException(status_code=500, detail="Internal processing error")
 
+@slack_router.get("/connection/status")
+async def get_slack_connection_status(
+    workspace_id: str,
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Check if Slack is connected for a given workspace
+    Args:
+        workspace_id: VibeMonitor workspace ID
+        user: Authenticated user (from JWT)
+    Returns:
+        Connection status with Slack workspace details if connected
+    Security:
+        - Requires JWT authentication
+        - Verifies user has access to the workspace
+    """
+    # Verify user has access to the workspace
+    membership_result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.workspace_id == workspace_id
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership:
+        logger.error(f"User {user.id} does not have access to workspace {workspace_id}")
+        raise HTTPException(
+            status_code=403,
+            detail="User does not have access to this workspace"
+        )
+
+    # Check if Slack installation exists for this workspace
+    slack_result = await db.execute(
+        select(SlackInstallation).where(
+            SlackInstallation.workspace_id == workspace_id
+        )
+    )
+    slack_installation = slack_result.scalar_one_or_none()
+
+    if not slack_installation:
+        logger.info(f"No Slack connection found for workspace {workspace_id}")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "connected": False,
+                "message": "Slack workspace not connected",
+                "workspace_id": workspace_id
+            }
+        )
+
+    logger.info(f"Slack connection found for workspace {workspace_id}: {slack_installation.team_name}")
+    return JSONResponse(
+        status_code=200,
+        content={
+            "connected": True,
+            "message": "Slack workspace is connected",
+            "data": {
+                "team_id": slack_installation.team_id,
+                "team_name": slack_installation.team_name,
+                "bot_user_id": slack_installation.bot_user_id,
+                "workspace_id": workspace_id,
+                "installed_at": slack_installation.installed_at.isoformat() if slack_installation.installed_at else None,
+            }
+        }
+    )
+
+
+@slack_router.delete("/disconnect")
+async def disconnect_slack_integration(
+    workspace_id: str,
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Disconnect and remove Slack integration for a workspace
+    This will:
+    1. Delete the Slack installation record
+    2. Remove the bot access token
+    3. Unlink the Slack workspace from VibeMonitor workspace
+    Args:
+        workspace_id: VibeMonitor workspace ID
+        user: Authenticated user (from JWT)
+    Returns:
+        Success message confirming disconnection
+    Security:
+        - Requires JWT authentication
+        - Verifies user has access to the workspace
+        - Only removes the integration, doesn't affect other workspace data
+    """
+    # Verify user has access to the workspace
+    membership_result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.workspace_id == workspace_id
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    if not membership:
+        logger.error(f"User {user.id} does not have access to workspace {workspace_id}")
+        raise HTTPException(
+            status_code=403,
+            detail="User does not have access to this workspace"
+        )
+
+    # Find Slack installation for this workspace
+    slack_result = await db.execute(
+        select(SlackInstallation).where(
+            SlackInstallation.workspace_id == workspace_id
+        )
+    )
+    slack_installation = slack_result.scalar_one_or_none()
+
+    if not slack_installation:
+        logger.warning(f"No Slack integration found for workspace {workspace_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="No Slack integration found for this workspace"
+        )
+
+    # Store details for response before deletion
+    team_name = slack_installation.team_name
+    team_id = slack_installation.team_id
+
+    # Delete the Slack installation
+    try:
+        await db.delete(slack_installation)
+        await db.commit()
+        logger.info(
+            f"✅ Slack integration disconnected for workspace {workspace_id} "
+            f"(Slack team: {team_name}, team_id: {team_id})"
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error disconnecting Slack integration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to disconnect Slack integration"
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "message": f"Slack workspace '{team_name}' disconnected successfully",
+            "data": {
+                "workspace_id": workspace_id,
+                "disconnected_team_id": team_id,
+                "disconnected_team_name": team_name,
+            }
+        }
+    )
 
 @slack_router.get("/oauth/callback")
 async def slack_oauth_callback(
@@ -266,7 +420,7 @@ async def slack_oauth_callback(
         )
 
         # Redirect to success page
-        redirect_url = f"{settings.WEB_APP_URL}/workspace/{workspace_id}"
+        redirect_url = f"{settings.WEB_APP_URL}/setup"
         return RedirectResponse(url=redirect_url, status_code=302)
 
     except httpx.TimeoutException:
