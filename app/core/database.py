@@ -44,7 +44,7 @@ DATABASE_URL = get_database_url()
 # Create async engine with environment-specific settings
 engine = create_async_engine(
     DATABASE_URL,
-    echo=not settings.is_production,  # Debug logging only in development
+    echo=False,  # Disable SQLAlchemy query logging (use Python logging config instead)
     future=True,
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600

@@ -217,6 +217,8 @@ async def verify_workspace_access(
     """
     Verify user has access to the specified workspace.
 
+    System users (e.g., 'rca-agent') are automatically granted access to all workspaces.
+
     Args:
         user_id: User ID
         workspace_id: Workspace ID
@@ -225,6 +227,11 @@ async def verify_workspace_access(
     Raises:
         HTTPException: If user does not have access to the workspace
     """
+    # System users (like RCA agent) have access to all workspaces
+    SYSTEM_USERS = ["rca-agent"]
+    if user_id in SYSTEM_USERS:
+        return
+
     result = await db.execute(
         select(Membership).where(
             Membership.user_id == user_id, Membership.workspace_id == workspace_id

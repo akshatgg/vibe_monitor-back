@@ -11,8 +11,15 @@ from app.metrics.router import router as metrics_router
 from app.datasources.router import router as datasources_router
 
 from app.github.oauth.router import router as github_app_router
+
+# Dev-only routers
 from app.github.tools.router import router as github_tools_router
 from app.github.webhook.router import router as github_webhook_router
+from app.services.rca.get_service_name.router import router as get_servicename
+
+# Config
+from app.core.config import settings
+
 from app.grafana.router import router as grafana_router
 
 from app.mailgun.router import router as mailgun_router
@@ -28,7 +35,11 @@ api_router.include_router(log_router)
 api_router.include_router(metrics_router)
 api_router.include_router(datasources_router)
 api_router.include_router(github_app_router, tags=["github-oauth"])
-api_router.include_router(github_tools_router)
+
+# Include dev-only routers (not exposed in production)
+if not settings.is_production:
+    api_router.include_router(github_tools_router, tags=["github-tools"])
+    api_router.include_router(get_servicename, tags=["repository-services"]) 
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])

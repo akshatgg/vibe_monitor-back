@@ -23,7 +23,6 @@ from .tools.grafana.tools import (
 )
 
 from .tools.github.tools import (
-    list_repositories_tool,
     get_repository_commits_tool,
     list_pull_requests_tool,
     search_code_tool,
@@ -46,7 +45,6 @@ ALL_RCA_TOOLS = [
     fetch_http_latency_tool,
     fetch_metrics_tool,
     # GitHub tools
-    list_repositories_tool,
     read_repository_file_tool,
     search_code_tool,
     get_repository_commits_tool,
@@ -78,19 +76,17 @@ class RCAAgentService:
 
             self.llm = ChatGroq(
                 api_key=settings.GROQ_API_KEY,
-                model="llama-3.3-70b-versatile",  # Groq's best model for reasoning
-                temperature=0.1,  # Low temperature for consistent, focused analysis
-                max_tokens=4096,
+                model=settings.GROQ_LLM_MODEL,  # Groq's best model for reasoning
+                temperature=settings.RCA_AGENT_TEMPERATURE,
+                max_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
 
-            # Create chat prompt template with system message
-            self.prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", RCA_SYSTEM_PROMPT),
-                    ("human", "{input}"),
-                    ("placeholder", "{agent_scratchpad}"),
-                ]
-            )
+            # Create chat prompt template with system message and service mapping
+            self.prompt = ChatPromptTemplate.from_messages([
+                ("system", RCA_SYSTEM_PROMPT + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}"),
+                ("human", "{input}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ])
 
             logger.info("RCA Agent LLM initialized successfully")
 
@@ -166,8 +162,8 @@ class RCAAgentService:
             agent=agent,
             tools=tools_with_workspace,
             verbose=True,
-            max_iterations=15,
-            max_execution_time=180,
+            max_iterations=settings.RCA_AGENT_MAX_ITERATIONS,
+            max_execution_time=settings.RCA_AGENT_MAX_EXECUTION_TIME,
             handle_parsing_errors=True,
             return_intermediate_steps=True,
         )
@@ -179,6 +175,7 @@ class RCAAgentService:
         self,
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
+        callbacks: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Perform root cause analysis for the given user query
@@ -186,6 +183,7 @@ class RCAAgentService:
         Args:
             user_query: User's question or issue description (e.g., "Why is my xyz service slow?")
             context: Optional context from Slack (user_id, channel_id, workspace_id, etc.)
+            callbacks: Optional list of callback handlers (e.g., for Slack progress updates)
 
         Returns:
             Dictionary containing:
@@ -215,13 +213,30 @@ class RCAAgentService:
             # Create workspace-specific agent executor
             agent_executor = self._create_agent_executor_for_workspace(workspace_id)
 
+            # Extract service→repo mapping from context
+            service_repo_mapping = (context or {}).get("service_repo_mapping", {})
+
+            # Format the mapping for the prompt
+            if service_repo_mapping:
+                mapping_lines = [f"- Service `{service}` → Repository `{repo}`"
+                                for service, repo in service_repo_mapping.items()]
+                service_mapping_text = "\n".join(mapping_lines)
+                logger.info(f"Injecting service→repo mapping with {len(service_repo_mapping)} entries")
+            else:
+                service_mapping_text = "(No services discovered - workspace may have no repositories)"
+                logger.warning("No service→repo mapping provided in context")
+
             # Prepare input for the agent
             agent_input = {
                 "input": user_query,
+                "service_mapping_text": service_mapping_text,
             }
 
-            # Execute the agent asynchronously
-            result = await agent_executor.ainvoke(agent_input)
+            # Execute the agent asynchronously with callbacks
+            if callbacks:
+                result = await agent_executor.ainvoke(agent_input, config={"callbacks": callbacks})
+            else:
+                result = await agent_executor.ainvoke(agent_input)
 
             logger.info(
                 f"RCA analysis completed successfully for workspace: {workspace_id}"
@@ -250,6 +265,7 @@ class RCAAgentService:
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
         max_retries: int = 2,
+        callbacks: Optional[list] = None,
     ) -> Dict[str, Any]:
         """
         Perform RCA analysis with automatic retry on failure
@@ -258,13 +274,14 @@ class RCAAgentService:
             user_query: User's question
             context: Optional context
             max_retries: Maximum number of retry attempts
+            callbacks: Optional callback handlers
 
         Returns:
             Analysis result dictionary
         """
         for attempt in range(max_retries + 1):
             try:
-                result = await self.analyze(user_query, context)
+                result = await self.analyze(user_query, context, callbacks=callbacks)
 
                 if result["success"]:
                     return result
@@ -292,22 +309,6 @@ class RCAAgentService:
             "success": False,
             "error": "RCA analysis failed for unknown reasons",
         }
-
-    def get_agent_info(self) -> Dict[str, Any]:
-        """
-        Get information about the configured agent
-
-        Returns:
-            Dictionary with agent configuration details
-        """
-        return {
-            "model": "llama-3.3-70b-versatile",
-            "provider": "Groq",
-            "max_iterations": 15,
-            "max_execution_time": 180,
-            "available_tools": [tool.name for tool in ALL_RCA_TOOLS],
-        }
-
 
 # Singleton instance
 rca_agent_service = RCAAgentService()
