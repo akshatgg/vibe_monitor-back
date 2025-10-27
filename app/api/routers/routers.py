@@ -15,6 +15,8 @@ from app.github.tools.router import router as github_tools_router
 from app.github.webhook.router import router as github_webhook_router
 from app.grafana.router import router as grafana_router
 
+from app.mailgun.router import router as mailgun_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -28,4 +30,5 @@ api_router.include_router(datasources_router)
 api_router.include_router(github_app_router, tags=["github-oauth"])
 api_router.include_router(github_tools_router)
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
+api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
