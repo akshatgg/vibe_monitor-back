@@ -32,6 +32,7 @@
         {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api/supabase-service-key"},
         {"name": "MAILGUN_API_KEY", "valueFrom": "/vm-api/mailgun-api-key"},
         {"name": "MAILGUN_DOMAIN_NAME", "valueFrom": "/vm-api/mailgun-domain-name"},
+        {"name": "SCHEDULER_SECRET_TOKEN", "valueFrom": "/vm-api/scheduler-secret-token"},
         {"name": "GROQ_API_KEY", "valueFrom": "/vm-api/groq-api-key"},
         {"name": "GROQ_LLM_MODEL", "valueFrom": "/vm-api/groq-llm-model"},
         {"name": "LOG_LEVEL", "valueFrom": "/vm-api/log-level"},
