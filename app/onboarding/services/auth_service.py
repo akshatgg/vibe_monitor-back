@@ -16,6 +16,7 @@ from app.models import User, RefreshToken
 from ..schemas.schemas import UserResponse
 from ...core.database import get_db
 from ...core.config import settings
+from .workspace_service import WorkspaceService
 
 security = HTTPBearer()
 
@@ -196,7 +197,13 @@ class AuthService:
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
-
+        # Automatically create a workspace for the new user
+        workspace_service = WorkspaceService()
+        try:
+            await workspace_service.create_personal_workspace(user=new_user, db=db)
+        except Exception as e:
+            # Log the error but don't fail user creation
+            print(f"Failed to create workspace for user {user_id}: {str(e)}")
         return UserResponse.model_validate(new_user)
 
     def create_access_token(

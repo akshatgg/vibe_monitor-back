@@ -46,8 +46,7 @@ jobs:
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: poetry install --no-root --no-interaction --no-ansi
+        run: poetry install --sync --no-root --no-interaction --no-ansi
 
   ruff:
     name: Ruff (lint + format autofix)
@@ -73,9 +72,8 @@ jobs:
               ~/.cache/pypoetry
               ~/.cache/pip
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
-      - name: Install dependencies (if cache miss)
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: poetry install --no-root --no-interaction --no-ansi
+      - name: Install dependencies
+        run: poetry install --sync --no-root --no-interaction --no-ansi
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Ruff lint (with suggestions)
         if: ${{ github.event_name == 'pull_request' }}
@@ -115,9 +113,8 @@ jobs:
             ~/.cache/pypoetry
             ~/.cache/pip
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
-      - name: Install dependencies (if cache miss)
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: poetry install --no-root --no-interaction --no-ansi
+      - name: Install dependencies
+        run: poetry install --sync --no-root --no-interaction --no-ansi
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run mypy with reviewdog
         if: ${{ github.event_name == 'pull_request' }}
@@ -151,9 +148,8 @@ jobs:
             ~/.cache/pypoetry
             ~/.cache/pip
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
-      - name: Install dependencies (if cache miss)
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: poetry install --no-root --no-interaction --no-ansi
+      - name: Install dependencies
+        run: poetry install --sync --no-root --no-interaction --no-ansi
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
       - name: Run bandit with reviewdog
         if: ${{ github.event_name == 'pull_request' }}

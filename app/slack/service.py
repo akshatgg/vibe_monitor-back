@@ -67,27 +67,76 @@ class SlackEventService:
 
             team_id = event_context.get("team_id")
             channel_id = event_context.get("channel_id")
-            user_message_ex = event_context.get("text", "").strip()
 
-            # Process the message and generate response
-            bot_response = await SlackEventService.process_user_message(
-                user_message=user_message_ex, event_context=event_context
-            )
-            clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message_ex).strip()
+            # Check if this is a member joined channel event
+            if payload.event.get("subtype") == "channel_join":
+                # Retrieve the Slack installation for this team
+                slack_installation = await SlackEventService.get_installation(team_id)
+                if not slack_installation:
+                    logger.warning(f"No Slack installation found for team {team_id}")
+                    return {
+                        "status": "ignored",
+                        "message": "No Slack installation found",
+                    }
+                if payload.event.get("user") == slack_installation.bot_user_id:
+                    welcome_message = (
+                        "👋 Hey everyone!\n\n\n"
+                        "I'm your friendly coding assistant debugging assistant bot 🤖 — here to help you debug issues, investigate alerts, and understand tech concepts understand how to tackle them better.\n"
+                        "Here's how you can make the most of me 👇\n\n\n"
+                        "🧩  1️⃣ Always tag me to talk to me\n"
+                        "       I only respond when you mention @bot on an alert thread.\n"
+                        "       Example: `@bot please help me investigate this error message.`\n\n\n"
+                        "⚙️  2️⃣ What can I help with?\n"
+                        "       Anything related to code, errors, or general understanding.\n"
+                        "       Example scenarios:\n"
+                        "       An alert pops up in this channel → tag me in the thread:\n"
+                        "       `@bot please investigate this issue.`\n"
+                        "       You encounter an error somewhere else → tag me with context:\n"
+                        "       Hey @bot can you investigate this error?\n"
+                        "       `requests.exceptions.Timeout: HTTP request to api.weatherdata.com timed out after 30 seconds`\n\n\n"
+                        "💬  3️⃣ Keep the context clear for best results\n"
+                        "       Try to include logs, stack traces, or what was happening when the issue occurred.\n"
+                        "       Avoid vague lines like:\n"
+                        '       `"Something went wrong."`\n'
+                        '       `"Process failed unexpectedly."`\n'
+                        "       The more specific you are, the faster and more accurate I'll be 💡\n\n\n"
+                        "🧠  4️⃣ I remember context per thread!\n"
+                        "       If we're chatting under a thread, I'll remember our earlier messages there.\n"
+                        "       That means you can continue the same investigation without repeating yourself 🙌\n\n\n"
+                        "⚡  5️⃣ I might take a few seconds to reply\n"
+                        "       Sometimes I'm fetching data, analyzing logs, or thinking deeply 🧘 — give me a moment and I'll get back with my findings.\n\n\n"
+                        "💡 Bonus:\n"
+                        "   You can also ask me conceptual stuff like:\n"
+                        "   `@bot what's the difference between multiprocessing and threading in Python?`\n"
+                        "   Let's debug smart and fast together 🐞🔥"
+                    )
 
-            if clean_message.lower() in ["help", "status", "health"]:
-                thread_ts = event_context.get("thread_ts")
-            else:
-                thread_ts = event_context.get("thread_ts") or event_context.get(
-                    "timestamp"
+                await SlackEventService.send_message(
+                    team_id=team_id, channel=channel_id, text=welcome_message
                 )
 
-            await SlackEventService.send_message(
-                team_id=team_id,
-                channel=channel_id,
-                text=bot_response,
-                thread_ts=thread_ts,
-            )
+            if payload.event.get("type") == "app_mention":
+                user_message_ex = event_context.get("text", "").strip()
+
+                # Process the message and generate response
+                bot_response = await SlackEventService.process_user_message(
+                    user_message=user_message_ex, event_context=event_context
+                )
+                clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message_ex).strip()
+
+                if clean_message.lower() in ["help", "status", "health"]:
+                    thread_ts = event_context.get("thread_ts")
+                else:
+                    thread_ts = event_context.get("thread_ts") or event_context.get(
+                        "timestamp"
+                    )
+
+                await SlackEventService.send_message(
+                    team_id=team_id,
+                    channel=channel_id,
+                    text=bot_response,
+                    thread_ts=thread_ts,
+                )
 
             # Call external webhook if configured (for additional processing)
             # if settings.SLACK_WEBHOOK_URL:
@@ -202,7 +251,7 @@ class SlackEventService:
                         allowed, current_count, limit = await check_rate_limit(
                             session=db,
                             workspace_id=workspace_id,
-                            resource_type=ResourceType.RCA_REQUEST
+                            resource_type=ResourceType.RCA_REQUEST,
                         )
 
                         if not allowed:

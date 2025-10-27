@@ -20,6 +20,7 @@ from app.services.rca.get_service_name.router import router as get_servicename
 # Config
 from app.core.config import settings
 
+from app.grafana.router import router as grafana_router
 
 # Create main API router
 api_router = APIRouter()
@@ -32,8 +33,5 @@ api_router.include_router(log_router)
 api_router.include_router(metrics_router)
 api_router.include_router(datasources_router)
 api_router.include_router(github_app_router, tags=["github-oauth"])
-
-# Include dev-only routers (not exposed in production)
-if not settings.is_production:
-    api_router.include_router(github_tools_router, tags=["github-tools"])
-    api_router.include_router(get_servicename, tags=["repository-services"]) 
+api_router.include_router(github_tools_router)
+api_router.include_router(github_webhook_router, tags=["github-webhooks"])
