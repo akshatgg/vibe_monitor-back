@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     RCA_SLACK_MESSAGE_MAX_LENGTH: int = 500  # Maximum length for Slack progress messages
     RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = 3  # Max consecutive Slack failures before circuit breaker opens
 
+    # RCA Agent LLM Settings
+    RCA_AGENT_TEMPERATURE: float = 0.2  # Balanced temperature for creative problem-solving while staying focused
+    RCA_AGENT_MAX_TOKENS: int = 8192  # Increased for detailed multi-service investigations
+    RCA_AGENT_MAX_ITERATIONS: int = 25  # Increased for complex multi-service investigations
+    RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
+
     class Config:
         env_file = ".env"
         case_sensitive = True

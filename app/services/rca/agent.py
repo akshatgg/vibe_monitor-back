@@ -77,8 +77,8 @@ class RCAAgentService:
             self.llm = ChatGroq(
                 api_key=settings.GROQ_API_KEY,
                 model=settings.GROQ_LLM_MODEL,  # Groq's best model for reasoning
-                temperature=0.2,  # Balanced temperature for creative problem-solving while staying focused
-                max_tokens=8192,  # Increased for detailed multi-service investigations
+                temperature=settings.RCA_AGENT_TEMPERATURE,
+                max_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
 
             # Create chat prompt template with system message and service mapping
@@ -162,8 +162,8 @@ class RCAAgentService:
             agent=agent,
             tools=tools_with_workspace,
             verbose=True,
-            max_iterations=25,  # Increased for complex multi-service investigations
-            max_execution_time=300,  # 5 minutes for thorough upstream analysis
+            max_iterations=settings.RCA_AGENT_MAX_ITERATIONS,
+            max_execution_time=settings.RCA_AGENT_MAX_EXECUTION_TIME,
             handle_parsing_errors=True,
             return_intermediate_steps=True,
         )
@@ -309,22 +309,6 @@ class RCAAgentService:
             "success": False,
             "error": "RCA analysis failed for unknown reasons",
         }
-
-    def get_agent_info(self) -> Dict[str, Any]:
-        """
-        Get information about the configured agent
-
-        Returns:
-            Dictionary with agent configuration details
-        """
-        return {
-            "model": "llama-3.3-70b-versatile",
-            "provider": "Groq",
-            "max_iterations": 25,
-            "max_execution_time": 300,
-            "available_tools": [tool.name for tool in ALL_RCA_TOOLS],
-        }
-
 
 # Singleton instance
 rca_agent_service = RCAAgentService()
