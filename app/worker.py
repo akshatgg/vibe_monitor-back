@@ -113,7 +113,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     # Fetch all repositories
                     repos_response = await list_repositories_graphql(
                         workspace_id=workspace_id,
-                        first=50,  # Limit to first 50 repos to avoid overwhelming
+                        first=settings.RCA_MAX_REPOS_TO_FETCH,
                         after=None,
                         user_id="rca-agent",
                         db=db
@@ -133,7 +133,7 @@ class RCAOrchestratorWorker(BaseWorker):
                             )
 
                         # Extract service names from each repository
-                        for i, repo in enumerate(repositories[:20], 1):  # Limit to first 20 to save time
+                        for i, repo in enumerate(repositories[:settings.RCA_MAX_REPOS_TO_SCAN], 1):
                             repo_name = repo.get("name")
                             if not repo_name:
                                 continue
@@ -149,7 +149,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 if services:
                                     for service_name in services:
                                         service_repo_mapping[service_name] = repo_name
-                                    logger.info(f"  [{i}/{min(20, total_repos)}] {repo_name} → {services}")
+                                    logger.info(f"  [{i}/{min(settings.RCA_MAX_REPOS_TO_SCAN, total_repos)}] {repo_name} → {services}")
 
                             except Exception as e:
                                 logger.warning(f"Failed to extract service names from {repo_name}: {e}")

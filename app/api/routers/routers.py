@@ -15,7 +15,6 @@ from app.github.oauth.router import router as github_app_router
 # Dev-only routers
 from app.github.tools.router import router as github_tools_router
 from app.github.webhook.router import router as github_webhook_router
-from app.services.rca.get_service_name.router import router as get_servicename
 
 # Config
 from app.core.config import settings

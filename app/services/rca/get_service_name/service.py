@@ -14,6 +14,7 @@ from app.github.tools.router import (
     download_file_by_path,
 )
 from app.github.tools.service import get_github_integration_with_token
+from app.core.config import settings
 from app.services.rca.get_service_name.constants import (
     LANGUAGE_FILES,
     UNIVERSAL_FILES,
@@ -90,7 +91,7 @@ async def extract_service_names_from_repo(
 
         # Step 5: Check other files if Dockerfile didn't have the label
         service_names = []
-        for file_path in priority_files[:10]:  # Limit to 10 files
+        for file_path in priority_files[:settings.RCA_MAX_FILES_TO_ANALYZE]:
             # Skip Dockerfile since we already checked it
             if file_path.lower().startswith("dockerfile"):
                 continue

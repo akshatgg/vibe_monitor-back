@@ -97,6 +97,12 @@ class Settings(BaseSettings):
         60  # Base backoff unit for exponential backoff (60s = 1 min)
     )
 
+    # RCA Service Discovery Settings
+    RCA_MAX_REPOS_TO_FETCH: int = 50  # Maximum number of repositories to fetch for service discovery
+    RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names
+    RCA_MAX_FILES_TO_ANALYZE: int = 10  # Maximum number of files to analyze per repository
+    RCA_SLACK_MESSAGE_MAX_LENGTH: int = 500  # Maximum length for Slack progress messages
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from langchain.callbacks.base import AsyncCallbackHandler
 from app.slack.service import slack_event_service
 from app.services.rca.get_service_name.enums import TOOL_NAME_TO_MESSAGE
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +191,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         if self.send_tool_output and output:
             try:
                 # Truncate very long outputs
-                max_length = 500
-                truncated_output = output[:max_length]
-                if len(output) > max_length:
-                    truncated_output += f"\n\n_(truncated, {len(output) - max_length} more chars)_"
+                truncated_output = output[:settings.RCA_SLACK_MESSAGE_MAX_LENGTH]
+                if len(output) > settings.RCA_SLACK_MESSAGE_MAX_LENGTH:
+                    truncated_output += f"\n\n_(truncated, {len(output) - settings.RCA_SLACK_MESSAGE_MAX_LENGTH} more chars)_"
 
                 await slack_event_service.send_message(
                     team_id=self.team_id,
