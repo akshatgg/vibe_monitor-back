@@ -223,14 +223,13 @@ curl https://YOUR_NGROK_URL.ngrok.io/health
 
 Go to **OAuth & Permissions** → Bot Token Scopes:
 
-Add these 7 scopes:
+Add these 5 scopes:
 ```
 app_mentions:read
-channels:history
 channels:read
+channels:history
 chat:write
-chat:write.public
-commands
+
 groups:read
 ```
 
@@ -257,9 +256,6 @@ Wait for "Verified ✓"
 Subscribe to bot events:
 ```
 app_mention
-message.channels
-message.groups
-message.im
 ```
 
 **Step 4: Enable Interactivity**
@@ -537,14 +533,12 @@ curl https://YOUR_NGROK_URL.ngrok.io/health
 ### Issue: Invalid Slack Scope Error
 
 **Solution:**
-Make sure Slack app has EXACTLY these 7 scopes:
+Make sure Slack app has EXACTLY these 5 scopes:
 ```
 app_mentions:read
-channels:history
 channels:read
+channels:history
 chat:write
-chat:write.public
-commands
 groups:read
 ```
 

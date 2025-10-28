@@ -12,6 +12,7 @@ import httpx
 
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
+from ..utils.token_processor import token_processor
 from .models import (
     InstantMetricResponse,
     RangeMetricResponse,
@@ -46,15 +47,18 @@ class MetricsService:
                     f"No Grafana configuration found for workspace {workspace_id}"
                 )
 
+            # Decrypt the API token
+            decrypted_token = token_processor.decrypt(integration.api_token)
+
             # Auto-discover Prometheus UID from Grafana
             datasource_uid = await get_prometheus_uid_cached(
-                grafana_url=integration.grafana_url, api_token=integration.api_token
+                grafana_url=integration.grafana_url, api_token=decrypted_token
             )
             logger.info(
                 f"Auto-discovered Prometheus UID for workspace {workspace_id}: {datasource_uid}"
             )
 
-            return integration.grafana_url, integration.api_token, datasource_uid
+            return integration.grafana_url, decrypted_token, datasource_uid
 
     def _escape_promql_value(self, value: str) -> str:
         """
