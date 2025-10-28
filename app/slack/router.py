@@ -45,7 +45,7 @@ async def initiate_slack_install(
     oauth_url = (
         f"{settings.SLACK_OAUTH_AUTHORIZE_URL}?"
         f"client_id={settings.SLACK_CLIENT_ID}&"
-        f"scope=app_mentions:read,channels:read,chat:write,commands,groups:read,channels:history&"
+        f"scope=app_mentions:read,channels:read,chat:write,groups:read,channels:history&"
         f"user_scope=&"
         f"state={state}"
     )
