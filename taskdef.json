@@ -39,7 +39,6 @@
         {"name": "WEB_APP_URL", "valueFrom": "/vm-api/web-app-url"},
         {"name": "CRYPTOGRAPHY_SECRET", "valueFrom": "/vm-api/cryptography-secret"},
         {"name": "SLACK_SIGNING_SECRET", "valueFrom": "/vm-api/slack-signing-secret"},
-        {"name": "SLACK_WEBHOOK_URL", "valueFrom": "/vm-api/slack-webhook-url"},
         {"name": "SLACK_CLIENT_ID", "valueFrom": "/vm-api/slack-client-id"},
         {"name": "SLACK_CLIENT_SECRET", "valueFrom": "/vm-api/slack-client-secret"},
         {"name": "GITHUB_APP_NAME", "valueFrom": "/vm-api/github-app-name"},

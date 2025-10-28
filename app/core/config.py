@@ -62,7 +62,6 @@ class Settings(BaseSettings):
 
     # Slack Integration
     SLACK_SIGNING_SECRET: Optional[str] = None
-    SLACK_WEBHOOK_URL: Optional[str] = None
     SLACK_CLIENT_ID: Optional[str] = None
     SLACK_CLIENT_SECRET: Optional[str] = None
     SLACK_API_BASE_URL: str = "https://slack.com/api"
