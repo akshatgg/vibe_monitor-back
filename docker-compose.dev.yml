@@ -157,7 +157,7 @@ services:
       - -config.file=/etc/promtail/config.yml
       - -config.expand-env=true
     environment:
-      - LOKI_URL=${LOKI_URL:-http://54.67.106.73:3100}
+      - LOKI_URL=${LOKI_URL}
     networks:
       - app-network
 

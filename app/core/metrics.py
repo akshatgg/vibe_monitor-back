@@ -3,11 +3,13 @@ Prometheus metrics configuration for VM-API
 Push-based metrics using Pushgateway (similar to Promtail → Loki pattern)
 """
 import logging
-import os
 import asyncio
+import socket
 from prometheus_client import Counter, Histogram, Gauge, Info, CollectorRegistry, push_to_gateway
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from fastapi import FastAPI
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -179,11 +181,15 @@ async def push_metrics_to_gateway():
     Background task to push metrics to Pushgateway
     Similar to how Promtail pushes logs to Loki
     """
-    pushgateway_url = os.getenv("PUSHGATEWAY_URL", "pushgateway:9091")
+    pushgateway_url = settings.PUSHGATEWAY_URL
     job_name = "vm-api"
+
+    # Use HOSTNAME from settings, fall back to socket.gethostname() if not set
+    hostname = settings.HOSTNAME or socket.gethostname()
+
     grouping_key = {
-        "instance": os.getenv("HOSTNAME", "localhost"),
-        "environment": os.getenv("DEPLOY_ENV", "local")
+        "instance": hostname,
+        "environment": settings.DEPLOY_ENV
     }
 
     while True:

@@ -96,6 +96,12 @@ class Settings(BaseSettings):
         60  # Base backoff unit for exponential backoff (60s = 1 min)
     )
 
+    # Monitoring Configuration
+    PUSHGATEWAY_URL: str = "pushgateway:9091"  # Pushgateway URL for pushing metrics
+    LOKI_URL: Optional[str] = None  # Loki URL for logs (used by Promtail)
+    DEPLOY_ENV: str = "local"  # Deployment environment (local, staging, production)
+    HOSTNAME: Optional[str] = None  # Hostname for identifying the instance
+
     class Config:
         env_file = ".env"
         case_sensitive = True

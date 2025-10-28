@@ -106,7 +106,7 @@ app.add_middleware(
 )
 
 # Setup Prometheus metrics BEFORE including routers
-instrumentator = setup_metrics(app)
+setup_metrics(app)
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
