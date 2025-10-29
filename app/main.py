@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-
+import asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
         logger.info("SQS worker started")
 
         # Start metrics push background task
-        import asyncio
+        
         metrics_task = asyncio.create_task(push_metrics_to_gateway())
         logger.info("Metrics push task started")
 
