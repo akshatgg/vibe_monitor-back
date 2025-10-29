@@ -24,6 +24,8 @@ from app.grafana.router import router as grafana_router
 
 from app.mailgun.router import router as mailgun_router
 
+from app.aws.Integration.router import router as aws_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -43,3 +45,4 @@ if not settings.is_production:
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
+api_router.include_router(aws_router, tags=["aws-integration"])

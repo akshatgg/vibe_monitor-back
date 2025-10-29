@@ -304,4 +304,38 @@ class MailgunEmail(Base):
         Index("idx_mailgun_emails_sent_at", "sent_at"),
         Index("idx_mailgun_emails_status", "status"),
     )
- 
+
+
+class AWSIntegration(Base):
+    """
+    Stores AWS credentials for workspace integrations.
+    Access keys are encrypted before storage.
+    """
+
+    __tablename__ = "aws_integrations"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # Encrypted AWS credentials
+    aws_access_key_id = Column(String, nullable=False)  # Encrypted
+    aws_secret_access_key = Column(String, nullable=False)  # Encrypted
+
+    # Optional region configuration
+    aws_region = Column(String, nullable=True, default="us-east-1")
+
+    # Status tracking
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="aws_integrations")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_aws_integration_workspace", "workspace_id"),
+        Index("idx_aws_integration_active", "is_active"),
+    )
