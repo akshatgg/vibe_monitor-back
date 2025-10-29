@@ -96,6 +96,12 @@ class Settings(BaseSettings):
         60  # Base backoff unit for exponential backoff (60s = 1 min)
     )
 
+    # Monitoring Configuration
+    PUSHGATEWAY_URL: str = "pushgateway:9091"  # Pushgateway URL for pushing metrics
+    LOKI_URL: Optional[str] = None  # Loki URL for logs (used by Promtail)
+    DEPLOY_ENV: str = "local"  # Deployment environment (local, staging, production)
+    HOSTNAME: Optional[str] = None  # Hostname for identifying the instance
+
     # RCA Service Discovery Settings
     RCA_MAX_REPOS_TO_FETCH: int = 50  # Maximum number of repositories to fetch for service discovery
     RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names
@@ -110,6 +116,7 @@ class Settings(BaseSettings):
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
+
 
     class Config:
         env_file = ".env"

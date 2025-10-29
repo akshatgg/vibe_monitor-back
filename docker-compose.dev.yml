@@ -20,6 +20,18 @@ services:
 
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} # Used by the LocalStack container itself to initialize
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "job,environment,host"
+        tag: "{{.Name}}"
+    labels:
+      logging: "promtail"
+      job: "vm-api"
+      environment: "${DEPLOY_ENV:-local}"
+      host: "${HOSTNAME:-localhost}"
     depends_on:
       supabase-db:
         condition: service_started
@@ -132,6 +144,35 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
       - app-network
+
+  # Promtail - Log Shipper (Sends logs to Loki)
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    command:
+      - -config.file=/etc/promtail/config.yml
+      - -config.expand-env=true
+    environment:
+      - LOKI_URL=${LOKI_URL}
+    networks:
+      - app-network
+
+  # Pushgateway - Metrics Gateway (Receives pushed metrics)
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: pushgateway
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    networks:
+      - app-network
+    command:
+      - '--persistence.file=/tmp/pushgateway.data'
+      - '--persistence.interval=5m'
 
 volumes:
   supabase_db_data:

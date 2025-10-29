@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-
+import asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.routers.routers import api_router
 from app.core.config import settings
 from app.core.database import init_database
+from app.core.metrics import setup_metrics, push_metrics_to_gateway
 from app.github.webhook.router import limiter
 
 from app.worker import RCAOrchestratorWorker
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting VM API application...")
 
     worker = RCAOrchestratorWorker()
+    metrics_task = None
 
     try:
         # Initialize database
@@ -47,6 +49,11 @@ async def lifespan(app: FastAPI):
         # Start SQS worker
         await worker.start()
         logger.info("SQS worker started")
+
+        # Start metrics push background task
+        
+        metrics_task = asyncio.create_task(push_metrics_to_gateway())
+        logger.info("Metrics push task started")
 
         logger.info("All services started successfully")
         yield
@@ -58,6 +65,15 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down VM API application...")
 
         try:
+            # Stop metrics push task
+            if metrics_task:
+                metrics_task.cancel()
+                try:
+                    await metrics_task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("Metrics push task stopped")
+
             # Stop SQS worker
             await worker.stop()
             logger.info("SQS worker stopped")
@@ -92,6 +108,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
+# Setup Prometheus metrics BEFORE including routers
+setup_metrics(app)
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
