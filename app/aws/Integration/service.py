@@ -194,7 +194,7 @@ class AWSIntegrationService:
         result = await db.execute(
             select(AWSIntegration).where(
                 AWSIntegration.workspace_id == workspace_id,
-                AWSIntegration.is_active == True,
+                AWSIntegration.is_active.is_(True),
             )
         )
         existing_integration = result.scalar_one_or_none()
@@ -278,7 +278,7 @@ class AWSIntegrationService:
         result = await db.execute(
             select(AWSIntegration).where(
                 AWSIntegration.workspace_id == workspace_id,
-                AWSIntegration.is_active == True,
+                AWSIntegration.is_active.is_(True),
             )
         )
         integration = result.scalar_one_or_none()
@@ -346,7 +346,7 @@ class AWSIntegrationService:
         result = await db.execute(
             select(AWSIntegration).where(
                 AWSIntegration.workspace_id == workspace_id,
-                AWSIntegration.is_active == True,
+                AWSIntegration.is_active.is_(True),
             )
         )
         integration = result.scalar_one_or_none()
@@ -408,7 +408,7 @@ class AWSIntegrationService:
         result = await db.execute(
             select(AWSIntegration).where(
                 AWSIntegration.workspace_id == workspace_id,
-                AWSIntegration.is_active == True,
+                AWSIntegration.is_active.is_(True),
             )
         )
         integration = result.scalar_one_or_none()
