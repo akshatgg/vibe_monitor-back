@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_LLM_MODEL: Optional[str]=None
 
+    # AWS Host Credentials (for assuming customer IAM roles)
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+
     # AWS SQS
     AWS_REGION: Optional[str] = None
     SQS_QUEUE_URL: Optional[str] = None
