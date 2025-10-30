@@ -116,8 +116,10 @@ export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54322/post
 export AWS_ENDPOINT_URL="http://localhost:4566"
 export SQS_QUEUE_URL="http://localhost:4566/000000000000/vm-api-queue"
 export AWS_REGION="us-east-1"
-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
+# DO NOT export AWS credentials - let boto3 use ~/.aws/credentials for real AWS
+# LocalStack SQS will work without credentials when using AWS_ENDPOINT_URL
+# export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
+# export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
 export ENVIRONMENT="development"
 
 echo -e "${GREEN}✓ Environment configured${NC}"

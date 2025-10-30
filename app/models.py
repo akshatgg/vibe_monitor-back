@@ -308,8 +308,9 @@ class MailgunEmail(Base):
 
 class AWSIntegration(Base):
     """
-    Stores AWS credentials for workspace integrations.
-    Access keys are encrypted before storage.
+    Stores AWS IAM role ARN and temporary STS credentials for workspace integrations.
+    Uses AssumeRole to get temporary credentials instead of storing long-term keys.
+    Credentials are encrypted before storage.
     """
 
     __tablename__ = "aws_integrations"
@@ -317,9 +318,19 @@ class AWSIntegration(Base):
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
 
-    # Encrypted AWS credentials
-    aws_access_key_id = Column(String, nullable=False)  # Encrypted
-    aws_secret_access_key = Column(String, nullable=False)  # Encrypted
+    # IAM Role ARN for AssumeRole
+    role_arn = Column(String, nullable=False)  # e.g., arn:aws:iam::123456789012:role/VibeMonitor
+
+    # External ID for secure cross-account access (encrypted)
+    external_id = Column(String, nullable=True)  # Encrypted external ID for AssumeRole
+
+    # Encrypted temporary STS credentials (from AssumeRole response)
+    access_key_id = Column(String, nullable=False)  # Encrypted temporary access key
+    secret_access_key = Column(String, nullable=False)  # Encrypted temporary secret key
+    session_token = Column(String, nullable=False)  # Encrypted session token
+
+    # Credential expiration tracking
+    credentials_expiration = Column(DateTime(timezone=True), nullable=False)  # When STS credentials expire
 
     # Optional region configuration
     aws_region = Column(String, nullable=True, default="us-east-1")

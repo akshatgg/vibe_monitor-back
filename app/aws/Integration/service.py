@@ -1,12 +1,14 @@
 """
 AWS Integration Service
 Handles CRUD operations and credential management for AWS integrations
+Uses STS AssumeRole for temporary credentials instead of long-term access keys
 """
+import os
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import boto3
 from botocore.exceptions import ClientError
 
@@ -20,25 +22,86 @@ from .schemas import (
 
 
 class AWSIntegrationService:
-    """Service for managing AWS integrations"""
+    """Service for managing AWS integrations using STS AssumeRole"""
 
     @staticmethod
-    def _mask_access_key(access_key_id: str) -> str:
-        """Mask AWS Access Key ID for display"""
-        if len(access_key_id) <= 8:
-            return "****"
-        return access_key_id[:4] + "*" * (len(access_key_id) - 8) + access_key_id[-4:]
-
-    @staticmethod
-    async def verify_aws_credentials(
-        access_key_id: str, secret_access_key: str, region: str = "us-east-1"
-    ) -> AWSIntegrationVerifyResponse:
+    async def assume_role(
+        role_arn: str,
+        region: str = "us-east-1",
+        duration_seconds: int = 3600,
+        external_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Verify AWS credentials and CloudWatch Logs access
+        Assume an IAM role and get temporary credentials using STS
 
         Args:
-            access_key_id: AWS Access Key ID
-            secret_access_key: AWS Secret Access Key
+            role_arn: AWS IAM Role ARN to assume
+            region: AWS Region
+            duration_seconds: Duration for temporary credentials (default 3600 = 1 hour)
+            external_id: Optional external ID for cross-account access security
+
+        Returns:
+            Dict containing temporary credentials and expiration
+
+        Raises:
+            Exception: If role assumption fails
+        """
+        try:
+            # Create STS client (will use default credentials from environment/EC2 role)
+            # Force real AWS by temporarily removing LocalStack endpoint
+            
+            original_endpoint = os.environ.get('AWS_ENDPOINT_URL')
+
+            # Temporarily remove AWS_ENDPOINT_URL to bypass LocalStack
+            if 'AWS_ENDPOINT_URL' in os.environ:
+                del os.environ['AWS_ENDPOINT_URL']
+
+            try:
+                sts_client = boto3.client("sts", region_name=region)
+
+                # Prepare AssumeRole parameters
+                assume_role_params = {
+                    "RoleArn": role_arn,
+                    "RoleSessionName": "vibe-monitor-session",
+                    "DurationSeconds": duration_seconds,
+                }
+
+                # Add ExternalId if provided
+                if external_id:
+                    assume_role_params["ExternalId"] = external_id
+
+                # Assume the role
+                response = sts_client.assume_role(**assume_role_params)
+            finally:
+                # Restore original endpoint for other services (like SQS)
+                if original_endpoint:
+                    os.environ['AWS_ENDPOINT_URL'] = original_endpoint
+
+            credentials = response["Credentials"]
+
+            return {
+                "access_key_id": credentials["AccessKeyId"],
+                "secret_access_key": credentials["SecretAccessKey"],
+                "session_token": credentials["SessionToken"],
+                "expiration": credentials["Expiration"],
+            }
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            error_message = e.response.get("Error", {}).get("Message", str(e))
+            raise Exception(f"Failed to assume role: {error_code} - {error_message}")
+        except Exception as e:
+            raise Exception(f"Failed to assume role: {str(e)}")
+
+    @staticmethod
+    async def verify_role_and_permissions(
+        role_arn: str, region: str = "us-east-1", external_id: Optional[str] = None
+    ) -> AWSIntegrationVerifyResponse:
+        """
+        Verify that the role can be assumed and has CloudWatch access
+
+        Args:
+            role_arn: AWS IAM Role ARN
             region: AWS Region
 
         Returns:
@@ -47,54 +110,44 @@ class AWSIntegrationService:
         account_id = None
 
         try:
-            # Step 1: Verify credentials using STS
-            sts_client = boto3.client(
-                "sts",
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
-                region_name=region,
-            )
+            # Step 1: Try to assume the role
+            credentials = await AWSIntegrationService.assume_role(role_arn, region, external_id=external_id)
 
-            # Make a test call to get caller identity
-            sts_response = sts_client.get_caller_identity()
-            account_id = sts_response.get("Account")
+            # Step 2: Verify CloudWatch Logs access with temporary credentials
+            # Always use real AWS for CloudWatch, never LocalStack
+            
+            original_endpoint = os.environ.get('AWS_ENDPOINT_URL')
 
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "Unknown")
-            error_message = e.response.get("Error", {}).get("Message", str(e))
+            # Temporarily remove AWS_ENDPOINT_URL to bypass LocalStack
+            if 'AWS_ENDPOINT_URL' in os.environ:
+                del os.environ['AWS_ENDPOINT_URL']
 
-            # Handle authentication errors
-            if error_code in ["InvalidClientTokenId", "SignatureDoesNotMatch"]:
-                return AWSIntegrationVerifyResponse(
-                    is_valid=False,
-                    message="Authentication Error: Invalid AWS Access Key ID or Secret Access Key. Please check your credentials.",
+            try:
+                logs_client = boto3.client(
+                    "logs",
+                    aws_access_key_id=credentials["access_key_id"],
+                    aws_secret_access_key=credentials["secret_access_key"],
+                    aws_session_token=credentials["session_token"],
+                    region_name=region,
                 )
-            elif error_code == "AccessDenied":
-                return AWSIntegrationVerifyResponse(
-                    is_valid=False,
-                    message=f"Authentication Error: Access denied for STS service - {error_message}",
-                )
-            else:
-                return AWSIntegrationVerifyResponse(
-                    is_valid=False,
-                    message=f"Authentication Error: {error_code} - {error_message}",
-                )
-        except Exception as e:
+
+                # Test CloudWatch Logs access
+                logs_client.describe_log_groups(limit=1)
+            finally:
+                # Restore original endpoint for other services (like SQS)
+                if original_endpoint:
+                    os.environ['AWS_ENDPOINT_URL'] = original_endpoint
+
+            # Extract account ID from role ARN (format: arn:aws:iam::123456789012:role/RoleName)
+            account_id = role_arn.split(":")[4]
+
+            # All verifications passed
             return AWSIntegrationVerifyResponse(
-                is_valid=False,
-                message=f"Authentication Error: Unable to verify credentials - {str(e)}"
+                is_valid=True,
+                message="AWS role verified successfully with CloudWatch access",
+                account_id=account_id,
             )
 
-        # Step 2: Verify CloudWatch Logs access (covers logs, metrics, and traces)
-        try:
-            logs_client = boto3.client(
-                "logs",
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
-                region_name=region,
-            )
-            # Test CloudWatch Logs access
-            logs_client.describe_log_groups(limit=1)
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
@@ -102,27 +155,20 @@ class AWSIntegrationService:
             if error_code == "AccessDeniedException" or error_code == "AccessDenied":
                 return AWSIntegrationVerifyResponse(
                     is_valid=False,
-                    message="CloudWatch Access Error: Missing permissions for CloudWatch. Required permissions: logs:DescribeLogGroups, cloudwatch:*, xray:*",
+                    message=f"Access Error: Missing permissions - {error_message}. Required: sts:AssumeRole, logs:DescribeLogGroups, cloudwatch:*, xray:*",
                     account_id=account_id,
                 )
             return AWSIntegrationVerifyResponse(
                 is_valid=False,
-                message=f"CloudWatch Access Error: {error_code} - {error_message}",
+                message=f"Verification Error: {error_code} - {error_message}",
                 account_id=account_id,
             )
         except Exception as e:
             return AWSIntegrationVerifyResponse(
                 is_valid=False,
-                message=f"CloudWatch Access Error: {str(e)}",
+                message=f"Verification Error: {str(e)}",
                 account_id=account_id,
             )
-
-        # All verifications passed
-        return AWSIntegrationVerifyResponse(
-            is_valid=True,
-            message="AWS credentials verified successfully with CloudWatch access",
-            account_id=account_id,
-        )
 
     async def create_aws_integration(
         self,
@@ -131,18 +177,18 @@ class AWSIntegrationService:
         integration_data: AWSIntegrationCreate,
     ) -> AWSIntegrationResponse:
         """
-        Create a new AWS integration for a workspace
+        Create a new AWS integration for a workspace using IAM role ARN
 
         Args:
             db: Database session
             workspace_id: Workspace ID
-            integration_data: AWS integration data
+            integration_data: AWS integration data (role_arn, region)
 
         Returns:
             AWSIntegrationResponse
 
         Raises:
-            ValueError: If integration already exists or credentials are invalid
+            ValueError: If integration already exists or role is invalid
         """
         # Check if integration already exists for this workspace
         result = await db.execute(
@@ -158,31 +204,42 @@ class AWSIntegrationService:
                 "An active AWS integration already exists for this workspace"
             )
 
-        # Verify credentials before saving
-        verification = await self.verify_aws_credentials(
-            integration_data.aws_access_key_id,
-            integration_data.aws_secret_access_key,
-            integration_data.aws_region if integration_data.aws_region else "us-east-1",
+        region = integration_data.aws_region if integration_data.aws_region else "us-east-1"
+
+        # Verify role and permissions before saving
+        verification = await self.verify_role_and_permissions(
+            integration_data.role_arn,
+            region,
+            integration_data.external_id,
         )
 
         if not verification.is_valid:
-            raise ValueError(f"Invalid AWS credentials: {verification.message}")
+            raise ValueError(f"Invalid AWS role: {verification.message}")
 
-        # Encrypt credentials
-        encrypted_access_key = token_processor.encrypt(
-            integration_data.aws_access_key_id
+        # Assume role to get temporary credentials
+        credentials = await self.assume_role(
+            integration_data.role_arn,
+            region,
+            external_id=integration_data.external_id
         )
-        encrypted_secret_key = token_processor.encrypt(
-            integration_data.aws_secret_access_key
-        )
+
+        # Encrypt temporary credentials and external_id (if provided)
+        encrypted_access_key = token_processor.encrypt(credentials["access_key_id"])
+        encrypted_secret_key = token_processor.encrypt(credentials["secret_access_key"])
+        encrypted_session_token = token_processor.encrypt(credentials["session_token"])
+        encrypted_external_id = token_processor.encrypt(integration_data.external_id) if integration_data.external_id else None
 
         # Create new integration
         integration = AWSIntegration(
             id=str(uuid.uuid4()),
             workspace_id=workspace_id,
-            aws_access_key_id=encrypted_access_key,
-            aws_secret_access_key=encrypted_secret_key,
-            aws_region=integration_data.aws_region,
+            role_arn=integration_data.role_arn,
+            external_id=encrypted_external_id,
+            access_key_id=encrypted_access_key,
+            secret_access_key=encrypted_secret_key,
+            session_token=encrypted_session_token,
+            credentials_expiration=credentials["expiration"],
+            aws_region=region,
             is_active=True,
             last_verified_at=datetime.now(timezone.utc),
         )
@@ -194,14 +251,14 @@ class AWSIntegrationService:
         return AWSIntegrationResponse(
             id=integration.id,
             workspace_id=integration.workspace_id,
+            role_arn=integration.role_arn,
+            has_external_id=integration.external_id is not None,
             aws_region=integration.aws_region,
             is_active=integration.is_active,
+            credentials_expiration=integration.credentials_expiration,
             last_verified_at=integration.last_verified_at,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
-            aws_access_key_id_masked=self._mask_access_key(
-                integration_data.aws_access_key_id
-            ),
         )
 
     async def get_aws_integration(
@@ -209,6 +266,7 @@ class AWSIntegrationService:
     ) -> Optional[AWSIntegrationResponse]:
         """
         Get AWS integration for a workspace
+        Automatically refreshes credentials if they are expired or about to expire
 
         Args:
             db: Database session
@@ -228,19 +286,111 @@ class AWSIntegrationService:
         if not integration:
             return None
 
-        # Decrypt access key for masking
-        decrypted_access_key = token_processor.decrypt(integration.aws_access_key_id)
+        # Check if credentials are expired or about to expire (within 5 minutes)
+        now = datetime.now(timezone.utc)
+        expiration_threshold = now + timedelta(minutes=5)
+
+        if integration.credentials_expiration <= expiration_threshold:
+            # Refresh credentials by assuming role again
+            try:
+                # Decrypt external_id if present
+                external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
+
+                credentials = await self.assume_role(
+                    integration.role_arn,
+                    integration.aws_region,
+                    external_id=external_id
+                )
+
+                # Update with new encrypted credentials
+                integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
+                integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
+                integration.session_token = token_processor.encrypt(credentials["session_token"])
+                integration.credentials_expiration = credentials["expiration"]
+                integration.last_verified_at = now
+
+                await db.commit()
+                await db.refresh(integration)
+
+            except Exception as e:
+                # Log error but still return current integration info
+                print(f"Failed to refresh credentials: {str(e)}")
 
         return AWSIntegrationResponse(
             id=integration.id,
             workspace_id=integration.workspace_id,
+            role_arn=integration.role_arn,
+            has_external_id=integration.external_id is not None,
             aws_region=integration.aws_region,
             is_active=integration.is_active,
+            credentials_expiration=integration.credentials_expiration,
             last_verified_at=integration.last_verified_at,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
-            aws_access_key_id_masked=self._mask_access_key(decrypted_access_key),
         )
+
+    async def get_decrypted_credentials(
+        self, db: AsyncSession, workspace_id: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Get decrypted AWS credentials for a workspace
+        Automatically refreshes if expired
+
+        Args:
+            db: Database session
+            workspace_id: Workspace ID
+
+        Returns:
+            Dict with access_key_id, secret_access_key, session_token, region or None
+        """
+        result = await db.execute(
+            select(AWSIntegration).where(
+                AWSIntegration.workspace_id == workspace_id,
+                AWSIntegration.is_active == True,
+            )
+        )
+        integration = result.scalar_one_or_none()
+
+        if not integration:
+            return None
+
+        # Check if credentials need refresh (same logic as get_aws_integration)
+        now = datetime.now(timezone.utc)
+        expiration_threshold = now + timedelta(minutes=5)
+
+        if integration.credentials_expiration <= expiration_threshold:
+            # Refresh credentials
+            try:
+                # Decrypt external_id if present
+                external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
+
+                credentials = await self.assume_role(
+                    integration.role_arn,
+                    integration.aws_region,
+                    external_id=external_id
+                )
+
+                # Update with new encrypted credentials
+                integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
+                integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
+                integration.session_token = token_processor.encrypt(credentials["session_token"])
+                integration.credentials_expiration = credentials["expiration"]
+                integration.last_verified_at = now
+
+                await db.commit()
+                await db.refresh(integration)
+
+            except Exception as e:
+                print(f"Failed to refresh credentials: {str(e)}")
+                # Continue with existing credentials if refresh fails
+
+        # Decrypt and return credentials
+        return {
+            "access_key_id": token_processor.decrypt(integration.access_key_id),
+            "secret_access_key": token_processor.decrypt(integration.secret_access_key),
+            "session_token": token_processor.decrypt(integration.session_token),
+            "region": integration.aws_region,
+        }
 
     async def delete_aws_integration(
         self, db: AsyncSession, workspace_id: str

@@ -23,25 +23,29 @@ auth_service = AuthService()
 
 
 @router.post("/integration", response_model=AWSIntegrationResponse, status_code=201)
-async def store_aws_credentials(
+async def store_aws_integration(
     request: AWSIntegrationCreate,
     workspace_id: str,
     _: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Store AWS credentials for a workspace (encrypted in database).
+    Setup AWS integration for a workspace using IAM role ARN.
 
     This endpoint:
-    1. Receives AWS Access Key ID and Secret Access Key
-    2. Encrypts the credentials using token_processor
-    3. Stores them in the database linked to the workspace
+    1. Receives AWS IAM Role ARN
+    2. Assumes the role to get temporary credentials
+    3. Encrypts and stores the temporary credentials in the database
+    4. Automatically refreshes credentials when they expire
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
-    - aws_access_key_id: AWS Access Key ID
-    - aws_secret_access_key: AWS Secret Access Key
+    - role_arn: AWS IAM Role ARN (e.g., arn:aws:iam::123456789012:role/VibeMonitor)
     - aws_region: AWS Region (optional, defaults to us-east-1)
+
+    The IAM role must have:
+    - Trust relationship allowing this service to assume it
+    - Permissions: logs:DescribeLogGroups, cloudwatch:*, xray:*
     """
     try:
         integration = await aws_integration_service.create_aws_integration(
@@ -55,7 +59,7 @@ async def store_aws_credentials(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to store AWS credentials: {str(e)}"
+            status_code=500, detail=f"Failed to setup AWS integration: {str(e)}"
         )
 
 
