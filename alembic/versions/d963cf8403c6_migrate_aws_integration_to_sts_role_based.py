@@ -1,6 +1,6 @@
 """Migrate AWS integration to STS role-based authentication
 
-Revision ID: abc123def456
+Revision ID: d963cf8403c6
 Revises: iqx5rixmd6xw
 Create Date: 2025-10-30 00:00:00.000000
 
