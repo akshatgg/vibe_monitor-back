@@ -10,6 +10,7 @@ from fastapi import HTTPException, status, Header
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
+from app.utils.retry_decorator import retry_external_api
 from app.models import MailgunEmail, User
 
 logger = logging.getLogger(__name__)
@@ -88,14 +89,16 @@ class MailgunService:
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.base_url,
-                    auth=("api", self.api_key),
-                    data=data,
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                return response.json()
+                async for attempt in retry_external_api("Mailgun"):
+                    with attempt:
+                        response = await client.post(
+                            self.base_url,
+                            auth=("api", self.api_key),
+                            data=data,
+                            timeout=10.0,
+                        )
+                        response.raise_for_status()
+                        return response.json()
         except httpx.HTTPError as e:
             logger.error(f"Failed to send email via Mailgun: {str(e)}")
             raise

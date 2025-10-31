@@ -13,6 +13,7 @@ import httpx
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
 from ..utils.token_processor import token_processor
+from ..utils.retry_decorator import retry_external_api
 from .models import (
     LogQueryResponse,
     LabelResponse,
@@ -209,18 +210,11 @@ class LogsService:
         headers = self._get_headers(api_token)
         logger.debug(f"Querying Loki datasource proxy: {url} with query: {logql_query}")
 
-        try:
-            response = await client.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f"Request error to Loki: {e}")
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Loki: {e.response.status_code} - {e.response.text}"
-            )
-            raise
+        async for attempt in retry_external_api("Loki"):
+            with attempt:
+                response = await client.get(url, params=params, headers=headers)
+                response.raise_for_status()
+                return response.json()
 
     async def query_logs(
         self, workspace_id: str, params: LogQueryParams
@@ -344,17 +338,19 @@ class LogsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Loki"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success", data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get labels: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success", data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get labels: {response_data}")
+                            return LabelResponse(status="error", data=[])
             except httpx.HTTPStatusError as e:
                 logger.error(
                     f"HTTP error getting labels: {e.response.status_code} - {e.response.text}"
@@ -377,17 +373,19 @@ class LogsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Loki"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success", data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get label values: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success", data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get label values: {response_data}")
+                            return LabelResponse(status="error", data=[])
             except httpx.HTTPStatusError as e:
                 logger.error(
                     f"HTTP error getting label values: {e.response.status_code} - {e.response.text}"
@@ -509,9 +507,11 @@ class LogsService:
             # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
             url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/loki/api/v1/labels"
             headers = self._get_headers(api_token)
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, headers=headers)
-                return response.status_code == 200
+            async for attempt in retry_external_api("Loki"):
+                with attempt:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        response = await client.get(url, headers=headers)
+                        return response.status_code == 200
         except Exception as e:
             logger.error(f"Loki health check failed: {e}")
             return False

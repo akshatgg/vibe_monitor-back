@@ -3,6 +3,7 @@ from typing import Optional
 import httpx
 import secrets
 from fastapi import APIRouter, Request, HTTPException, Depends
+from app.utils.retry_decorator import retry_external_api
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -368,26 +369,29 @@ async def slack_oauth_callback(
         logger.info("Exchanging OAuth code for access token")
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{settings.SLACK_API_BASE_URL}/oauth.v2.access",
-                data={
-                    "client_id": settings.SLACK_CLIENT_ID,
-                    "client_secret": settings.SLACK_CLIENT_SECRET,
-                    "code": code,
-                },
-                timeout=10.0,
-            )
+            async for attempt in retry_external_api("Slack"):
+                with attempt:
+                    response = await client.post(
+                        f"{settings.SLACK_API_BASE_URL}/oauth.v2.access",
+                        data={
+                            "client_id": settings.SLACK_CLIENT_ID,
+                            "client_secret": settings.SLACK_CLIENT_SECRET,
+                            "code": code,
+                        },
+                        timeout=10.0,
+                    )
+                    response.raise_for_status()
 
-        # Parse Slack's response
-        data = response.json()
-        print(data)
+                    # Parse Slack's response
+                    data = response.json()
+                    print(data)
 
-        if not data.get("ok"):
-            error_msg = data.get("error", "Unknown error")
-            logger.error(f"OAuth token exchange failed: {error_msg}")
-            raise HTTPException(
-                status_code=400, detail=f"slack installation failed: {error_msg}"
-            )
+                    if not data.get("ok"):
+                        error_msg = data.get("error", "Unknown error")
+                        logger.error(f"OAuth token exchange failed: {error_msg}")
+                        raise HTTPException(
+                            status_code=400, detail=f"slack installation failed: {error_msg}"
+                        )
 
         # Extract slack workspace and token information
         team_id = data["team"]["id"]

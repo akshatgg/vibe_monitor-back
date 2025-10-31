@@ -13,6 +13,7 @@ import httpx
 
 from app.models import GrafanaIntegration, Workspace
 from app.utils.token_processor import token_processor
+from app.utils.retry_decorator import retry_external_api
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +48,23 @@ class GrafanaService:
             }
 
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=headers)
+                async for attempt in retry_external_api("Grafana"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
 
-                # 200 = valid credentials, 401 = invalid token, 403 = insufficient permissions
-                if response.status_code == 200:
-                    logger.info(f"Grafana credentials validated successfully for {grafana_url}")
-                    return True
-                elif response.status_code == 401:
-                    logger.warning("Grafana authentication failed: Invalid API token")
-                    return False
-                elif response.status_code == 403:
-                    logger.warning("Grafana token has insufficient permissions")
-                    return False
-                else:
-                    logger.warning(f"Grafana credentials validation failed: {response.status_code}")
-                    return False
+                        # 200 = valid credentials, 401 = invalid token, 403 = insufficient permissions
+                        if response.status_code == 200:
+                            logger.info(f"Grafana credentials validated successfully for {grafana_url}")
+                            return True
+                        elif response.status_code == 401:
+                            logger.warning("Grafana authentication failed: Invalid API token")
+                            return False
+                        elif response.status_code == 403:
+                            logger.warning("Grafana token has insufficient permissions")
+                            return False
+                        else:
+                            logger.warning(f"Grafana credentials validation failed: {response.status_code}")
+                            return False
 
         except httpx.TimeoutException:
             logger.error(f"Timeout connecting to Grafana at {grafana_url}")

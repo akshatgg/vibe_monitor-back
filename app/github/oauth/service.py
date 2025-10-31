@@ -12,6 +12,7 @@ from dateutil import parser as date_parser
 from ...models import GitHubIntegration
 from ...core.config import settings
 from ...utils.token_processor import token_processor
+from ...utils.retry_decorator import retry_external_api
 
 
 class GitHubAppService:
@@ -58,15 +59,11 @@ class GitHubAppService:
         url = f"{self.GITHUB_API_BASE}/app/installations/{installation_id}"
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
-
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Failed to get installation info: {response.text}",
-                )
-
-            return response.json()
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    return response.json()
 
     async def create_or_update_app_integration_with_installation(
         self,
@@ -176,21 +173,18 @@ class GitHubAppService:
         )
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers)
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.post(url, headers=headers)
+                    response.raise_for_status()
 
-            if response.status_code != 201:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Failed to get access token: {response.text}",
-                )
-
-            data = response.json()
-            return {
-                "token": data["token"],
-                "expires_at": data[
-                    "expires_at"
-                ],  # ISO 8601 format: "2025-10-03T13:00:00Z"
-            }
+                    data = response.json()
+                    return {
+                        "token": data["token"],
+                        "expires_at": data[
+                            "expires_at"
+                        ],  # ISO 8601 format: "2025-10-03T13:00:00Z"
+                    }
 
     async def get_valid_access_token(self, workspace_id: str, db: AsyncSession) -> str:
         """Get a valid access token for the workspace, refreshing if expired
@@ -287,15 +281,11 @@ class GitHubAppService:
         url = f"{self.GITHUB_API_BASE}/installation/repositories"
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
-
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Failed to list repositories: {response.text}",
-                )
-
-            return response.json()
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    return response.json()
 
     async def uninstall_github_app(self, installation_id: str) -> bool:
         """Uninstall GitHub App from user's account via API
@@ -317,12 +307,8 @@ class GitHubAppService:
         url = f"{self.GITHUB_API_BASE}/app/installations/{installation_id}"
 
         async with httpx.AsyncClient() as client:
-            response = await client.delete(url, headers=headers)
-
-            if response.status_code == 204:
-                return True
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Failed to uninstall GitHub App: {response.text}",
-                )
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.delete(url, headers=headers)
+                    response.raise_for_status()
+                    return True

@@ -5,6 +5,7 @@ Auto-discovers Loki datasource UIDs from Grafana API
 
 from typing import Dict
 import httpx
+from ...utils.retry_decorator import retry_external_api
 
 
 class DatasourceDiscovery:
@@ -34,24 +35,26 @@ class DatasourceDiscovery:
             headers = {"Authorization": f"Bearer {api_token}"}
 
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, timeout=10.0)
-                response.raise_for_status()
-                datasources = response.json()
+                async for attempt in retry_external_api("Loki"):
+                    with attempt:
+                        response = await client.get(url, headers=headers, timeout=10.0)
+                        response.raise_for_status()
+                        datasources = response.json()
 
-            # Find Loki datasource by name and type
-            loki_uid = None
-            for datasource in datasources:
-                if datasource.get("name") == datasource_name and datasource.get("type") == "loki":
-                    loki_uid = datasource.get("uid")
-                    break
+                        # Find Loki datasource by name and type
+                        loki_uid = None
+                        for datasource in datasources:
+                            if datasource.get("name") == datasource_name and datasource.get("type") == "loki":
+                                loki_uid = datasource.get("uid")
+                                break
 
-            if not loki_uid:
-                raise ValueError(
-                    f"Loki datasource '{datasource_name}' not found in Grafana. "
-                    "Please configure a Loki datasource with this name first."
-                )
+                        if not loki_uid:
+                            raise ValueError(
+                                f"Loki datasource '{datasource_name}' not found in Grafana. "
+                                "Please configure a Loki datasource with this name first."
+                            )
 
-            return loki_uid
+                        return loki_uid
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
