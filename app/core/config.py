@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     RCA_MAX_REPOS_TO_FETCH: int = 50  # Maximum number of repositories to fetch for service discovery
     RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names
     RCA_MAX_FILES_TO_ANALYZE: int = 10  # Maximum number of files to analyze per repository
+    RCA_REPO_SCAN_CONCURRENCY: int = 5  # Number of repositories to scan in parallel (avoids overwhelming system)
     RCA_SLACK_MESSAGE_MAX_LENGTH: int = 500  # Maximum length for Slack progress messages
     RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = 3  # Max consecutive Slack failures before circuit breaker opens
 

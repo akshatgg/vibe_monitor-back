@@ -190,13 +190,13 @@ class SlackEventService:
         elif clean_message.lower() in ["help", "commands"]:
             return (
                 f"Hi <@{user_id}>! Here's what I can do:\n\n"
-                "🔍 **AI-Powered Root Cause Analysis**\n"
+                "🔍 *AI-Powered Root Cause Analysis*\n"
                 "Ask me questions about your services and I'll investigate logs and metrics:\n"
                 '• _"Why is my xyz service slow?"_\n'
                 '• _"Check errors in api-gateway service"_\n'
                 '• _"What\'s causing high CPU on auth-service?"_\n'
                 '• _"Investigate database timeouts"_\n\n'
-                "📋 **Commands**\n"
+                "📋 *Commands*\n"
                 "• `help` - Show this message\n"
                 "• `status` - Check bot health\n\n"
                 "I use AI to analyze your observability data and provide actionable insights! 🚀"
@@ -433,7 +433,7 @@ class SlackEventService:
     @staticmethod
     async def send_message(
         team_id: str, channel: str, text: str, thread_ts: Optional[str] = None
-    ) -> bool:
+    ) -> Optional[dict]:
         """
         Send a message to a Slack channel or thread
 
@@ -444,23 +444,26 @@ class SlackEventService:
             channel: Channel ID to send message to
             text: Message text
             thread_ts: Thread timestamp - if provided, replies in thread; otherwise posts to channel
+
+        Returns:
+            Dict with 'ok' status and 'ts' (message timestamp) if successful, None if failed
         """
         installation = await SlackEventService.get_installation(team_id)
 
         if not installation:
             logger.error(f"No installation found for team {team_id}")
-            return False
+            return None
 
         if not installation.access_token:
             logger.error(f"No access token found for team {team_id}")
-            return False
+            return None
 
         try:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for slack message")
         except Exception as err:
             logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return False
+            return None
 
         try:
             async with httpx.AsyncClient() as client:
@@ -484,13 +487,73 @@ class SlackEventService:
 
             if data.get("ok"):
                 logger.info(f"Message sent successfully to {channel}")
-                return True
+                return {"ok": True, "ts": data.get("ts")}
             else:
                 logger.error(f"Failed to send message: {data.get('error')}")
-                return False
+                return None
 
         except Exception as e:
             logger.error(f"Error sending Slack message: {e}")
+            return None
+
+    @staticmethod
+    async def update_message(
+        team_id: str, channel: str, ts: str, text: str
+    ) -> bool:
+        """
+        Update an existing Slack message
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID where the message is
+            ts: Message timestamp to update
+            text: New message text
+
+        Returns:
+            True if successful, False otherwise
+        """
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation:
+            logger.error(f"No installation found for team {team_id}")
+            return False
+
+        if not installation.access_token:
+            logger.error(f"No access token found for team {team_id}")
+            return False
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+            logger.info("Access token decrypted successfully for slack message update")
+        except Exception as err:
+            logger.error(f"Error decrypting access token for team {team_id}: {err}")
+            return False
+
+        try:
+            async with httpx.AsyncClient() as client:
+                payload = {"channel": channel, "ts": ts, "text": text}
+
+                response = await client.post(
+                    f"{settings.SLACK_API_BASE_URL}/chat.update",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=10.0,
+                )
+
+            data = response.json()
+
+            if data.get("ok"):
+                logger.info(f"Message updated successfully in {channel}")
+                return True
+            else:
+                logger.error(f"Failed to update message: {data.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error updating Slack message: {e}")
             return False
 
 
