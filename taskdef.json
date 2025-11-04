@@ -1,0 +1,56 @@
+{
+  "family": "vm-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::337502598894:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::337502598894:role/ecsAppTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "337502598894.dkr.ecr.us-west-1.amazonaws.com/vm-api:REPLACED_BY_CI",
+      "essential": true,
+      "portMappings": [{"containerPort": 8000, "protocol":"tcp"}],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/vm-api",
+          "awslogs-region": "us-west-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "secrets": [
+        {"name": "ENVIRONMENT", "valueFrom": "/vm-api/environment"},
+        {"name": "API_BASE_URL", "valueFrom": "/vm-api/api-base-url"},
+        {"name": "JWT_SECRET_KEY", "valueFrom": "/vm-api/jwt-secret-key"},
+        {"name": "SUPABASE_DATABASE_URL", "valueFrom": "/vm-api/supabase-database-url"},
+        {"name": "ALLOWED_ORIGINS", "valueFrom": "/vm-api/allowed-origins"},
+        {"name": "GOOGLE_CLIENT_ID", "valueFrom": "/vm-api/google-client-id"},
+        {"name": "GOOGLE_CLIENT_SECRET", "valueFrom": "/vm-api/google-client-secret"},
+        {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api/supabase-anon-key"},
+        {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api/supabase-service-key"},
+        {"name": "MAILGUN_API_KEY", "valueFrom": "/vm-api/mailgun-api-key"},
+        {"name": "MAILGUN_DOMAIN_NAME", "valueFrom": "/vm-api/mailgun-domain-name"},
+        {"name": "SCHEDULER_SECRET_TOKEN", "valueFrom": "/vm-api/scheduler-secret-token"},
+        {"name": "GROQ_API_KEY", "valueFrom": "/vm-api/groq-api-key"},
+        {"name": "GROQ_LLM_MODEL", "valueFrom": "/vm-api/groq-llm-model"},
+        {"name": "LOG_LEVEL", "valueFrom": "/vm-api/log-level"},
+        {"name": "AWS_REGION", "valueFrom": "/vm-api/aws-region"},
+        {"name": "SQS_QUEUE_URL", "valueFrom": "/vm-api/sqs-queue-url"},
+        {"name": "WEB_APP_URL", "valueFrom": "/vm-api/web-app-url"},
+        {"name": "CRYPTOGRAPHY_SECRET", "valueFrom": "/vm-api/cryptography-secret"},
+        {"name": "SLACK_SIGNING_SECRET", "valueFrom": "/vm-api/slack-signing-secret"},
+        {"name": "SLACK_CLIENT_ID", "valueFrom": "/vm-api/slack-client-id"},
+        {"name": "SLACK_CLIENT_SECRET", "valueFrom": "/vm-api/slack-client-secret"},
+        {"name": "GITHUB_APP_NAME", "valueFrom": "/vm-api/github-app-name"},
+        {"name": "GITHUB_APP_ID", "valueFrom": "/vm-api/github-app-id"},
+        {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api/github-client-id"},
+        {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"},
+        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"},
+        {"name": "AWS_ACCESS_KEY_ID", "valueFrom": "/vm-api/aws-access-key-id"},
+        {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": "/vm-api/aws-secret-access-key"}
+      ]
+    }
+  ]
+}
