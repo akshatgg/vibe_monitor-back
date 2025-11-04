@@ -20,6 +20,9 @@ from .tools.grafana.tools import (
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
     fetch_metrics_tool,
+    get_datasources_tool,
+    get_labels_tool,
+    get_label_values_tool,
 )
 
 from .tools.github.tools import (
@@ -44,6 +47,9 @@ ALL_RCA_TOOLS = [
     fetch_memory_metrics_tool,
     fetch_http_latency_tool,
     fetch_metrics_tool,
+    get_datasources_tool,
+    get_labels_tool,
+    get_label_values_tool,
     # GitHub tools
     read_repository_file_tool,
     search_code_tool,
