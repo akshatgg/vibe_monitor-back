@@ -12,15 +12,14 @@ class DatasourceDiscovery:
 
     @staticmethod
     async def get_loki_uid(
-        grafana_url: str, api_token: str, datasource_name: str = "Loki"
+        grafana_url: str, api_token: str
     ) -> str:
         """
-        Auto-discover Loki datasource UID from Grafana by name
+        Auto-discover Loki datasource UID from Grafana by type
 
         Args:
             grafana_url: Grafana base URL (e.g., http://grafana:3000)
             api_token: Grafana API token
-            datasource_name: Name of the Loki datasource (default: "Loki")
 
         Returns:
             str: Loki datasource UID
@@ -38,17 +37,17 @@ class DatasourceDiscovery:
                 response.raise_for_status()
                 datasources = response.json()
 
-            # Find Loki datasource by name and type
+            # Find Loki datasource by type only
             loki_uid = None
             for datasource in datasources:
-                if datasource.get("name") == datasource_name and datasource.get("type") == "loki":
+                if datasource.get("type") == "loki":
                     loki_uid = datasource.get("uid")
                     break
 
             if not loki_uid:
                 raise ValueError(
-                    f"Loki datasource '{datasource_name}' not found in Grafana. "
-                    "Please configure a Loki datasource with this name first."
+                    "Loki datasource not found in Grafana. "
+                    "Please configure a Loki datasource first."
                 )
 
             return loki_uid
@@ -56,8 +55,8 @@ class DatasourceDiscovery:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise ValueError(
-                    f"Loki datasource '{datasource_name}' not found in Grafana. "
-                    "Please configure a Loki datasource with this name first."
+                    "Loki datasource not found in Grafana. "
+                    "Please configure a Loki datasource first."
                 )
             raise
         except httpx.HTTPError:
