@@ -12,7 +12,7 @@ Features:
 """
 
 import logging
-from typing import TypeVar, Callable
+from typing import TypeVar
 import httpx
 
 from tenacity import (
