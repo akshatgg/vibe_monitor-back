@@ -166,7 +166,7 @@ def setup_metrics(app: FastAPI) -> Instrumentator:
 
     # Set application info
     app_info.info({
-        'version': '1.0.0',
+        'version': settings.VERSION,
         'python_version': '3.12',
         'framework': 'FastAPI'
     })
