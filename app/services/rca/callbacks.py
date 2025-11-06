@@ -13,6 +13,27 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def sanitize_error_for_user(error_msg: Optional[str]) -> str:
+    """
+    Sanitize error messages to remove sensitive internal details for user-facing messages.
+    Always returns a generic user-friendly message - never exposes internal errors to customers.
+
+    Args:
+        error_msg: Raw error message that may contain sensitive details (can be None)
+
+    Returns:
+        User-friendly error message without internal details
+    """
+    # Validate input: ensure error_msg is a string
+    if error_msg is None:
+        error_msg = ""
+    elif not isinstance(error_msg, str):
+        error_msg = str(error_msg)
+
+    # Always return a simple generic message - customers shouldn't see internal errors
+    return "Something went wrong while processing your request"
+
+
 class SlackProgressCallback(AsyncCallbackHandler):
     """
     Callback handler that sends agent thinking process to Slack in real-time
@@ -52,6 +73,13 @@ class SlackProgressCallback(AsyncCallbackHandler):
         )
         self.circuit_open = False
 
+        # Track last message for hourglass -> checkmark updates
+        self.last_message_ts: Optional[str] = None
+        self.last_message_text: Optional[str] = None
+
+        # Track sent messages to avoid duplicates
+        self.sent_messages: set = set()
+
     def _record_success(self) -> None:
         """Record successful Slack message send and reset circuit breaker"""
         if self.consecutive_failures > 0:
@@ -78,13 +106,15 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"RCA analysis will continue without progress updates."
             )
 
-    async def _send_to_slack(self, text: str, context: str) -> None:
+    async def _send_to_slack(self, text: str, context: str, use_hourglass: bool = False) -> None:
         """
         Send message to Slack with circuit breaker protection
+        Implements hourglass -> checkmark pattern for step updates
 
         Args:
             text: Message text to send
             context: Context for logging (e.g., "tool start message")
+            use_hourglass: If True, adds hourglass emoji and updates previous message to checkmark
         """
         # Check circuit breaker
         if self.circuit_open:
@@ -92,12 +122,32 @@ class SlackProgressCallback(AsyncCallbackHandler):
             return
 
         try:
-            await slack_event_service.send_message(
+            # Update previous message with checkmark if this is a new step
+            if use_hourglass and self.last_message_ts and self.last_message_text:
+                updated_text = self.last_message_text.replace(":hourglass_flowing_sand:", ":white_check_mark:")
+                await slack_event_service.update_message(
+                    team_id=self.team_id,
+                    channel=self.channel_id,
+                    ts=self.last_message_ts,
+                    text=updated_text,
+                )
+
+            # Send new message with hourglass if requested
+            if use_hourglass:
+                text = f":hourglass_flowing_sand: {text}"
+
+            result = await slack_event_service.send_message(
                 team_id=self.team_id,
                 channel=self.channel_id,
                 text=text,
                 thread_ts=self.thread_ts,
             )
+
+            # Track this message for future updates if it has hourglass
+            if use_hourglass and result and result.get("ts"):
+                self.last_message_ts = result["ts"]
+                self.last_message_text = text
+
             self._record_success()
         except Exception as e:
             self._record_failure(e, context)
@@ -109,7 +159,6 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when a tool starts executing"""
-        self.step_counter += 1
         tool_name = serialized.get("name", "unknown_tool")
 
         # Log for debugging
@@ -125,9 +174,18 @@ class SlackProgressCallback(AsyncCallbackHandler):
         # Build final message with context
         message = f"{base_message} {context_info}" if context_info else base_message
 
+        # Skip if this exact message was already sent (avoid duplicates)
+        if message in self.sent_messages:
+            logger.info(f"Skipping duplicate message: {message}")
+            return
+
+        # Track this message as sent
+        self.sent_messages.add(message)
+
         await self._send_to_slack(
-            text=f"*Step {self.step_counter}:* {message}",
-            context="tool start message"
+            text=message,
+            context="tool start message",
+            use_hourglass=True
         )
 
     def _extract_context_info(self, tool_name: str, input_str: str, kwargs: Dict[str, Any]) -> str:
@@ -262,8 +320,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when a tool encounters an error"""
+        sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text=f"⚠️ Tool encountered an issue: {str(error)[:200]}",
+            text=f"⚠️ Tool encountered an issue: {sanitized_error}",
             context="tool error"
         )
 
@@ -295,10 +354,20 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when agent finishes"""
-        await self._send_to_slack(
-            text="✅ *Analysis complete!*",
-            context="agent finish message"
-        )
+        # Update the last hourglass message to checkmark before finishing
+        if self.last_message_ts and self.last_message_text:
+            try:
+                updated_text = self.last_message_text.replace(":hourglass_flowing_sand:", ":white_check_mark:")
+                await slack_event_service.update_message(
+                    team_id=self.team_id,
+                    channel=self.channel_id,
+                    ts=self.last_message_ts,
+                    text=updated_text,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update last message on finish: {e}")
+
+        # Don't send "Analysis complete" message - the final output will be sent separately
 
     async def on_chain_error(
         self,
@@ -306,7 +375,64 @@ class SlackProgressCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Called when chain encounters an error"""
+        sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text=f"❌ *Analysis encountered an error:* {str(error)[:300]}",
+            text=f"❌ *Analysis encountered an error:* {sanitized_error}",
             context="chain error"
+        )
+
+    async def send_retry_notification(
+        self,
+        retry_count: int,
+        max_retries: int,
+        backoff_minutes: int
+    ) -> None:
+        """
+        Send notification about job retry to user.
+
+        Args:
+            retry_count: Current retry attempt number
+            max_retries: Maximum number of retries allowed
+            backoff_minutes: Minutes until next retry
+        """
+        await self._send_to_slack(
+            text=(
+                f"⚠️ Job encountered an issue. Retrying in {backoff_minutes} minutes...\n"
+                f"Attempt {retry_count}/{max_retries}"
+            ),
+            context="retry notification"
+        )
+
+    async def send_final_error(
+        self,
+        error_msg: str,
+        retry_count: int
+    ) -> None:
+        """
+        Send final error message to user after max retries exceeded (sanitized).
+
+        Args:
+            error_msg: Raw error message (will be sanitized)
+            retry_count: Number of retry attempts made
+        """
+        user_friendly_msg = sanitize_error_for_user(error_msg)
+        await self._send_to_slack(
+            text=(
+                f"❌ {user_friendly_msg}. "
+                f"I tried {retry_count} times but couldn't complete the analysis.\n\n"
+                f"Please try rephrasing your query or contact support if the issue persists."
+            ),
+            context="final error message"
+        )
+
+    async def send_unexpected_error(self) -> None:
+        """
+        Send notification about unexpected error to user (sanitized, no details).
+        """
+        await self._send_to_slack(
+            text=(
+                "⚠️ An unexpected error occurred while processing your request.\n\n"
+                "Our team has been notified. Please try again later or contact support if the issue persists."
+            ),
+            context="unexpected error message"
         )

@@ -17,6 +17,90 @@ from app.services.rca.get_service_name.service import extract_service_names_from
 logger = logging.getLogger(__name__)
 
 
+async def scan_repositories_in_batches(
+    repositories: list,
+    workspace_id: str,
+    batch_size: int = None
+) -> dict:
+    """
+    Scan repositories in parallel batches to extract service names efficiently.
+    Each concurrent task gets its own database session to avoid session conflicts.
+
+    Args:
+        repositories: List of repository dictionaries to scan
+        workspace_id: Workspace identifier
+        batch_size: Number of repositories to scan concurrently (defaults to RCA_REPO_SCAN_CONCURRENCY)
+
+    Returns:
+        Dictionary mapping service names to repository names
+    """
+    if batch_size is None:
+        batch_size = settings.RCA_REPO_SCAN_CONCURRENCY
+
+    service_repo_mapping = {}
+    repos_to_scan = repositories[:settings.RCA_MAX_REPOS_TO_SCAN]
+    total_repos = len(repos_to_scan)
+
+    async def scan_single_repo(repo: dict, index: int) -> tuple:
+        """
+        Scan a single repository and return results.
+        Creates its own database session to avoid concurrent session conflicts.
+        """
+        repo_name = repo.get("name")
+        if not repo_name:
+            return None, None, None
+
+        # Create a new database session for this task
+        async with AsyncSessionLocal() as task_db:
+            try:
+                services = await extract_service_names_from_repo(
+                    workspace_id=workspace_id,
+                    repo=repo_name,
+                    user_id="rca-agent",
+                    db=task_db
+                )
+
+                if services:
+                    logger.info(f"  [{index + 1}/{total_repos}] {repo_name} → {services}")
+                    return repo_name, services, None
+                else:
+                    return repo_name, [], None
+
+            except Exception as e:
+                logger.warning(f"Failed to extract service names from {repo_name}: {e}")
+                return repo_name, None, str(e)
+
+    # Process repositories in batches
+    for batch_start in range(0, len(repos_to_scan), batch_size):
+        batch_end = min(batch_start + batch_size, len(repos_to_scan))
+        batch = repos_to_scan[batch_start:batch_end]
+
+        logger.info(f"Scanning batch {batch_start // batch_size + 1} ({len(batch)} repos): {[r.get('name') for r in batch]}")
+
+        # Create tasks for all repos in this batch
+        tasks = [
+            scan_single_repo(repo, batch_start + i)
+            for i, repo in enumerate(batch)
+        ]
+
+        # Execute batch in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Exception during repo scan: {result}")
+                continue
+
+            repo_name, services, error = result
+
+            if repo_name and services:
+                for service_name in services:
+                    service_repo_mapping[service_name] = repo_name
+
+    return service_repo_mapping
+
+
 class RCAOrchestratorWorker(BaseWorker):
     def __init__(self):
         """
@@ -101,7 +185,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     await slack_event_service.send_message(
                         team_id=team_id,
                         channel=channel_id,
-                        text=f"🤔 Analyzing: *{query}*\n\n_Step 1: Discovering services..._",
+                        text=f"🤔 Analyzing: *{query}*\n\n_Discovering services..._",
                         thread_ts=thread_ts,
                     )
 
@@ -132,38 +216,21 @@ class RCAOrchestratorWorker(BaseWorker):
                                 thread_ts=thread_ts,
                             )
 
-                        # Extract service names from each repository
-                        for i, repo in enumerate(repositories[:settings.RCA_MAX_REPOS_TO_SCAN], 1):
-                            repo_name = repo.get("name")
-                            if not repo_name:
-                                continue
-
-                            try:
-                                services = await extract_service_names_from_repo(
-                                    workspace_id=workspace_id,
-                                    repo=repo_name,
-                                    user_id="rca-agent",
-                                    db=db
-                                )
-
-                                if services:
-                                    for service_name in services:
-                                        service_repo_mapping[service_name] = repo_name
-                                    logger.info(f"  [{i}/{min(settings.RCA_MAX_REPOS_TO_SCAN, total_repos)}] {repo_name} → {services}")
-
-                            except Exception as e:
-                                logger.warning(f"Failed to extract service names from {repo_name}: {e}")
-                                continue
+                        # Extract service names from repositories in parallel batches
+                        service_repo_mapping = await scan_repositories_in_batches(
+                            repositories=repositories,
+                            workspace_id=workspace_id
+                        )
 
                         logger.info(f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped")
 
                         if team_id and channel_id:
-                            services_list = ", ".join([f"**{s}**" for s in list(service_repo_mapping.keys())[:10]])
+                            services_list = ", ".join([f"`{s}`" for s in list(service_repo_mapping.keys())[:10]])
                             more_text = f" and {len(service_repo_mapping) - 10} more" if len(service_repo_mapping) > 10 else ""
                             await slack_event_service.send_message(
                                 team_id=team_id,
                                 channel=channel_id,
-                                text=f"✅ Discovered services: {services_list}{more_text}\n\n_Step 2: Analyzing logs and metrics..._",
+                                text=f"✅ Discovered services: {services_list}{more_text}\n\nAnalyzing logs and metrics...",
                                 thread_ts=thread_ts,
                             )
                     else:
@@ -263,15 +330,11 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
 
                         # Notify user about retry
-                        if team_id and channel_id:
-                            await slack_event_service.send_message(
-                                team_id=team_id,
-                                channel=channel_id,
-                                text=(
-                                    f"⚠️ Job encountered an issue. Retrying in {backoff_seconds // 60} minutes...\n"
-                                    f"Attempt {job.retries}/{job.max_retries}"
-                                ),
-                                thread_ts=thread_ts,
+                        if slack_callback:
+                            await slack_callback.send_retry_notification(
+                                retry_count=job.retries,
+                                max_retries=job.max_retries,
+                                backoff_minutes=backoff_seconds // 60
                             )
 
                     else:
@@ -282,21 +345,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         await db.commit()
 
                         logger.error(
-                            f"❌ Job {job_id} failed after {job.retries} retries"
+                            f"❌ Job {job_id} failed after {job.retries} retries: {error_msg}"
                         )
 
-                        # Send final error message to user
-                        if team_id and channel_id:
-                            await slack_event_service.send_message(
-                                team_id=team_id,
-                                channel=channel_id,
-                                text=(
-                                    f"❌ I encountered an issue while analyzing your request:\n\n"
-                                    f"```{error_msg}```\n\n"
-                                    f"Job ID: `{job_id}`\n"
-                                    f"Tried {job.retries} times. Please try rephrasing your query or contact support."
-                                ),
-                                thread_ts=thread_ts,
+                        # Send final error message to user (sanitized)
+                        if slack_callback:
+                            await slack_callback.send_final_error(
+                                error_msg=error_msg,
+                                retry_count=job.retries
                             )
 
             except Exception as e:
@@ -311,21 +367,17 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = f"Worker exception: {str(e)}"
                         await db.commit()
 
-                        # Attempt to send error notification to Slack
+                        # Attempt to send error notification to Slack (sanitized)
                         if job.requested_context:
                             team_id = job.requested_context.get("team_id")
                             if team_id and job.trigger_channel_id:
-                                await slack_event_service.send_message(
+                                # Create temporary callback for error notification
+                                error_callback = SlackProgressCallback(
                                     team_id=team_id,
-                                    channel=job.trigger_channel_id,
-                                    text=(
-                                        f"⚠️ An unexpected error occurred while processing your request:\n\n"
-                                        f"```{str(e)}```\n\n"
-                                        f"Job ID: `{job_id}`\n"
-                                        f"Our team has been notified. Please try again later."
-                                    ),
-                                    thread_ts=job.trigger_thread_ts,
+                                    channel_id=job.trigger_channel_id,
+                                    thread_ts=job.trigger_thread_ts
                                 )
+                                await error_callback.send_unexpected_error()
                 except Exception as recovery_error:
                     logger.error(f"Failed to handle job failure: {recovery_error}")
 

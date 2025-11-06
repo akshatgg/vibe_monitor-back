@@ -8,28 +8,28 @@ class ToolFriendlyMessage(str, Enum):
     """User-friendly messages for RCA tool execution"""
 
     # Log tools
-    FETCH_ERROR_LOGS = "🔍 Checking error logs..."
-    FETCH_LOGS = "📜 Fetching logs..."
+    FETCH_ERROR_LOGS = "Checking error logs..."
+    FETCH_LOGS = "Fetching logs..."
 
     # Metrics tools
-    FETCH_CPU_METRICS = "📊 Analyzing CPU metrics..."
-    FETCH_MEMORY_METRICS = "💾 Analyzing memory usage..."
-    FETCH_HTTP_LATENCY = "⏱️ Checking HTTP latency..."
-    FETCH_METRICS = "📈 Fetching metrics..."
+    FETCH_CPU_METRICS = "Analyzing CPU metrics..."
+    FETCH_MEMORY_METRICS = "Analyzing memory usage..."
+    FETCH_HTTP_LATENCY = "Checking HTTP latency..."
+    FETCH_METRICS = "Fetching metrics..."
 
     # Repository tools
-    LIST_REPOSITORIES = "📦 Listing GitHub repositories..."
-    LIST_ALL_SERVICES = "🔎 Discovering all services in workspace..."
-    DISCOVER_SERVICE_NAME = "🏷️ Identifying service name from repository..."
-    SCAN_REPOSITORY_FOR_SERVICES = "🔍 Scanning repository for service names..."
-    READ_REPOSITORY_FILE = "📄 Reading code file..."
-    SEARCH_CODE = "🔎 Searching codebase..."
-    GET_REPOSITORY_COMMITS = "📝 Checking recent commits..."
-    LIST_PULL_REQUESTS = "🔀 Reviewing pull requests..."
-    DOWNLOAD_FILE = "⬇️ Downloading file..."
-    GET_REPOSITORY_TREE = "🌳 Exploring repository structure..."
-    GET_BRANCH_RECENT_COMMITS = "🌿 Checking branch commits..."
-    GET_REPOSITORY_METADATA = "ℹ️ Fetching repository metadata..."
+    LIST_REPOSITORIES = "Listing GitHub repositories..."
+    LIST_ALL_SERVICES = "Discovering all services in workspace..."
+    DISCOVER_SERVICE_NAME = "Identifying service name from repository..."
+    SCAN_REPOSITORY_FOR_SERVICES = "Scanning repository for service names..."
+    READ_REPOSITORY_FILE = "Reading code file..."
+    SEARCH_CODE = "Searching codebase..."
+    GET_REPOSITORY_COMMITS = "Checking recent commits..."
+    LIST_PULL_REQUESTS = "Reviewing pull requests..."
+    DOWNLOAD_FILE = "Downloading file..."
+    GET_REPOSITORY_TREE = "Exploring repository structure..."
+    GET_BRANCH_RECENT_COMMITS = "Checking branch commits..."
+    GET_REPOSITORY_METADATA = "Fetching repository metadata..."
 
 
 # Mapping from tool names to enum values

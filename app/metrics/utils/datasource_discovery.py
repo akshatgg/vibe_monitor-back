@@ -13,15 +13,14 @@ class DatasourceDiscovery:
 
     @staticmethod
     async def get_prometheus_uid(
-        grafana_url: str, api_token: str, datasource_name: str = "Prometheus"
+        grafana_url: str, api_token: str
     ) -> str:
         """
-        Auto-discover Prometheus datasource UID from Grafana by name
+        Auto-discover Prometheus datasource UID from Grafana by type
 
         Args:
             grafana_url: Grafana base URL (e.g., http://grafana:3000)
             api_token: Grafana API token
-            datasource_name: Name of the Prometheus datasource (default: "Prometheus")
 
         Returns:
             str: Prometheus datasource UID
@@ -35,23 +34,23 @@ class DatasourceDiscovery:
             headers = {"Authorization": f"Bearer {api_token}"}
 
             async with httpx.AsyncClient() as client:
-                async for attempt in retry_external_api("Prometheus"):
+                async for attempt in retry_external_api("Grafana"):
                     with attempt:
                         response = await client.get(url, headers=headers, timeout=10.0)
                         response.raise_for_status()
                         datasources = response.json()
 
-                        # Find Prometheus datasource by name and type
+                        # Find Prometheus datasource by type only
                         prometheus_uid = None
                         for datasource in datasources:
-                            if datasource.get("name") == datasource_name and datasource.get("type") == "prometheus":
+                            if datasource.get("type") == "prometheus":
                                 prometheus_uid = datasource.get("uid")
                                 break
 
                         if not prometheus_uid:
                             raise ValueError(
-                                f"Prometheus datasource '{datasource_name}' not found in Grafana. "
-                                "Please configure a Prometheus datasource with this name first."
+                                "Prometheus datasource not found in Grafana. "
+                                "Please configure a Prometheus datasource first."
                             )
 
                         return prometheus_uid
@@ -59,8 +58,8 @@ class DatasourceDiscovery:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise ValueError(
-                    f"Prometheus datasource '{datasource_name}' not found in Grafana. "
-                    "Please configure a Prometheus datasource with this name first."
+                    "Prometheus datasource not found in Grafana. "
+                    "Please configure a Prometheus datasource first."
                 )
             raise
         except httpx.HTTPError:

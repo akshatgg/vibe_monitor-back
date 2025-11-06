@@ -10,6 +10,7 @@ from app.log.service import logs_service
 from app.log.models import TimeRange as LogTimeRange
 from app.metrics.service import metrics_service
 from app.metrics.models import TimeRange as MetricTimeRange
+from app.datasources.service import datasources_service
 
 logger = logging.getLogger(__name__)
 
@@ -436,3 +437,171 @@ async def fetch_metrics_tool(
     except Exception as e:
         logger.error(f"Error in fetch_metrics_tool: {e}")
         return f"Error fetching {metric_type} metrics: {str(e)}"
+
+
+@tool
+async def get_datasources_tool(
+    workspace_id: str,
+) -> str:
+    """
+    Get all available Grafana datasources for the workspace.
+
+    Use this tool to discover what datasources are available for querying logs and metrics.
+    This is useful when you need to identify datasource UIDs for label queries or when
+    exploring what data sources are configured.
+
+    Args:
+        workspace_id: Workspace identifier (automatically provided from job context)
+
+    Returns:
+        List of datasources with their IDs, names, types, and whether they're default
+
+    Example usage:
+        get_datasources_tool()
+    """
+    try:
+        datasources = await datasources_service.get_datasources(workspace_id)
+
+        if not datasources:
+            return "No datasources found for this workspace."
+
+        formatted = ["Available datasources:\n"]
+        for ds in datasources:
+            ds_type = ds.get("type", "unknown")
+            ds_name = ds.get("name", "unnamed")
+            ds_uid = ds.get("uid", "no-uid")
+            is_default = " (default)" if ds.get("isDefault") else ""
+
+            formatted.append(
+                f"- Name: {ds_name}\n"
+                f"  Type: {ds_type}\n"
+                f"  UID: {ds_uid}{is_default}"
+            )
+
+        return "\n\n".join(formatted)
+
+    except ValueError as e:
+        return f"Configuration error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error in get_datasources_tool: {e}")
+        return f"Error fetching datasources: {str(e)}"
+
+
+@tool
+async def get_labels_tool(
+    datasource_uid: str,
+    workspace_id: str,
+) -> str:
+    """
+    Get all available label keys from a specific datasource (Loki or Prometheus).
+
+    Use this tool to discover what labels are available for filtering logs or metrics.
+    Labels are key-value pairs used to identify and filter time series data.
+    Common labels include: job, instance, namespace, pod, service, etc.
+
+    You must first use get_datasources_tool to find the datasource_uid.
+
+    Args:
+        datasource_uid: The UID of the datasource (get from get_datasources_tool)
+        workspace_id: Workspace identifier (automatically provided from job context)
+
+    Returns:
+        List of available label keys for the datasource
+
+    Example usage:
+        # First get datasources to find the UID
+        get_datasources_tool()
+        # Then get labels for a specific datasource
+        get_labels_tool(datasource_uid="abc123xyz")
+    """
+    try:
+        response = await datasources_service.get_labels(workspace_id, datasource_uid)
+
+        if response.status != "success" or not response.data:
+            return f"No labels found for datasource {datasource_uid}. Status: {response.status}"
+
+        labels = response.data
+        formatted = [f"Available labels for datasource {datasource_uid}:\n"]
+
+        # Group labels for better readability
+        common_labels = [label for label in labels if label in ["job", "instance", "namespace", "pod", "service", "container"]]
+        other_labels = [label for label in labels if label not in common_labels]
+
+        if common_labels:
+            formatted.append("Common labels:")
+            formatted.append(", ".join(common_labels))
+
+        if other_labels:
+            formatted.append("\nOther labels:")
+            formatted.append(", ".join(other_labels))
+
+        formatted.append(f"\n\nTotal: {len(labels)} labels available")
+        formatted.append("\nUse get_label_values_tool to see possible values for any label.")
+
+        return "\n".join(formatted)
+
+    except ValueError as e:
+        return f"Configuration error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error in get_labels_tool: {e}")
+        return f"Error fetching labels: {str(e)}"
+
+
+@tool
+async def get_label_values_tool(
+    datasource_uid: str,
+    label_name: str,
+    workspace_id: str,
+) -> str:
+    """
+    Get all possible values for a specific label in a datasource.
+
+    Use this tool to discover what values exist for a label. For example, if you want to
+    know what services are available, get values for the "job" label. If you want to know
+    what namespaces exist, get values for the "namespace" label.
+
+    This helps you construct accurate queries and understand your infrastructure.
+
+    You must first use get_labels_tool to find available label names.
+
+    Args:
+        datasource_uid: The UID of the datasource (get from get_datasources_tool)
+        label_name: The label key to get values for (get from get_labels_tool)
+        workspace_id: Workspace identifier (automatically provided from job context)
+
+    Returns:
+        List of all possible values for the specified label
+
+    Example usage:
+        # First get datasources, then labels, then label values
+        get_datasources_tool()
+        get_labels_tool(datasource_uid="abc123xyz")
+        get_label_values_tool(datasource_uid="abc123xyz", label_name="job")
+    """
+    try:
+        response = await datasources_service.get_label_values(
+            workspace_id, datasource_uid, label_name
+        )
+
+        if response.status != "success" or not response.data:
+            return f"No values found for label '{label_name}' in datasource {datasource_uid}. Status: {response.status}"
+
+        values = response.data
+        formatted = [f"Values for label '{label_name}' in datasource {datasource_uid}:\n"]
+
+        # If there are many values, show first 50 and indicate there are more
+        if len(values) > 50:
+            formatted.append(", ".join(values[:50]))
+            formatted.append(f"\n\n... and {len(values) - 50} more values")
+            formatted.append(f"\nTotal: {len(values)} values")
+        else:
+            formatted.append(", ".join(values))
+            formatted.append(f"\n\nTotal: {len(values)} values")
+
+        return "\n".join(formatted)
+
+    except ValueError as e:
+        return f"Configuration error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error in get_label_values_tool: {e}")
+        return f"Error fetching label values: {str(e)}"
