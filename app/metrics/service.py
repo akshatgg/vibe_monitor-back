@@ -13,6 +13,7 @@ import httpx
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
 from ..utils.token_processor import token_processor
+from ..utils.retry_decorator import retry_external_api
 from .models import (
     InstantMetricResponse,
     RangeMetricResponse,
@@ -213,18 +214,11 @@ class MetricsService:
             f"Querying Grafana datasource proxy: {url} with query: {promql_query}"
         )
 
-        try:
-            response = await client.get(url, params=payload, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f"Request error to Grafana: {e}")
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}"
-            )
-            raise
+        async for attempt in retry_external_api("Prometheus"):
+            with attempt:
+                response = await client.get(url, params=payload, headers=headers)
+                response.raise_for_status()
+                return response.json()
 
     async def _query_instant(
         self,
@@ -247,18 +241,11 @@ class MetricsService:
             f"Querying Grafana datasource proxy (instant): {url} with query: {promql_query}"
         )
 
-        try:
-            response = await client.get(url, params=payload, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f"Request error to Grafana: {e}")
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Grafana: {e.response.status_code} - {e.response.text}"
-            )
-            raise
+        async for attempt in retry_external_api("Prometheus"):
+            with attempt:
+                response = await client.get(url, params=payload, headers=headers)
+                response.raise_for_status()
+                return response.json()
 
     async def get_instant_metrics(
         self,
@@ -472,15 +459,17 @@ class MetricsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Prometheus"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return response_data.get("data", [])
-                else:
-                    logger.error(f"Failed to get metric names: {response_data}")
-                    return []
+                        if response_data.get("status") == "success":
+                            return response_data.get("data", [])
+                        else:
+                            logger.error(f"Failed to get metric names: {response_data}")
+                            return []
             except httpx.HTTPStatusError as e:
                 logger.error(
                     f"HTTP error getting metric names: {e.response.status_code} - {e.response.text}"
@@ -503,41 +492,43 @@ class MetricsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Prometheus"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                # Parse targets data
-                targets_data = response_data.get("data", {})
-                parsed_targets = {}
+                        # Parse targets data
+                        targets_data = response_data.get("data", {})
+                        parsed_targets = {}
 
-                for target_type, targets_list in targets_data.items():
-                    parsed_targets[target_type] = []
-                    for target in targets_list:
-                        try:
-                            parsed_target = MetricTarget(
-                                discoveredLabels=target.get("discoveredLabels", {}),
-                                labels=target.get("labels", {}),
-                                scrapePool=target.get("scrapePool", ""),
-                                scrapeUrl=target.get("scrapeUrl", ""),
-                                globalUrl=target.get("globalUrl", ""),
-                                lastError=target.get("lastError"),
-                                lastScrape=datetime.fromisoformat(
-                                    target.get("lastScrape", "").replace("Z", "+00:00")
-                                ),
-                                lastScrapeDuration=float(
-                                    target.get("lastScrapeDuration", 0)
-                                ),
-                                health=target.get("health", "unknown"),
-                            )
-                            parsed_targets[target_type].append(parsed_target)
-                        except Exception as e:
-                            logger.warning(f"Failed to parse target data: {e}")
-                            continue
+                        for target_type, targets_list in targets_data.items():
+                            parsed_targets[target_type] = []
+                            for target in targets_list:
+                                try:
+                                    parsed_target = MetricTarget(
+                                        discoveredLabels=target.get("discoveredLabels", {}),
+                                        labels=target.get("labels", {}),
+                                        scrapePool=target.get("scrapePool", ""),
+                                        scrapeUrl=target.get("scrapeUrl", ""),
+                                        globalUrl=target.get("globalUrl", ""),
+                                        lastError=target.get("lastError"),
+                                        lastScrape=datetime.fromisoformat(
+                                            target.get("lastScrape", "").replace("Z", "+00:00")
+                                        ),
+                                        lastScrapeDuration=float(
+                                            target.get("lastScrapeDuration", 0)
+                                        ),
+                                        health=target.get("health", "unknown"),
+                                    )
+                                    parsed_targets[target_type].append(parsed_target)
+                                except Exception as e:
+                                    logger.warning(f"Failed to parse target data: {e}")
+                                    continue
 
-                return TargetsResponse(
-                    status=response_data.get("status", "error"), data=parsed_targets
-                )
+                        return TargetsResponse(
+                            status=response_data.get("status", "error"), data=parsed_targets
+                        )
             except httpx.HTTPStatusError as e:
                 logger.error(
                     f"HTTP error getting targets status: {e.response.status_code} - {e.response.text}"
@@ -556,18 +547,20 @@ class MetricsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Prometheus"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get labels: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success",
+                                data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get labels: {response_data}")
+                            return LabelResponse(status="error", data=[])
 
             except httpx.HTTPStatusError as e:
                 logger.error(f"HTTP error getting labels: {e.response.status_code} - {e.response.text}")
@@ -585,18 +578,20 @@ class MetricsService:
         headers = self._get_headers(api_token)
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Prometheus"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get label values: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success",
+                                data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get label values: {response_data}")
+                            return LabelResponse(status="error", data=[])
 
             except httpx.HTTPStatusError as e:
                 logger.error(f"HTTP error getting label values: {e.response.status_code} - {e.response.text}")
@@ -614,11 +609,13 @@ class MetricsService:
             # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
             url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/query"
             headers = self._get_headers(api_token)
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(
-                    url, params={"query": "up"}, headers=headers
-                )
-                return response.status_code == 200
+            async for attempt in retry_external_api("Prometheus"):
+                with attempt:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        response = await client.get(
+                            url, params={"query": "up"}, headers=headers
+                        )
+                        return response.status_code == 200
         except Exception as e:
             logger.error(f"Grafana health check failed: {e}")
             return False

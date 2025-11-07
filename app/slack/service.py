@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.utils.retry_decorator import retry_external_api
 from app.slack.schemas import (
     SlackEventPayload,
     SlackInstallationCreate,
@@ -473,24 +474,27 @@ class SlackEventService:
                 if thread_ts:
                     payload["thread_ts"] = thread_ts
 
-                response = await client.post(
-                    f"{settings.SLACK_API_BASE_URL}/chat.postMessage",
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=10.0,
-                )
+                async for attempt in retry_external_api("Slack"):
+                    with attempt:
+                        response = await client.post(
+                            f"{settings.SLACK_API_BASE_URL}/chat.postMessage",
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "Content-Type": "application/json",
+                            },
+                            json=payload,
+                            timeout=10.0,
+                        )
+                        response.raise_for_status()
 
-            data = response.json()
+                        data = response.json()
 
-            if data.get("ok"):
-                logger.info(f"Message sent successfully to {channel}")
-                return {"ok": True, "ts": data.get("ts")}
-            else:
-                logger.error(f"Failed to send message: {data.get('error')}")
-                return None
+                        if data.get("ok"):
+                            logger.info(f"Message sent successfully to {channel}")
+                            return {"ok": True, "ts": data.get("ts")}
+                        else:
+                            logger.error(f"Failed to send message: {data.get('error')}")
+                            return None
 
         except Exception as e:
             logger.error(f"Error sending Slack message: {e}")

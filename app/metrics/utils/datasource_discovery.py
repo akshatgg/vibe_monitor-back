@@ -5,6 +5,7 @@ Auto-discovers datasource UIDs from Grafana API
 
 from typing import Dict
 import httpx
+from ...utils.retry_decorator import retry_external_api
 
 
 class DatasourceDiscovery:
@@ -33,24 +34,26 @@ class DatasourceDiscovery:
             headers = {"Authorization": f"Bearer {api_token}"}
 
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, timeout=10.0)
-                response.raise_for_status()
-                datasources = response.json()
+                async for attempt in retry_external_api("Grafana"):
+                    with attempt:
+                        response = await client.get(url, headers=headers, timeout=10.0)
+                        response.raise_for_status()
+                        datasources = response.json()
 
-            # Find Prometheus datasource by type only
-            prometheus_uid = None
-            for datasource in datasources:
-                if datasource.get("type") == "prometheus":
-                    prometheus_uid = datasource.get("uid")
-                    break
+                        # Find Prometheus datasource by type only
+                        prometheus_uid = None
+                        for datasource in datasources:
+                            if datasource.get("type") == "prometheus":
+                                prometheus_uid = datasource.get("uid")
+                                break
 
-            if not prometheus_uid:
-                raise ValueError(
-                    "Prometheus datasource not found in Grafana. "
-                    "Please configure a Prometheus datasource first."
-                )
+                        if not prometheus_uid:
+                            raise ValueError(
+                                "Prometheus datasource not found in Grafana. "
+                                "Please configure a Prometheus datasource first."
+                            )
 
-            return prometheus_uid
+                        return prometheus_uid
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:

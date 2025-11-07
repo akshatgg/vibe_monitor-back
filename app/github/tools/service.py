@@ -15,6 +15,7 @@ from dateutil import parser as date_parser
 
 from ..oauth.service import GitHubAppService
 from ...utils.token_processor import token_processor
+from ...utils.retry_decorator import retry_external_api
 from ...models import GitHubIntegration, Membership
 from ...core.config import settings
 
@@ -127,30 +128,27 @@ async def execute_github_graphql(
         HTTPException: If request fails or GraphQL returns errors
     """
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            settings.GITHUB_GRAPHQL_URL,
-            json={"query": query, "variables": variables},
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/vnd.github.v3+json",
-            },
-            timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
-        )
+        async for attempt in retry_external_api("GitHub"):
+            with attempt:
+                response = await client.post(
+                    settings.GITHUB_GRAPHQL_URL,
+                    json={"query": query, "variables": variables},
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                    timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
 
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"GitHub API error: {response.text}",
-            )
+                data = response.json()
 
-        data = response.json()
+                if "errors" in data:
+                    raise HTTPException(
+                        status_code=500, detail=f"GraphQL errors: {data['errors']}"
+                    )
 
-        if "errors" in data:
-            raise HTTPException(
-                status_code=500, detail=f"GraphQL errors: {data['errors']}"
-            )
-
-        return data
+                return data
 
 
 async def execute_github_rest_api(
@@ -177,24 +175,20 @@ async def execute_github_rest_api(
     url = f"{settings.GITHUB_API_BASE_URL}{endpoint}"
 
     async with httpx.AsyncClient() as client:
-        response = await client.request(
-            method,
-            url,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/vnd.github.v3.text-match+json",
-            },
-            timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"GitHub API error: {response.text}",
-            )
-
-        return response.json()
+        async for attempt in retry_external_api("GitHub"):
+            with attempt:
+                response = await client.request(
+                    method,
+                    url,
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github.v3.text-match+json",
+                    },
+                    timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                return response.json()
 
 
 def get_owner_or_default(owner: str, integration) -> str:

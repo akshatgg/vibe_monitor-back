@@ -16,6 +16,7 @@ from app.models import User, RefreshToken
 from ..schemas.schemas import UserResponse
 from ...core.database import get_db
 from ...core.config import settings
+from ...utils.retry_decorator import retry_external_api
 from .workspace_service import WorkspaceService
 
 security = HTTPBearer()
@@ -103,49 +104,32 @@ class AuthService:
             data["code_verifier"] = code_verifier
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(self.GOOGLE_TOKEN_URL, data=data)
-
-            if response.status_code != 200:
-                error_data = (
-                    response.json()
-                    if response.headers.get("content-type", "").startswith(
-                        "application/json"
-                    )
-                    else {}
-                )
-                # print(f"Google OAuth Error: Status {response.status_code}")
-                # print(f"Google OAuth Error Response: {response.text}")
-                # print(f"Google OAuth Error Data: {error_data}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to exchange code for token: {error_data.get('error_description', response.text)}",
-                )
-
-            return response.json()
+            async for attempt in retry_external_api("Google"):
+                with attempt:
+                    response = await client.post(self.GOOGLE_TOKEN_URL, data=data)
+                    response.raise_for_status()
+                    return response.json()
 
     async def get_user_info_from_google(self, access_token: str) -> Dict[str, str]:
         """Get user information from Google using access token"""
         headers = {"Authorization": f"Bearer {access_token}"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(self.GOOGLE_USERINFO_URL, headers=headers)
+            async for attempt in retry_external_api("Google"):
+                with attempt:
+                    response = await client.get(self.GOOGLE_USERINFO_URL, headers=headers)
+                    response.raise_for_status()
 
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to get user info from Google: {response.text}",
-                )
+                    user_data = response.json()
 
-            user_data = response.json()
+                    # Validate required fields
+                    if not user_data.get("sub") or not user_data.get("email"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Missing required user information from Google",
+                        )
 
-            # Validate required fields
-            if not user_data.get("sub") or not user_data.get("email"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Missing required user information from Google",
-                )
-
-            return user_data
+                    return user_data
 
     async def validate_id_token(self, id_token: str) -> Dict[str, str]:
         """Validate Google ID token (JWT signature, audience, expiry)"""

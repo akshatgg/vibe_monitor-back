@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # HTTP Settings
     HTTP_REQUEST_TIMEOUT_SECONDS: float = 30.0  # Default timeout for HTTP requests
 
+    # External API Retry Configuration (Grafana, GitHub, Slack, Google OAuth, Mailgun)
+    # Uses tenacity library for retry logic with exponential backoff
+    EXTERNAL_API_RETRY_ATTEMPTS: int = 4  # Total attempts (3 retries + 1 initial = 4 total)
+    EXTERNAL_API_RETRY_MIN_WAIT: float = 0.5  # Minimum wait time between retries (seconds)
+    EXTERNAL_API_RETRY_MAX_WAIT: float = 2.0  # Maximum wait time between retries (seconds)
+    EXTERNAL_API_RETRY_MULTIPLIER: float = 1.0  # Exponential backoff multiplier
+
     # Workspace Settings
     DEFAULT_DAILY_REQUEST_LIMIT: int = 10  # Default daily RCA request limit per workspace
 

@@ -9,6 +9,7 @@ import httpx
 
 from app.core.database import AsyncSessionLocal
 from app.models import GrafanaIntegration
+from app.utils.retry_decorator import retry_external_api
 from .models import LabelResponse
 
 logger = logging.getLogger(__name__)
@@ -47,22 +48,24 @@ class DatasourcesService:
             headers = self._get_headers(api_token)
 
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                datasources = response.json()
+                async for attempt in retry_external_api("Grafana"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        datasources = response.json()
 
-            # Return datasources with relevant fields
-            return [
-                {
-                    "id": ds.get("id"),
-                    "uid": ds.get("uid"),
-                    "name": ds.get("name"),
-                    "type": ds.get("type"),
-                    "url": ds.get("url", ""),
-                    "isDefault": ds.get("isDefault", False)
-                }
-                for ds in datasources
-            ]
+                        # Return datasources with relevant fields
+                        return [
+                            {
+                                "id": ds.get("id"),
+                                "uid": ds.get("uid"),
+                                "name": ds.get("name"),
+                                "type": ds.get("type"),
+                                "url": ds.get("url", ""),
+                                "isDefault": ds.get("isDefault", False)
+                            }
+                            for ds in datasources
+                        ]
         except Exception as e:
             logger.error(f"Failed to get datasources: {e}")
             raise
@@ -88,18 +91,20 @@ class DatasourcesService:
             headers = self._get_headers(api_token)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Grafana"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get labels: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success",
+                                data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get labels: {response_data}")
+                            return LabelResponse(status="error", data=[])
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error getting labels: {e.response.status_code} - {e.response.text}")
@@ -129,18 +134,20 @@ class DatasourcesService:
             headers = self._get_headers(api_token)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                response_data = response.json()
+                async for attempt in retry_external_api("Grafana"):
+                    with attempt:
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        response_data = response.json()
 
-                if response_data.get("status") == "success":
-                    return LabelResponse(
-                        status="success",
-                        data=response_data.get("data", [])
-                    )
-                else:
-                    logger.error(f"Failed to get label values: {response_data}")
-                    return LabelResponse(status="error", data=[])
+                        if response_data.get("status") == "success":
+                            return LabelResponse(
+                                status="success",
+                                data=response_data.get("data", [])
+                            )
+                        else:
+                            logger.error(f"Failed to get label values: {response_data}")
+                            return LabelResponse(status="error", data=[])
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error getting label values: {e.response.status_code} - {e.response.text}")
@@ -155,9 +162,11 @@ class DatasourcesService:
         headers = self._get_headers(api_token)
 
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
+            async for attempt in retry_external_api("Grafana"):
+                with attempt:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    return response.json()
 
 
 # Global service instance
