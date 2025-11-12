@@ -2,10 +2,12 @@
 AWS Integration Service
 Handles CRUD operations and credential management for AWS integrations
 Uses STS AssumeRole for temporary credentials instead of long-term access keys
+Implements two-stage authentication: Host -> Owner Role -> Client Role
 """
 import os
 import uuid
 from typing import Optional, Dict, Any
+from contextlib import contextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timezone, timedelta
@@ -14,6 +16,7 @@ from botocore.exceptions import ClientError
 
 from app.models import AWSIntegration
 from app.utils.token_processor import token_processor
+from app.core.config import settings
 from .schemas import (
     AWSIntegrationCreate,
     AWSIntegrationResponse,
@@ -24,6 +27,129 @@ from .schemas import (
 class AWSIntegrationService:
     """Service for managing AWS integrations using STS AssumeRole"""
 
+    # Cache for owner role credentials (to avoid repeated assumptions)
+    _owner_credentials_cache: Optional[Dict[str, Any]] = None
+    _owner_credentials_expiration: Optional[datetime] = None
+
+    @staticmethod
+    @contextmanager
+    def _bypass_localstack():
+        """
+        Context manager to temporarily remove AWS_ENDPOINT_URL environment variable
+        This ensures boto3 connects to real AWS services (STS, CloudWatch) instead of LocalStack
+        LocalStack is only used for SQS in this project
+        """
+        original_endpoint = os.environ.get('AWS_ENDPOINT_URL')
+        if original_endpoint:
+            del os.environ['AWS_ENDPOINT_URL']
+        try:
+            yield
+        finally:
+            if original_endpoint:
+                os.environ['AWS_ENDPOINT_URL'] = original_endpoint
+
+    @staticmethod
+    def _create_boto_session(
+        access_key_id: Optional[str] = None,
+        secret_access_key: Optional[str] = None,
+        session_token: Optional[str] = None,
+        region_name: str = "us-east-1"
+    ) -> boto3.Session:
+        """
+        Create a boto3 session with explicit configuration
+        Use with _bypass_localstack() context manager to ensure real AWS connection
+
+        Args:
+            access_key_id: AWS Access Key ID
+            secret_access_key: AWS Secret Access Key
+            session_token: AWS Session Token (for temporary credentials)
+            region_name: AWS Region
+
+        Returns:
+            boto3.Session configured with provided credentials
+        """
+        return boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            aws_session_token=session_token,
+            region_name=region_name
+        )
+
+    @staticmethod
+    async def assume_owner_role(region: str = "us-east-1") -> Dict[str, Any]:
+        """
+        Assume the owner role (first stage of two-stage authentication)
+        Caches credentials to avoid repeated assumptions
+
+        Args:
+            region: AWS Region
+
+        Returns:
+            Dict containing temporary owner role credentials (or None if not configured)
+
+        Raises:
+            Exception: If owner role assumption fails or is not configured
+        """
+        # Check if owner role is configured
+        if not settings.OWNER_ROLE_ARN:
+            # If no owner role configured, return None (fall back to direct credentials)
+            return None
+
+        # Check cache first (refresh if expiring within 5 minutes)
+        now = datetime.now(timezone.utc)
+        if (AWSIntegrationService._owner_credentials_cache
+            and AWSIntegrationService._owner_credentials_expiration
+            and AWSIntegrationService._owner_credentials_expiration > now + timedelta(minutes=5)):
+            return AWSIntegrationService._owner_credentials_cache
+
+        try:
+            # Bypass LocalStack to connect to real AWS STS
+            with AWSIntegrationService._bypass_localstack():
+                # Create session with host credentials (from environment or ECS task role)
+                session = AWSIntegrationService._create_boto_session(
+                    access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=region
+                )
+
+                # Connect to real AWS STS (LocalStack endpoint bypassed)
+                sts_client = session.client("sts")
+
+                # Prepare AssumeRole parameters for owner role
+                assume_role_params = {
+                    "RoleArn": settings.OWNER_ROLE_ARN,
+                    "RoleSessionName": settings.OWNER_ROLE_SESSION_NAME,
+                    "DurationSeconds": settings.OWNER_ROLE_DURATION_SECONDS,
+                }
+
+                # Add ExternalId if configured
+                if settings.OWNER_ROLE_EXTERNAL_ID:
+                    assume_role_params["ExternalId"] = settings.OWNER_ROLE_EXTERNAL_ID
+
+                # Assume the owner role
+                response = sts_client.assume_role(**assume_role_params)
+                credentials = response["Credentials"]
+
+            # Cache the credentials
+            owner_credentials = {
+                "access_key_id": credentials["AccessKeyId"],
+                "secret_access_key": credentials["SecretAccessKey"],
+                "session_token": credentials["SessionToken"],
+                "expiration": credentials["Expiration"],
+            }
+
+            AWSIntegrationService._owner_credentials_cache = owner_credentials
+            AWSIntegrationService._owner_credentials_expiration = credentials["Expiration"]
+
+            return owner_credentials
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            error_message = e.response.get("Error", {}).get("Message", str(e))
+            raise Exception(f"Failed to assume owner role: {error_code} - {error_message}")
+        except Exception as e:
+            raise Exception(f"Failed to assume owner role: {str(e)}")
+
     @staticmethod
     async def assume_role(
         role_arn: str,
@@ -33,9 +159,10 @@ class AWSIntegrationService:
     ) -> Dict[str, Any]:
         """
         Assume an IAM role and get temporary credentials using STS
+        Implements two-stage authentication: Host -> Owner Role -> Client Role
 
         Args:
-            role_arn: AWS IAM Role ARN to assume
+            role_arn: AWS IAM Role ARN to assume (client role)
             region: AWS Region
             duration_seconds: Duration for temporary credentials (default 3600 = 1 hour)
             external_id: Optional external ID for cross-account access security
@@ -47,22 +174,35 @@ class AWSIntegrationService:
             Exception: If role assumption fails
         """
         try:
-            # Create STS client (will use default credentials from environment/EC2 role)
-            # Force real AWS by temporarily removing LocalStack endpoint
-            
-            original_endpoint = os.environ.get('AWS_ENDPOINT_URL')
+            # STAGE 1: Assume owner role (if configured)
+            owner_credentials = await AWSIntegrationService.assume_owner_role(region)
 
-            # Temporarily remove AWS_ENDPOINT_URL to bypass LocalStack
-            if 'AWS_ENDPOINT_URL' in os.environ:
-                del os.environ['AWS_ENDPOINT_URL']
+            # Bypass LocalStack to connect to real AWS STS
+            with AWSIntegrationService._bypass_localstack():
+                # STAGE 2: Use owner role credentials (or host credentials) to assume client role
+                if owner_credentials:
+                    # Use owner role credentials to create STS client
+                    session = AWSIntegrationService._create_boto_session(
+                        access_key_id=owner_credentials["access_key_id"],
+                        secret_access_key=owner_credentials["secret_access_key"],
+                        session_token=owner_credentials["session_token"],
+                        region_name=region
+                    )
+                else:
+                    # Fall back to direct credentials (no owner role configured)
+                    session = AWSIntegrationService._create_boto_session(
+                        access_key_id=settings.AWS_ACCESS_KEY_ID,
+                        secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                        region_name=region
+                    )
 
-            try:
-                sts_client = boto3.client("sts", region_name=region)
+                # Connect to real AWS STS (LocalStack endpoint bypassed)
+                sts_client = session.client("sts")
 
-                # Prepare AssumeRole parameters
+                # Prepare AssumeRole parameters for client role
                 assume_role_params = {
                     "RoleArn": role_arn,
-                    "RoleSessionName": "vibe-monitor-session",
+                    "RoleSessionName": "vibe-monitor-client-session",
                     "DurationSeconds": duration_seconds,
                 }
 
@@ -70,14 +210,9 @@ class AWSIntegrationService:
                 if external_id:
                     assume_role_params["ExternalId"] = external_id
 
-                # Assume the role
+                # Assume the client role
                 response = sts_client.assume_role(**assume_role_params)
-            finally:
-                # Restore original endpoint for other services (like SQS)
-                if original_endpoint:
-                    os.environ['AWS_ENDPOINT_URL'] = original_endpoint
-
-            credentials = response["Credentials"]
+                credentials = response["Credentials"]
 
             return {
                 "access_key_id": credentials["AccessKeyId"],
@@ -89,9 +224,9 @@ class AWSIntegrationService:
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
-            raise Exception(f"Failed to assume role: {error_code} - {error_message}")
+            raise Exception(f"Failed to assume client role: {error_code} - {error_message}")
         except Exception as e:
-            raise Exception(f"Failed to assume role: {str(e)}")
+            raise Exception(f"Failed to assume client role: {str(e)}")
 
     @staticmethod
     async def verify_role_and_permissions(
@@ -99,10 +234,12 @@ class AWSIntegrationService:
     ) -> AWSIntegrationVerifyResponse:
         """
         Verify that the role can be assumed and has CloudWatch access
+        Uses thread-safe boto3 session approach
 
         Args:
-            role_arn: AWS IAM Role ARN
+            role_arn: AWS IAM Role ARN (client role)
             region: AWS Region
+            external_id: Optional external ID for client role
 
         Returns:
             AWSIntegrationVerifyResponse with verification result
@@ -110,33 +247,22 @@ class AWSIntegrationService:
         account_id = None
 
         try:
-            # Step 1: Try to assume the role
+            # Step 1: Try to assume the role (two-stage: owner -> client)
             credentials = await AWSIntegrationService.assume_role(role_arn, region, external_id=external_id)
 
-            # Step 2: Verify CloudWatch Logs access with temporary credentials
-            # Always use real AWS for CloudWatch, never LocalStack
-            
-            original_endpoint = os.environ.get('AWS_ENDPOINT_URL')
-
-            # Temporarily remove AWS_ENDPOINT_URL to bypass LocalStack
-            if 'AWS_ENDPOINT_URL' in os.environ:
-                del os.environ['AWS_ENDPOINT_URL']
-
-            try:
-                logs_client = boto3.client(
-                    "logs",
-                    aws_access_key_id=credentials["access_key_id"],
-                    aws_secret_access_key=credentials["secret_access_key"],
-                    aws_session_token=credentials["session_token"],
-                    region_name=region,
+            # Step 2: Verify CloudWatch Logs access with temporary client credentials
+            # Bypass LocalStack to connect to real AWS CloudWatch
+            with AWSIntegrationService._bypass_localstack():
+                session = AWSIntegrationService._create_boto_session(
+                    access_key_id=credentials["access_key_id"],
+                    secret_access_key=credentials["secret_access_key"],
+                    session_token=credentials["session_token"],
+                    region_name=region
                 )
 
-                # Test CloudWatch Logs access
+                # Test CloudWatch Logs access (always uses real AWS)
+                logs_client = session.client("logs")
                 logs_client.describe_log_groups(limit=1)
-            finally:
-                # Restore original endpoint for other services (like SQS)
-                if original_endpoint:
-                    os.environ['AWS_ENDPOINT_URL'] = original_endpoint
 
             # Extract account ID from role ARN (format: arn:aws:iam::123456789012:role/RoleName)
             account_id = role_arn.split(":")[4]

@@ -120,6 +120,12 @@ export AWS_REGION="us-east-1"
 # LocalStack SQS will work without credentials when using AWS_ENDPOINT_URL
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+
+# Owner Role Configuration (for two-stage STS AssumeRole)
+# Set these if you want to test two-stage authentication locally
+export OWNER_ROLE_ARN="${OWNER_ROLE_ARN:-}"
+export OWNER_ROLE_EXTERNAL_ID="${OWNER_ROLE_EXTERNAL_ID:-}"
+
 export ENVIRONMENT="development"
 
 echo -e "${GREEN}✓ Environment configured${NC}"
