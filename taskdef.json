@@ -47,9 +47,7 @@
         {"name": "GITHUB_APP_ID", "valueFrom": "/vm-api/github-app-id"},
         {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api/github-client-id"},
         {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"},
-        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"},
-        {"name": "OWNER_ROLE_ARN", "valueFrom": "/vm-api/owner-role-arn"},
-        {"name": "OWNER_ROLE_EXTERNAL_ID", "valueFrom": "/vm-api/owner-role-external-id"}
+        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"}
       ]
     }
   ]
