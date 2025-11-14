@@ -6,6 +6,7 @@ Implements two-stage authentication: Host -> Owner Role -> Client Role
 """
 import os
 import uuid
+import logging
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,8 @@ from .schemas import (
     AWSIntegrationResponse,
     AWSIntegrationVerifyResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AWSIntegrationService:
@@ -439,8 +442,16 @@ class AWSIntegrationService:
                 await db.refresh(integration)
 
             except Exception as e:
-                # Log error but still return current integration info
-                print(f"Failed to refresh credentials: {str(e)}")
+                logger.error(
+                    f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
+                    exc_info=True,
+                    extra={
+                        "workspace_id": workspace_id,
+                        "role_arn": integration.role_arn,
+                        "expiration": integration.credentials_expiration,
+                    }
+                )
+                raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
 
         return AWSIntegrationResponse(
             id=integration.id,
@@ -507,8 +518,16 @@ class AWSIntegrationService:
                 await db.refresh(integration)
 
             except Exception as e:
-                print(f"Failed to refresh credentials: {str(e)}")
-                # Continue with existing credentials if refresh fails
+                logger.error(
+                    f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
+                    exc_info=True,
+                    extra={
+                        "workspace_id": workspace_id,
+                        "role_arn": integration.role_arn,
+                        "expiration": integration.credentials_expiration,
+                    }
+                )
+                raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
 
         # Decrypt and return credentials
         return {
