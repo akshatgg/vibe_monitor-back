@@ -47,7 +47,10 @@
         {"name": "GITHUB_APP_ID", "valueFrom": "/vm-api/github-app-id"},
         {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api/github-client-id"},
         {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api/github-private-key-pem"},
-        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"}
+        {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"},
+        {"name": "LOKI_URL", "valueFrom": "/vm-api/loki-url"},
+        {"name": "PUSHGATEWAY_URL", "valueFrom": "/vm-api/pushgateway-url"},
+        {"name": "DEPLOY_ENV", "valueFrom": "/vm-api/deploy-env"}
       ]
     }
   ]
