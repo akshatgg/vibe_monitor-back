@@ -6,170 +6,279 @@
     <title>Welcome to VibeMonitor</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #f4f4f4;
+            background-color: #f3f4f6;
+        }
+        .email-wrapper {
+            width: 100%;
+            background-color: #f3f4f6;
+            padding: 40px 20px;
         }
         .email-container {
             max-width: 600px;
-            margin: 20px auto;
-            background-color: #ffffff;
-            border-radius: 8px;
+            margin: 0 auto;
+            background-color: #0f172a;
+            border-radius: 0;
             overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
+            padding: 30px 40px 25px 40px;
         }
-        .header h1 {
-            margin: 0;
-            font-size: 32px;
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            display: inline-block;
+        }
+        .logo-text {
+            color: #ffffff;
+            font-size: 18px;
             font-weight: 600;
-        }
-        .header p {
-            margin: 10px 0 0 0;
-            font-size: 16px;
-            opacity: 0.9;
-        }
-        .content {
-            padding: 40px 30px;
+            letter-spacing: -0.01em;
         }
         .greeting {
-            font-size: 18px;
+            color: #ffffff;
+            font-size: 24px;
             font-weight: 600;
-            margin-bottom: 20px;
-            color: #333;
+            margin: 0 0 20px 0;
         }
-        .message {
+        .intro-text {
+            color: #ffffff;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 20px 0;
+        }
+        .description-text {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.7;
+            margin: 0 0 30px 0;
+        }
+        .steps-container {
+            border-width: 1px 1px 1px 4px;
+            border-style: solid;
+            border-color: rgba(98, 102, 250, 1);
+            border-radius: 8px;
+            padding: 25px 30px;
+            margin: 0 40px 30px 40px;
+            background: rgba(98, 102, 250, 0.08);
+        }
+        .steps-title {
+            color: #a5b4fc;
             font-size: 16px;
-            line-height: 1.8;
-            color: #555;
-            margin-bottom: 25px;
+            font-weight: 600;
+            margin: 0 0 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .steps {
-            background-color: #f8f9fa;
-            border-left: 4px solid #667eea;
-            padding: 20px;
-            margin: 25px 0;
-            border-radius: 4px;
-        }
-        .steps h3 {
-            margin-top: 0;
-            color: #667eea;
+        .rocket-icon {
             font-size: 18px;
         }
-        .steps ol {
-            margin: 15px 0;
-            padding-left: 20px;
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 18px;
         }
-        .steps li {
-            margin: 10px 0;
-            color: #555;
+        .step-item:last-child {
+            margin-bottom: 0;
+        }
+        .step-number {
+            width: 28px;
+            height: 28px;
+            background-color: #6366f1;
+            color: #ffffff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .step-content {
+            flex: 1;
+            padding-top: 2px;
+        }
+        .step-title {
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0 0 4px 0;
+        }
+        .step-description {
+            color: #94a3b8;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+        }
+        .help-text {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0 40px 30px 40px;
+        }
+        .button-container {
+            text-align: center;
+            margin: 0 40px 35px 40px;
         }
         .cta-button {
             display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 14px 35px;
+            background-color: rgba(98, 102, 250, 1);
+            color: #ffffff;
+            padding: 14px 0;
+            width: 100%;
+            max-width: 100%;
             text-decoration: none;
             border-radius: 6px;
             font-weight: 600;
-            font-size: 16px;
-            margin: 25px 0;
-            transition: transform 0.2s;
+            font-size: 15px;
+            text-align: center;
+            box-sizing: border-box;
         }
-        .cta-button:hover {
-            transform: translateY(-2px);
+        @media only screen and (max-width: 600px) {
+            .email-wrapper {
+                padding: 20px 10px;
+            }
+            .header {
+                padding: 25px 20px 20px 20px;
+            }
+            .steps-container {
+                margin: 0 20px 25px 20px;
+                padding: 20px 20px;
+            }
+            .help-text {
+                margin: 0 20px 25px 20px;
+            }
+            .button-container {
+                margin: 0 20px 30px 20px;
+            }
+            .footer {
+                padding: 20px 20px 30px 20px;
+            }
+            .greeting {
+                font-size: 22px;
+            }
+            .intro-text {
+                font-size: 14px;
+            }
+            .description-text {
+                font-size: 13px;
+            }
         }
         .footer {
-            background-color: #f8f9fa;
-            padding: 30px;
+            padding: 25px 40px 35px 40px;
             text-align: center;
-            color: #666;
-            font-size: 14px;
-            border-top: 1px solid #e9ecef;
+            border-top: 1px solid #1e293b;
+            background-color: rgba(30, 41, 59, 1);
         }
-        .footer p {
-            margin: 5px 0;
+        .footer-links {
+            margin: 0 0 12px 0;
         }
-        .footer a {
-            color: #667eea;
+        .footer-links a {
+            color: #64748b;
             text-decoration: none;
+            font-size: 13px;
+            padding: 0 8px;
+            border-right: 1px solid #334155;
+            display: inline-block;
+            line-height: 1;
         }
-        .divider {
-            height: 1px;
-            background-color: #e9ecef;
-            margin: 30px 0;
+        .footer-links a:last-child {
+            border-right: none;
         }
-        .highlight {
-            color: #667eea;
-            font-weight: 600;
+        .footer-links a:first-child {
+            padding-left: 0;
+        }
+        .footer-copyright {
+            color: #475569;
+            font-size: 12px;
+            margin: 0;
         }
     </style>
 </head>
 <body>
-    <div class="email-container">
-        <div class="header">
-            <h1>Welcome to VibeMonitor!</h1>
-            <p>Your journey to better monitoring starts here</p>
-        </div>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <div class="header">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="12" cy="12" r="10" stroke="#6366f1" stroke-width="1.5"/>
+                        <circle cx="12" cy="12" r="3" fill="#8b5cf6"/>
+                        <line x1="12" y1="2" x2="12" y2="7" stroke="#6366f1" stroke-width="1.5"/>
+                        <line x1="12" y1="17" x2="12" y2="22" stroke="#6366f1" stroke-width="1.5"/>
+                        <line x1="2" y1="12" x2="7" y2="12" stroke="#6366f1" stroke-width="1.5"/>
+                        <line x1="17" y1="12" x2="22" y2="12" stroke="#6366f1" stroke-width="1.5"/>
+                    </svg>
+                    <span class="logo-text">Vibemonitor</span>
+                </div>
 
-        <div class="content">
-            <div class="greeting">
-                Hi {{user_name}},
+                <h1 class="greeting">Hi there,</h1>
+
+                <p class="intro-text">
+                    We're thrilled to have you join VibeMonitor! You've just taken the first step towards smarter, more efficient application monitoring and analysis.
+                </p>
+
+                <p class="description-text">
+                    VibeMonitor empowers your team to monitor application health, quickly identify issues, and get AI-powered root cause analysis to resolve problems faster than ever before.
+                </p>
             </div>
 
-            <div class="message">
-                We're thrilled to have you join <span class="highlight">VibeMonitor</span>!
-                You've just taken the first step towards smarter, more efficient application monitoring
-                and analysis.
+            <div class="steps-container">
+                <div class="steps-title">
+                    <span class="rocket-icon">🚀</span>
+                    <span>Get Started in 3 Easy Steps:</span>
+                </div>
+
+                <div class="step-item">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <div class="step-title">Integrate Slack</div>
+                        <div class="step-description">Query your application status and errors through our Slack bot</div>
+                    </div>
+                </div>
+
+                <div class="step-item">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <div class="step-title">Integrate Grafana</div>
+                        <div class="step-description">We'll access your logs, metrics, and traces for monitoring</div>
+                    </div>
+                </div>
+
+                <div class="step-item">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <div class="step-title">Integrate GitHub</div>
+                        <div class="step-description">Get accurate details on which file has the conflict</div>
+                    </div>
+                </div>
             </div>
 
-            <div class="message">
-                VibeMonitor empowers your team to monitor application health in real-time,
-                quickly identify issues, and get AI-powered root cause analysis to resolve
-                problems faster than ever before.
-            </div>
-
-            <div class="steps">
-                <h3>🚀 Get Started in 3 Easy Steps:</h3>
-                <ol>
-                    <li><strong>Integrate Slack</strong> - Get instant alerts when issues occur in your server</li>
-                    <li><strong>Integrate Grafana</strong> - We'll access your logs, metrics, and traces for monitoring</li>
-                    <li><strong>Integrate GitHub</strong> - Get accurate details on which file has the conflict</li>
-                </ol>
-            </div>
-
-            <div class="message">
-                Need help getting started? Our support team is here to assist you every step of the way.
-                Don't hesitate to reach out!
-            </div>
-
-            <center>
-                <a href="{{app_url}}" class="cta-button">Go to Dashboard</a>
-            </center>
-
-            <div class="divider"></div>
-
-            <div class="message" style="font-size: 14px; color: #666; text-align: center;">
-                <strong>Need further help with integration?</strong><br>
-                Contact us at <a href="mailto:ankesh@vibemonitor.ai" style="color: #667eea;">ankesh@vibemonitor.ai</a><br>
-                Our team will reach out to you.
-            </div>
-        </div>
-
-        <div class="footer">
-            <p><strong>VibeMonitor</strong></p>
-            <p>Smart Application Monitoring & Root Cause Analysis</p>
-            <p style="margin-top: 15px;">
-                &copy; 2025 VibeMonitor. All rights reserved.
+            <p class="help-text">
+                Need help getting started? Our support team is here to assist you every step of the way. Don't hesitate to reach out!
             </p>
+
+            <div class="button-container">
+                <a href="https://vibemonitor.ai" class="cta-button">Go to Dashboard</a>
+            </div>
+
+            <div class="footer">
+                <div class="footer-links">
+                    <a href="{{documentation_url}}">Documentation</a>
+                    <a href="{{support_url}}">Support</a>
+                    <a href="{{settings_url}}">Settings</a>
+                </div>
+                <p class="footer-copyright">© 2025 VibeMonitor • Application Monitoring & Analysis</p>
+            </div>
         </div>
     </div>
 </body>

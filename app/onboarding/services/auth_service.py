@@ -18,6 +18,10 @@ from ...core.database import get_db
 from ...core.config import settings
 from ...utils.retry_decorator import retry_external_api
 from .workspace_service import WorkspaceService
+from ...mailgun.service import mailgun_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
@@ -181,13 +185,23 @@ class AuthService:
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+
         # Automatically create a workspace for the new user
         workspace_service = WorkspaceService()
         try:
             await workspace_service.create_personal_workspace(user=new_user, db=db)
         except Exception as e:
             # Log the error but don't fail user creation
-            print(f"Failed to create workspace for user {user_id}: {str(e)}")
+            logger.error(f"Failed to create workspace for user {user_id}: {str(e)}")
+
+        # Send welcome email to new user
+        try:
+            await mailgun_service.send_welcome_email(user_id=user_id, db=db)
+            logger.info(f"Welcome email queued for user {user_id} ({email})")
+        except Exception as e:
+            # Log the error but don't fail user creation
+            logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")
+
         return UserResponse.model_validate(new_user)
 
     def create_access_token(
