@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     SLACK_OAUTH_AUTHORIZE_URL: str = "https://slack.com/oauth/v2/authorize"
 
     # Log Level
-    LOG_LEVEL: Optional[str] = None
+    LOG_LEVEL: str  # Required: Must be set in environment (e.g., INFO, DEBUG, WARNING, ERROR)
 
     # Groq
     GROQ_API_KEY: Optional[str] = None
@@ -122,8 +122,12 @@ class Settings(BaseSettings):
     RCA_AGENT_MAX_TOKENS: int = 8192  # Increased for detailed multi-service investigations
     RCA_AGENT_MAX_ITERATIONS: int = 25  # Increased for complex multi-service investigations
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
+
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
+
+    # Logging Configuration
+    LOGGING_FRAME_DEPTH: int = 6  # Frame depth for finding logging call origin in stack trace
 
 
     class Config:
@@ -134,7 +138,7 @@ class Settings(BaseSettings):
     # --------- Properties ---------
     @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT.lower() == "production"
+        return self.ENVIRONMENT and self.ENVIRONMENT.lower() == "production"
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""

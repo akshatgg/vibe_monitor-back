@@ -3,6 +3,7 @@ import logging
 import signal
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from loguru import logger
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
@@ -10,11 +11,10 @@ from app.services.rca.callbacks import SlackProgressCallback
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
+from app.core.logging_config import set_job_id, clear_job_id
 from app.models import Job, JobStatus
 from app.github.tools.router import list_repositories_graphql
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
-
-logger = logging.getLogger(__name__)
 
 
 async def scan_repositories_in_batches(
@@ -127,259 +127,270 @@ class RCAOrchestratorWorker(BaseWorker):
             logger.error("No job_id in SQS message, skipping")
             return
 
-        async with AsyncSessionLocal() as db:
-            try:
-                # Fetch job from database
-                job = await db.get(Job, job_id)
+        # Set job_id in context variables
+        # Now ALL logs anywhere in this job will automatically have this job_id
+        set_job_id(job_id)
 
-                if not job:
-                    logger.error(f"Job {job_id} not found in database")
-                    return
-
-                # Check if job is in correct state
-                if job.status != JobStatus.QUEUED:
-                    logger.warning(
-                        f"Job {job_id} is not queued (status: {job.status.value}), skipping"
-                    )
-                    return
-
-                # Check if job should be delayed (backoff)
-                if job.backoff_until and job.backoff_until > datetime.now(timezone.utc):
-                    # Calculate delay in seconds
-                    delay = (
-                        job.backoff_until - datetime.now(timezone.utc)
-                    ).total_seconds()
-
-                    # SQS has a maximum delay of 900 seconds (15 minutes)
-                    # If delay is longer, use max and let it check again
-                    delay_seconds = min(int(delay), 900)
-
-                    logger.info(
-                        f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing with {delay_seconds}s delay"
-                    )
-
-                    # Re-enqueue to SQS with delay
-                    await sqs_client.send_message(
-                        message_body={"job_id": job_id}, delay_seconds=delay_seconds
-                    )
-                    return
-
-                logger.info(
-                    f"🔍 Processing job {job_id}: {job.requested_context.get('query')}"
-                )
-
-                # Update job status to RUNNING
-                job.status = JobStatus.RUNNING
-                job.started_at = datetime.now(timezone.utc)
-                await db.commit()
-
-                # Extract context from job
-                query = job.requested_context.get("query", "")
-                team_id = job.requested_context.get("team_id")
-                workspace_id = job.vm_workspace_id
-                channel_id = job.trigger_channel_id
-                thread_ts = job.trigger_thread_ts
-
-                # Send initial "thinking" message to Slack
-                if team_id and channel_id:
-                    await slack_event_service.send_message(
-                        team_id=team_id,
-                        channel=channel_id,
-                        text=f"🤔 Analyzing: *{query}*\n\n_Discovering services..._",
-                        thread_ts=thread_ts,
-                    )
-
-                # PRE-PROCESSING: Discover service→repo mappings BEFORE invoking AI agent
-                logger.info(f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}")
-
-                service_repo_mapping = {}
+        try:
+            async with AsyncSessionLocal() as db:
                 try:
-                    # Fetch all repositories
-                    repos_response = await list_repositories_graphql(
-                        workspace_id=workspace_id,
-                        first=settings.RCA_MAX_REPOS_TO_FETCH,
-                        after=None,
-                        user_id="rca-agent",
-                        db=db
-                    )
+                    # Fetch job from database
+                    job = await db.get(Job, job_id)
 
-                    if repos_response.get("success"):
-                        repositories = repos_response.get("repositories", [])
-                        total_repos = len(repositories)
-                        logger.info(f"Found {total_repos} repositories to scan")
+                    if not job:
+                        logger.error(f"Job {job_id} not found in database")
+                        return
 
-                        if team_id and channel_id:
-                            await slack_event_service.send_message(
-                                team_id=team_id,
-                                channel=channel_id,
-                                text=f"📦 Found {total_repos} repositories. Extracting service names...",
-                                thread_ts=thread_ts,
-                            )
+                    # Check if job is in correct state
+                    if job.status != JobStatus.QUEUED:
+                        logger.warning(
+                            f"Job {job_id} is not queued (status: {job.status.value}), skipping"
+                        )
+                        return
 
-                        # Extract service names from repositories in parallel batches
-                        service_repo_mapping = await scan_repositories_in_batches(
-                            repositories=repositories,
-                            workspace_id=workspace_id
+                    # Check if job should be delayed (backoff)
+                    if job.backoff_until and job.backoff_until > datetime.now(timezone.utc):
+                        # Calculate delay in seconds
+                        delay = (
+                            job.backoff_until - datetime.now(timezone.utc)
+                        ).total_seconds()
+
+                        # SQS has a maximum delay of 900 seconds (15 minutes)
+                        # If delay is longer, use max and let it check again
+                        delay_seconds = min(int(delay), 900)
+
+                        logger.info(
+                            f"Job {job_id} is in backoff until {job.backoff_until}, re-queueing with {delay_seconds}s delay"
                         )
 
-                        logger.info(f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped")
+                        # Re-enqueue to SQS with delay
+                        await sqs_client.send_message(
+                            message_body={"job_id": job_id}, delay_seconds=delay_seconds
+                        )
+                        return
 
-                        if team_id and channel_id:
-                            services_list = ", ".join([f"`{s}`" for s in list(service_repo_mapping.keys())[:10]])
-                            more_text = f" and {len(service_repo_mapping) - 10} more" if len(service_repo_mapping) > 10 else ""
-                            await slack_event_service.send_message(
-                                team_id=team_id,
-                                channel=channel_id,
-                                text=f"✅ Discovered services: {services_list}{more_text}\n\nAnalyzing logs and metrics...",
-                                thread_ts=thread_ts,
-                            )
-                    else:
-                        logger.warning("Failed to fetch repositories for service discovery")
-
-                except Exception as e:
-                    logger.error(f"Error during service discovery pre-processing: {e}")
-                    # Mark job as failed 
-                    job.status = JobStatus.FAILED
-                    job.finished_at = datetime.now(timezone.utc)
-                    job.error_message = f"Service discovery failed: {str(e)}"
-                    await db.commit()
-                    
-                    logger.warning("Service discovery failed, marking job as FAILED and exiting")
-                    return
-
-                # Perform RCA analysis using AI agent
-                logger.info(
-                    f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})"
-                )
-
-                # Add workspace_id and service mapping to context for RCA tools
-                analysis_context = {
-                    **(job.requested_context or {}),
-                    "workspace_id": workspace_id,
-                    "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
-                }
-
-                # Create Slack progress callback for real-time updates
-                slack_callback = None
-                if team_id and channel_id:
-                    slack_callback = SlackProgressCallback(
-                        team_id=team_id,
-                        channel_id=channel_id,
-                        thread_ts=thread_ts,
-                        send_tool_output=False,  # Don't send verbose tool outputs
+                    logger.info(
+                        f"🔍 Processing job {job_id}: {job.requested_context.get('query')}"
                     )
 
-                result = await rca_agent_service.analyze_with_retry(
-                    user_query=query,
-                    context=analysis_context,
-                    max_retries=2,
-                    callbacks=[slack_callback] if slack_callback else None,
-                )
-
-                # Process result
-                if result["success"]:
-                    logger.info(f"✅ Job {job_id} completed successfully")
-
-                    # Update job status
-                    job.status = JobStatus.COMPLETED
-                    job.finished_at = datetime.now(timezone.utc)
+                    # Update job status to RUNNING
+                    job.status = JobStatus.RUNNING
+                    job.started_at = datetime.now(timezone.utc)
                     await db.commit()
 
-                    # Send analysis result back to Slack
+                    # Extract context from job
+                    query = job.requested_context.get("query", "")
+                    team_id = job.requested_context.get("team_id")
+                    workspace_id = job.vm_workspace_id
+                    channel_id = job.trigger_channel_id
+                    thread_ts = job.trigger_thread_ts
+
+                    # Send initial "thinking" message to Slack
                     if team_id and channel_id:
                         await slack_event_service.send_message(
                             team_id=team_id,
                             channel=channel_id,
-                            text=result["output"],
+                            text=f"🤔 Analyzing: *{query}*\n\n_Step 1: Discovering services..._",
                             thread_ts=thread_ts,
                         )
 
-                    logger.info(f"📤 Job {job_id} result sent to Slack")
+                    # PRE-PROCESSING: Discover service→repo mappings BEFORE invoking AI agent
+                    logger.info(f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}")
 
-                else:
-                    # Analysis failed - implement retry logic
-                    error_msg = result.get("error", "Unknown error occurred")
-                    logger.error(f"❌ Job {job_id} failed: {error_msg}")
-
-                    job.retries += 1
-
-                    if job.retries < job.max_retries:
-                        # Retry with exponential backoff (2^retries * base_backoff)
-                        backoff_seconds = (
-                            2**job.retries * settings.JOB_RETRY_BASE_BACKOFF_SECONDS
-                        )  # 1min, 2min, 4min, etc.
-                        job.status = JobStatus.QUEUED
-                        job.backoff_until = datetime.now(timezone.utc) + timedelta(
-                            seconds=backoff_seconds
+                    service_repo_mapping = {}
+                    try:
+                        # Fetch all repositories
+                        repos_response = await list_repositories_graphql(
+                            workspace_id=workspace_id,
+                            first=settings.RCA_MAX_REPOS_TO_FETCH,
+                            after=None,
+                            user_id="rca-agent",
+                            db=db
                         )
-                        job.error_message = (
-                            f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
-                        )
+
+                        if repos_response.get("success"):
+                            repositories = repos_response.get("repositories", [])
+                            total_repos = len(repositories)
+                            logger.info(f"Found {total_repos} repositories to scan")
+
+                            if team_id and channel_id:
+                                await slack_event_service.send_message(
+                                    team_id=team_id,
+                                    channel=channel_id,
+                                    text=f"📦 Found {total_repos} repositories. Extracting service names...",
+                                    thread_ts=thread_ts,
+                                )
+
+                            # Extract service names from repositories in parallel batches
+                            service_repo_mapping = await scan_repositories_in_batches(
+                                repositories=repositories,
+                                workspace_id=workspace_id
+                            )
+
+                            logger.info(f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped")
+
+                            if team_id and channel_id:
+                                services_list = ", ".join([f"`{s}`" for s in list(service_repo_mapping.keys())[:10]])
+                                more_text = f" and {len(service_repo_mapping) - 10} more" if len(service_repo_mapping) > 10 else ""
+                                await slack_event_service.send_message(
+                                    team_id=team_id,
+                                    channel=channel_id,
+                                    text=f"✅ Discovered services: {services_list}{more_text}\n\nAnalyzing logs and metrics...",
+                                    thread_ts=thread_ts,
+                                )
+                        else:
+                            logger.warning("Failed to fetch repositories for service discovery")
+
+                    except Exception as e:
+                        logger.error(f"Error during service discovery pre-processing: {e}")
+                        # Mark job as failed
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.now(timezone.utc)
+                        job.error_message = f"Service discovery failed: {str(e)}"
                         await db.commit()
 
-                        # SQS has max delay of 900s (15 min), use that as cap
-                        delay_seconds = min(backoff_seconds, 900)
+                        logger.warning("Service discovery failed, marking job as FAILED and exiting")
+                        return
 
-                        logger.info(
-                            f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})"
+                    # Perform RCA analysis using AI agent
+                    logger.info(
+                        f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})"
+                    )
+
+                    # Add workspace_id and service mapping to context for RCA tools
+                    analysis_context = {
+                        **(job.requested_context or {}),
+                        "workspace_id": workspace_id,
+                        "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
+                    }
+
+                    # Create Slack progress callback for real-time updates
+                    slack_callback = None
+                    if team_id and channel_id:
+                        slack_callback = SlackProgressCallback(
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            send_tool_output=False,  # Don't send verbose tool outputs
                         )
 
-                        # Re-enqueue to SQS for retry with delay
-                        await sqs_client.send_message(
-                            message_body={"job_id": job_id}, delay_seconds=delay_seconds
-                        )
+                    result = await rca_agent_service.analyze_with_retry(
+                        user_query=query,
+                        context=analysis_context,
+                        max_retries=2,
+                        callbacks=[slack_callback] if slack_callback else None,
+                    )
 
-                        # Notify user about retry
-                        if slack_callback:
-                            await slack_callback.send_retry_notification(
-                                retry_count=job.retries,
-                                max_retries=job.max_retries,
-                                backoff_minutes=backoff_seconds // 60
+                    # Process result
+                    if result["success"]:
+                        logger.info(f"✅ Job {job_id} completed successfully")
+
+                        # Update job status
+                        job.status = JobStatus.COMPLETED
+                        job.finished_at = datetime.now(timezone.utc)
+                        await db.commit()
+
+                        # Send analysis result back to Slack
+                        if team_id and channel_id:
+                            await slack_event_service.send_message(
+                                team_id=team_id,
+                                channel=channel_id,
+                                text=result["output"],
+                                thread_ts=thread_ts,
                             )
+
+                        logger.info(f"📤 Job {job_id} result sent to Slack")
 
                     else:
-                        # Max retries exceeded
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = error_msg
-                        await db.commit()
+                        # Analysis failed - implement retry logic
+                        error_msg = result.get("error", "Unknown error occurred")
+                        logger.error(f"❌ Job {job_id} failed: {error_msg}")
 
-                        logger.error(
-                            f"❌ Job {job_id} failed after {job.retries} retries: {error_msg}"
-                        )
+                        job.retries += 1
 
-                        # Send final error message to user (sanitized)
-                        if slack_callback:
-                            await slack_callback.send_final_error(
-                                error_msg=error_msg,
-                                retry_count=job.retries
+                        if job.retries < job.max_retries:
+                            # Retry with exponential backoff (2^retries * base_backoff)
+                            backoff_seconds = (
+                                2**job.retries * settings.JOB_RETRY_BASE_BACKOFF_SECONDS
+                            )  # 1min, 2min, 4min, etc.
+                            job.status = JobStatus.QUEUED
+                            job.backoff_until = datetime.now(timezone.utc) + timedelta(
+                                seconds=backoff_seconds
+                            )
+                            job.error_message = (
+                                f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
+                            )
+                            await db.commit()
+
+                            # SQS has max delay of 900s (15 min), use that as cap
+                            delay_seconds = min(backoff_seconds, 900)
+
+                            logger.info(
+                                f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})"
                             )
 
-            except Exception as e:
-                logger.exception(f"❌ Unexpected error processing job {job_id}: {e}")
+                            # Re-enqueue to SQS for retry with delay
+                            await sqs_client.send_message(
+                                message_body={"job_id": job_id}, delay_seconds=delay_seconds
+                            )
 
-                # Try to mark job as failed
-                try:
-                    job = await db.get(Job, job_id)
-                    if job:
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = f"Worker exception: {str(e)}"
-                        await db.commit()
-
-                        # Attempt to send error notification to Slack (sanitized)
-                        if job.requested_context:
-                            team_id = job.requested_context.get("team_id")
-                            if team_id and job.trigger_channel_id:
-                                # Create temporary callback for error notification
-                                error_callback = SlackProgressCallback(
-                                    team_id=team_id,
-                                    channel_id=job.trigger_channel_id,
-                                    thread_ts=job.trigger_thread_ts
+                            # Notify user about retry
+                            if slack_callback:
+                                await slack_callback.send_retry_notification(
+                                    retry_count=job.retries,
+                                    max_retries=job.max_retries,
+                                    backoff_minutes=backoff_seconds // 60
                                 )
-                                await error_callback.send_unexpected_error()
-                except Exception as recovery_error:
-                    logger.error(f"Failed to handle job failure: {recovery_error}")
+
+                        else:
+                            # Max retries exceeded
+                            job.status = JobStatus.FAILED
+                            job.finished_at = datetime.now(timezone.utc)
+                            job.error_message = error_msg
+                            await db.commit()
+
+                            logger.error(
+                                f"❌ Job {job_id} failed after {job.retries} retries: {error_msg}"
+                            )
+
+                            # Send final error message to user (sanitized)
+                            if slack_callback:
+                                await slack_callback.send_final_error(
+                                    error_msg=error_msg,
+                                    retry_count=job.retries
+                                )
+
+                except Exception as e:
+                    logger.exception(f"❌ Unexpected error processing job {job_id}: {e}")
+
+                    # Try to mark job as failed
+                    try:
+                        job = await db.get(Job, job_id)
+                        if job:
+                            job.status = JobStatus.FAILED
+                            job.finished_at = datetime.now(timezone.utc)
+                            job.error_message = f"Worker exception: {str(e)}"
+                            await db.commit()
+
+                            # Attempt to send error notification to Slack (sanitized)
+                            if job.requested_context:
+                                team_id = job.requested_context.get("team_id")
+                                if team_id and job.trigger_channel_id:
+                                    # Create temporary callback for error notification
+                                    error_callback = SlackProgressCallback(
+                                        team_id=team_id,
+                                        channel_id=job.trigger_channel_id,
+                                        thread_ts=job.trigger_thread_ts
+                                    )
+                                    await error_callback.send_unexpected_error()
+                    except Exception as recovery_error:
+                        logger.error(f"Failed to handle job failure: {recovery_error}")
+        except Exception:
+            # If something fails before we can set job_id, just pass
+            pass
+        finally:
+            # Clear the job_id from context after job completes
+            clear_job_id()
 
 
 async def main():

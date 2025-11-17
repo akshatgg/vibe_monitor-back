@@ -1,7 +1,7 @@
-import logging
 from contextlib import asynccontextmanager
 import asyncio
 from dotenv import load_dotenv
+from loguru import logger
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -10,6 +10,8 @@ from slowapi.errors import RateLimitExceeded
 from app.api.routers.routers import api_router
 from app.core.config import settings
 from app.core.database import init_database
+from app.core.logging_config import configure_logging
+from app.middleware import RequestIDMiddleware
 from app.core.metrics import setup_metrics, push_metrics_to_gateway
 from app.github.webhook.router import limiter
 
@@ -20,13 +22,8 @@ from app.services.sqs.client import sqs_client
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=settings.LOG_LEVEL)
-logger = logging.getLogger(__name__)
-
-# Reduce SQLAlchemy logging verbosity
-logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+# Configure logging with request_id and job_id support using loguru
+configure_logging()
 
 
 @asynccontextmanager
@@ -99,6 +96,9 @@ app.state.limiter = limiter
 
 # Add rate limit exceeded handler
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add Request ID middleware (must be added first to ensure request_id is available)
+app.add_middleware(RequestIDMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
