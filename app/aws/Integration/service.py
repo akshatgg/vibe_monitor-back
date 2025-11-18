@@ -83,21 +83,17 @@ class AWSIntegrationService:
         """
         Assume the owner role (first stage of two-stage authentication)
         Caches credentials to avoid repeated assumptions
+        Should only be called in dev/development environment
 
         Args:
             region: AWS Region
 
         Returns:
-            Dict containing temporary owner role credentials (or None if not configured)
+            Dict containing temporary owner role credentials
 
         Raises:
-            Exception: If owner role assumption fails or is not configured
+            Exception: If owner role assumption fails
         """
-        # Check if owner role is configured
-        if not settings.OWNER_ROLE_ARN:
-            # If no owner role configured, return None (fall back to direct credentials)
-            return None
-
         # Check cache first (refresh if expiring within 5 minutes)
         now = datetime.now(timezone.utc)
         if (AWSIntegrationService._owner_credentials_cache
@@ -177,29 +173,27 @@ class AWSIntegrationService:
             Exception: If role assumption fails
         """
         try:
-            # STAGE 1: Assume owner role (if configured)
-            owner_credentials = await AWSIntegrationService.assume_owner_role(region)
-
-            # Bypass LocalStack to connect to real AWS STS
-            with AWSIntegrationService._bypass_localstack():
-                # STAGE 2: Use owner role credentials (or host credentials) to assume client role
-                if owner_credentials:
-                    # Use owner role credentials to create STS client
+            # Check if running in dev/development environment
+            if settings.ENVIRONMENT and settings.ENVIRONMENT.lower() in ["dev", "development"]:
+                # DEV: Two-stage authentication (Host -> Owner Role -> Client Role)
+                # Bypass LocalStack to connect to real AWS STS
+                with AWSIntegrationService._bypass_localstack():
+                    owner_credentials = await AWSIntegrationService.assume_owner_role(region)
                     session = AWSIntegrationService._create_boto_session(
                         access_key_id=owner_credentials["access_key_id"],
                         secret_access_key=owner_credentials["secret_access_key"],
                         session_token=owner_credentials["session_token"],
                         region_name=region
                     )
-                else:
-                    # Fall back to direct credentials (no owner role configured)
-                    session = AWSIntegrationService._create_boto_session(
-                        access_key_id=settings.AWS_ACCESS_KEY_ID,
-                        secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                        region_name=region
-                    )
-
-                # Connect to real AWS STS (LocalStack endpoint bypassed)
+                    # Connect to real AWS STS (LocalStack endpoint bypassed)
+                    sts_client = session.client("sts")
+            else:
+                # PRODUCTION: Direct authentication using ECS Task IAM Role (Host -> Client Role)
+                # Don't pass credentials - let boto3 automatically use ECS task role
+                session = AWSIntegrationService._create_boto_session(
+                    region_name=region
+                )
+                # Connect to real AWS STS 
                 sts_client = session.client("sts")
 
                 # Prepare AssumeRole parameters for client role
