@@ -193,23 +193,23 @@ class AWSIntegrationService:
                 session = AWSIntegrationService._create_boto_session(
                     region_name=region
                 )
-                # Connect to real AWS STS 
+                # Connect to real AWS STS
                 sts_client = session.client("sts")
 
-                # Prepare AssumeRole parameters for client role
-                assume_role_params = {
-                    "RoleArn": role_arn,
-                    "RoleSessionName": "vibe-monitor-client-session",
-                    "DurationSeconds": duration_seconds,
-                }
+            # Prepare AssumeRole parameters for client role (common for both dev and production)
+            assume_role_params = {
+                "RoleArn": role_arn,
+                "RoleSessionName": "vibe-monitor-client-session",
+                "DurationSeconds": duration_seconds,
+            }
 
-                # Add ExternalId if provided
-                if external_id:
-                    assume_role_params["ExternalId"] = external_id
+            # Add ExternalId if provided
+            if external_id:
+                assume_role_params["ExternalId"] = external_id
 
-                # Assume the client role
-                response = sts_client.assume_role(**assume_role_params)
-                credentials = response["Credentials"]
+            # Assume the client role
+            response = sts_client.assume_role(**assume_role_params)
+            credentials = response["Credentials"]
 
             return {
                 "access_key_id": credentials["AccessKeyId"],
