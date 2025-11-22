@@ -304,3 +304,4 @@ class MailgunEmail(Base):
         Index("idx_mailgun_emails_sent_at", "sent_at"),
         Index("idx_mailgun_emails_status", "status"),
     )
+ 

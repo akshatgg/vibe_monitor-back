@@ -89,6 +89,7 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     lifespan=lifespan,
+    openapi_url="/openapi.json" if not settings.is_production else None,
 )
 
 # Add rate limiter state
