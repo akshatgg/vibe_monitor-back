@@ -52,6 +52,7 @@ loguru = "^0.7.0"
 prometheus-client = "^0.20.0"
 prometheus-fastapi-instrumentator = "^7.0.0"
 tenacity = "^9.0.0"
+sentry-sdk = {version = ">=2.35.0", extras = ["fastapi"]}
 
 
 [tool.poetry.group.dev.dependencies]

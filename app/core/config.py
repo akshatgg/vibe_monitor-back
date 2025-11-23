@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     DEPLOY_ENV: str = "local"  # Deployment environment (local, staging, production)
     HOSTNAME: Optional[str] = None  # Hostname for identifying the instance
 
+    # Sentry Configuration
+    SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
+
     # RCA Service Discovery Settings
     RCA_MAX_REPOS_TO_FETCH: int = 50  # Maximum number of repositories to fetch for service discovery
     RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names

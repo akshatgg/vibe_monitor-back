@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 from dotenv import load_dotenv
 from loguru import logger
+import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -24,6 +25,17 @@ load_dotenv()
 
 # Configure logging with request_id and job_id support using loguru
 configure_logging()
+
+# Initialize Sentry for error tracking
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        traces_sample_rate=1.0 if not settings.is_production else 0.1,
+        environment=settings.ENVIRONMENT,
+        send_default_pii=False,
+        enable_logs=True
+    )
+    logger.info("Sentry initialized")
 
 
 @asynccontextmanager

@@ -50,7 +50,9 @@
         {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"},
         {"name": "LOKI_URL", "valueFrom": "/vm-api/loki-url"},
         {"name": "PUSHGATEWAY_URL", "valueFrom": "/vm-api/pushgateway-url"},
-        {"name": "DEPLOY_ENV", "valueFrom": "/vm-api/deploy-env"}
+        {"name": "DEPLOY_ENV", "valueFrom": "/vm-api/deploy-env"},
+        {"name": "SENTRY_DSN", "valueFrom": "/vm-api/sentry-dsn"}
+
       ]
     }
   ]
