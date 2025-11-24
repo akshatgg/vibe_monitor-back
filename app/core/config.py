@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
 
-    # AWS Owner Role Configuration (Two-stage STS AssumeRole)
+    # AWS Owner Role Configuration (Two-stage STS AssumeRole) (only for dev)
     OWNER_ROLE_ARN: Optional[str] = None  # e.g., arn:aws:iam::961341549304:role/VibemonitorOwnerRole
     OWNER_ROLE_EXTERNAL_ID: Optional[str] = None  # External ID for owner role assumption
     OWNER_ROLE_SESSION_NAME: str = "vibe-monitor-owner-session"  # Session name for owner role
