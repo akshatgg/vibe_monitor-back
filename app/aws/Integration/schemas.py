@@ -10,7 +10,7 @@ class AWSIntegrationCreate(BaseModel):
     """Schema for creating an AWS integration using IAM role ARN"""
     role_arn: str = Field(..., description="AWS IAM Role ARN (e.g., arn:aws:iam::123456789012:role/VibeMonitor)")
     external_id: Optional[str] = Field(default=None, description="External ID for secure cross-account access (optional but recommended)")
-    aws_region: Optional[str] = Field(default=None, description="AWS Region")
+    aws_region: str = Field(default="us-west-1", description="AWS Region (defaults to us-west-1)")
 
 
 class AWSIntegrationResponse(BaseModel):

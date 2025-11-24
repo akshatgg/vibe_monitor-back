@@ -41,7 +41,7 @@ async def store_aws_integration(
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
     - role_arn: AWS IAM Role ARN (e.g., arn:aws:iam::123456789012:role/VibeMonitor)
-    - aws_region: AWS Region (optional, defaults to us-east-1)
+    - aws_region: AWS Region (optional, defaults to us-west-1)
 
     The IAM role must have:
     - Trust relationship allowing this service to assume it

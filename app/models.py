@@ -333,7 +333,7 @@ class AWSIntegration(Base):
     credentials_expiration = Column(DateTime(timezone=True), nullable=False)  # When STS credentials expire
 
     # Optional region configuration
-    aws_region = Column(String, nullable=True, default="us-east-1")
+    aws_region = Column(String, nullable=True, default="us-west-1")
 
     # Status tracking
     is_active = Column(Boolean, default=True, nullable=False)

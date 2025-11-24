@@ -53,10 +53,10 @@ class AWSIntegrationService:
 
     @staticmethod
     def _create_boto_session(
+        region_name: str,
         access_key_id: Optional[str] = None,
         secret_access_key: Optional[str] = None,
-        session_token: Optional[str] = None,
-        region_name: str = "us-east-1"
+        session_token: Optional[str] = None
     ) -> boto3.Session:
         """
         Create a boto3 session with explicit configuration
@@ -79,7 +79,7 @@ class AWSIntegrationService:
         )
 
     @staticmethod
-    async def assume_owner_role(region: str = "us-east-1") -> Dict[str, Any]:
+    async def assume_owner_role(region: str) -> Dict[str, Any]:
         """
         Assume the owner role (first stage of two-stage authentication)
         Caches credentials to avoid repeated assumptions
@@ -152,7 +152,7 @@ class AWSIntegrationService:
     @staticmethod
     async def assume_role(
         role_arn: str,
-        region: str = "us-east-1",
+        region: str,
         duration_seconds: int = 3600,
         external_id: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -227,7 +227,7 @@ class AWSIntegrationService:
 
     @staticmethod
     async def verify_role_and_permissions(
-        role_arn: str, region: str = "us-east-1", external_id: Optional[str] = None
+        role_arn: str, region: str, external_id: Optional[str] = None
     ) -> AWSIntegrationVerifyResponse:
         """
         Verify that the role can be assumed and has CloudWatch access
@@ -327,7 +327,8 @@ class AWSIntegrationService:
                 "An active AWS integration already exists for this workspace"
             )
 
-        region = integration_data.aws_region if integration_data.aws_region else "us-east-1"
+        # Region comes from integration_data (Pydantic schema defaults to us-west-1 if not provided by frontend)
+        region = integration_data.aws_region
 
         # Verify role and permissions before saving
         verification = await self.verify_role_and_permissions(
