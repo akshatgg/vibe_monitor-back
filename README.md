@@ -4,9 +4,11 @@ This document describes the branching workflow and how to run the repo.
 
 - [Project Structure & Architecture](./project-overview/project-structure.md) - Detailed overview of the codebase, data flows, and API endpoints
 - [Database ER Diagram](./project-overview/er-diagram.md) - Entity-relationship diagram showing all database tables and relationships
+- [Dev Environment Setup](../vm-infra/README_DEV_SETUP.md) - Complete guide to set up dev environment infrastructure
 
 ## Branches
-- **main** → Production-ready code (protected).
+- **main** → Production environment (protected) - deploys to `api.vibemonitor.ai`
+- **dev** → Development environment - deploys to `dev.vibemonitor.ai`
 
 ## Workflow
 
@@ -75,6 +77,35 @@ git branch -d shashi/vib-32-add-slack-notifications
 # Create new branch for next issue
 git checkout -b shashi/vib-45-new-feature
 ```
+
+## Deployment
+
+### Automated Deployments via GitHub Actions
+
+The project uses branch-based deployments with GitHub Actions:
+
+| Branch | Environment | ECS Cluster | Service | URL |
+|--------|-------------|-------------|---------|-----|
+| `main` | Production | `vm-prod` | `vm-api-svc-prod` | https://api.vibemonitor.ai |
+| `dev` | Development | `vm-dev` | `vm-api-svc-dev` | https://dev.vibemonitor.ai |
+
+**How it works:**
+- Push to `main` branch → GitHub Actions automatically deploys to production
+- Push to `dev` branch → GitHub Actions automatically deploys to dev environment
+
+**Deployment workflow:**
+1. Build Docker image with environment-specific tag (`prod-{sha}` or `dev-{sha}`)
+2. Push to ECR repository
+3. Render task definition from `taskdef.template.json` with environment variables
+4. Register new ECS task definition
+5. Update ECS service with new task definition
+6. Wait for service to stabilize
+
+**Infrastructure:**
+- All infrastructure setup scripts and documentation are in the `vm-infra` repository
+- See [Dev Environment Setup Guide](../vm-infra/README_DEV_SETUP.md) for complete infrastructure setup
+
+**Note:** Migrations run automatically during container startup via `entrypoint.sh` - no manual intervention needed!
 
 ## Development Setup
 
@@ -146,7 +177,7 @@ poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Adding Environment Variables
 
-When you need to add a new environment variable to the project, you must update **3 files** to ensure it works in both development and production:
+When you need to add a new environment variable to the project, you must update **4 things** to ensure it works in local development and all deployed environments:
 
 ### 1. `.env.example`
 Add your variable with a placeholder value:
@@ -162,19 +193,31 @@ class Settings(BaseSettings):
     NEW_VARIABLE_NAME: Optional[str] = None  # Description of what it does
 ```
 
-### 3. `taskdef.json`
-Add the variable to the `secrets` array for production deployment:
+### 3. `taskdef.template.json`
+Add the variable to the `secrets` array using the environment placeholder:
 ```json
-{"name": "NEW_VARIABLE_NAME", "valueFrom": "/vm-api/new-variable-name"}
+{"name": "NEW_VARIABLE_NAME", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-variable-name"}
 ```
 
-**Note:** The `valueFrom` path uses kebab-case and follows the pattern `/vm-api/variable-name-in-kebab-case`.
+**Note:** The `valueFrom` path uses kebab-case and includes `ENV_PLACEHOLDER` which gets replaced with `prod` or `dev` during deployment.
+
+### 4. AWS Systems Manager Parameter Store
+Add the variable to both production and dev environments:
+```bash
+# Production
+aws ssm put-parameter --name '/vm-api-prod/new-variable-name' --value 'production-value' --type SecureString --region us-west-1
+
+# Dev
+aws ssm put-parameter --name '/vm-api-dev/new-variable-name' --value 'dev-value' --type SecureString --region us-west-1
+```
 
 ### Example
 For a new `GITHUB_WEBHOOK_SECRET` variable:
 - ✅ `.env.example`: `GITHUB_WEBHOOK_SECRET=your_webhook_secret`
 - ✅ `app/core/config.py`: `GITHUB_WEBHOOK_SECRET: Optional[str] = None`
-- ✅ `taskdef.json`: `{"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api/github-webhook-secret"}`
+- ✅ `taskdef.template.json`: `{"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-webhook-secret"}`
+- ✅ SSM (prod): `/vm-api-prod/github-webhook-secret`
+- ✅ SSM (dev): `/vm-api-dev/github-webhook-secret`
 
 ## Setting Up GitHub Webhooks
 

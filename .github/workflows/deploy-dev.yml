@@ -1,8 +1,8 @@
-name: Deploy to ECS Production
+name: Deploy to ECS Dev Environment
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "dev" ]
 
 permissions:
   id-token: write
@@ -12,10 +12,10 @@ env:
   AWS_REGION: us-west-1
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   ECR_REPO: vm-api
-  ECS_CLUSTER: vm-api-cluster-prod
-  ECS_SERVICE: vm-api-svc-prod
+  ECS_CLUSTER: vm-api-cluster-dev
+  ECS_SERVICE: vm-api-svc-dev
   CONTAINER_NAME: app
-  ENVIRONMENT: prod
+  ENVIRONMENT: dev
 
 jobs:
   build-and-deploy:
@@ -30,7 +30,7 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GithubActionsEcsDeployer
-          role-session-name: gha-ecs-deploy
+          role-session-name: gha-ecs-deploy-dev
 
       - name: Login to ECR
         id: ecr-login
@@ -52,7 +52,7 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 30
           command: |
-            IMAGE_TAG=prod-${GITHUB_SHA}
+            IMAGE_TAG=dev-${GITHUB_SHA}
             docker build -t $ECR_URI/$ECR_REPO:$IMAGE_TAG .
             docker push $ECR_URI/$ECR_REPO:$IMAGE_TAG
             echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
