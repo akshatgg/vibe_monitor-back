@@ -40,9 +40,7 @@ on:
         description: 'AWS Account ID'
         required: true
 
-permissions:
-  id-token: write
-  contents: read
+permissions: inherit
 
 concurrency:
   group: deploy-${{ inputs.environment }}
