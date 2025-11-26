@@ -40,8 +40,6 @@ on:
         description: 'AWS Account ID'
         required: true
 
-permissions: inherit
-
 concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false  # Queue deployments instead of canceling
