@@ -3,8 +3,11 @@ import hashlib
 import logging
 import uuid
 import re
+import time
 from typing import Optional
 from datetime import datetime, timezone
+from collections import OrderedDict
+from threading import Lock
 
 import httpx
 from fastapi import HTTPException
@@ -20,12 +23,70 @@ from app.slack.schemas import (
 )
 from app.models import SlackInstallation
 from app.models import Job, JobStatus
+from app.slack.alert_detector import alert_detector
+
 
 from app.utils.token_processor import token_processor
 from app.utils.rate_limiter import check_rate_limit, ResourceType
 
 
 logger = logging.getLogger(__name__)
+
+
+# Event deduplication cache to prevent infinite loops
+# Maps event_id -> timestamp of when it was first processed
+# TTL: 5 minutes (longer than Slack's retry window of 1-2 minutes)
+class EventDeduplicationCache:
+    """Thread-safe in-memory cache for event deduplication with TTL"""
+
+    def __init__(self, ttl_seconds: int = 300):
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, float] = OrderedDict()
+        self._lock = Lock()
+
+    def is_duplicate(self, event_id: str) -> bool:
+        """Check if event was already processed. Returns True if duplicate."""
+        with self._lock:
+            current_time = time.time()
+
+            # Check if event exists and is still valid
+            if event_id in self._cache:
+                timestamp = self._cache[event_id]
+                if current_time - timestamp <= self.ttl_seconds:
+                    logger.warning(
+                        f"Duplicate event detected: {event_id} "
+                        f"(originally processed {current_time - timestamp:.1f}s ago)"
+                    )
+                    return True
+                # Expired - remove and treat as new
+                del self._cache[event_id]
+
+            return False
+
+    def mark_processed(self, event_id: str) -> None:
+        """Mark event as processed"""
+        with self._lock:
+            self._cache[event_id] = time.time()
+
+            # Cleanup old entries if cache gets too large
+            if len(self._cache) > 1000:
+                self._cleanup()
+
+    def _cleanup(self) -> None:
+        """Remove expired entries"""
+        current_time = time.time()
+        expired = [
+            eid for eid, ts in self._cache.items()
+            if current_time - ts > self.ttl_seconds
+        ]
+        for eid in expired:
+            del self._cache[eid]
+        if expired:
+            logger.info(f"Cleaned up {len(expired)} expired events")
+
+
+# Global deduplication cache
+_event_cache = EventDeduplicationCache(ttl_seconds=300)
 
 
 class SlackEventService:
@@ -60,17 +121,36 @@ class SlackEventService:
     async def handle_slack_event(payload: SlackEventPayload) -> dict:
         """
         Process Slack event and respond to user
+        Handles both explicit mentions (@bot) and automatic alert detection
         """
         try:
+            # CRITICAL: Check for duplicate events first to prevent infinite loops
+            # Slack may retry events, and our own bot messages trigger new events
+            if _event_cache.is_duplicate(payload.event_id):
+                logger.info(f"Skipping duplicate event: {payload.event_id}")
+                return {
+                    "status": "ignored",
+                    "message": "Duplicate event (already processed)"
+                }
+
+            # Mark event as being processed
+            _event_cache.mark_processed(payload.event_id)
+
             # Extract message context
             event_context = payload.extract_message_context()
             logger.info(f"Received Slack event: {event_context}")
 
             team_id = event_context.get("team_id")
             channel_id = event_context.get("channel_id")
+            event_type = payload.event.get("type")
+            event_subtype = payload.event.get("subtype")
+
+            # Get bot user ID for this team
+            slack_installation = await SlackEventService.get_installation(team_id)
+            bot_user_id = slack_installation.bot_user_id if slack_installation else None
 
             # Check if this is a member joined channel event
-            if payload.event.get("subtype") == "channel_join":
+            if event_subtype == "channel_join":
                 # Retrieve the Slack installation for this team
                 slack_installation = await SlackEventService.get_installation(team_id)
                 if not slack_installation:
@@ -116,12 +196,15 @@ class SlackEventService:
                     team_id=team_id, channel=channel_id, text=welcome_message
                 )
 
-            if payload.event.get("type") == "app_mention":
+            # Handle app_mention events (explicit @bot mentions)
+            if event_type == "app_mention":
                 user_message_ex = event_context.get("text", "").strip()
 
                 # Process the message and generate response
                 bot_response = await SlackEventService.process_user_message(
-                    user_message=user_message_ex, event_context=event_context
+                    user_message=user_message_ex,
+                    event_context=event_context,
+                    is_explicit_mention=True
                 )
                 clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message_ex).strip()
 
@@ -138,6 +221,49 @@ class SlackEventService:
                     text=bot_response,
                     thread_ts=thread_ts,
                 )
+
+            # Handle regular message events (automatic alert detection)
+            elif event_type == "message" and not event_subtype:
+                # Only ignore our own bot's messages, not other bots (like Sentry, Grafana)
+                if payload.event.get("user") == bot_user_id:
+                    logger.debug("Ignoring our bot's own message")
+                    return {"status": "ignored", "message": "Bot's own message"}
+
+                # Check if this message is an alert
+                message_text = event_context.get("text", "").strip()
+                should_respond, reason = alert_detector.should_auto_respond(
+                    message_text=message_text,
+                    bot_user_id=bot_user_id,
+                    channel_id=channel_id,
+                    event=payload.event,
+                )
+
+                if should_respond:
+                    logger.info(f"Auto-responding to alert in channel {channel_id}: {reason}")
+
+                    # Extract alert information
+                    alert_info = alert_detector.extract_alert_info(message_text, event=payload.event)
+
+                    # Process as RCA request
+                    bot_response = await SlackEventService.process_user_message(
+                        user_message=message_text,
+                        event_context=event_context,
+                        is_explicit_mention=False,
+                        alert_info=alert_info
+                    )
+
+                    # Reply in thread to keep channel clean
+                    thread_ts = event_context.get("thread_ts") or event_context.get("timestamp")
+
+                    await SlackEventService.send_message(
+                        team_id=team_id,
+                        channel=channel_id,
+                        text=bot_response,
+                        thread_ts=thread_ts,
+                    )
+                else:
+                    logger.debug(f"Not auto-responding: {reason}")
+                    return {"status": "ignored", "message": reason}
 
             # Call external webhook if configured (for additional processing)
             # if settings.SLACK_WEBHOOK_URL:
@@ -162,13 +288,24 @@ class SlackEventService:
             raise HTTPException(status_code=500, detail=str(e))
 
     @staticmethod
-    async def process_user_message(user_message: str, event_context: dict) -> str:
+    async def process_user_message(
+        user_message: str,
+        event_context: dict,
+        is_explicit_mention: bool = True,
+        alert_info: dict = None
+    ) -> str:
         """
         Process user's message and generate a response
 
-        This is where you add:
+        Args:
+            user_message: The message text
+            event_context: Slack event context
+            is_explicit_mention: True if user explicitly mentioned bot, False for auto-detected alerts
+            alert_info: Dictionary with alert metadata (platform, severity, etc.) if auto-detected
+
+        This handles:
         - Command parsing (help, status, etc.)
-        - AI integration (Groq, OpenAI, etc.)
+        - RCA request creation for alerts and user queries
         - Business logic
         """
         from app.services.sqs.client import sqs_client
@@ -182,38 +319,60 @@ class SlackEventService:
         # Remove bot mention from message to get clean text
         clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message).strip()
 
-        logger.info(f"Processing message from user {user_id}: '{clean_message}'")
+        # For automatic alert detection, provide different initial response
+        if not is_explicit_mention and alert_info:
+            platform = alert_info.get("platform", "monitoring tool")
+            severity = alert_info.get("severity", "")
+            severity_emoji = {
+                "critical": "🔴",
+                "high": "🟠",
+                "medium": "🟡",
+                "low": "🟢"
+            }.get(severity, "🔵")
 
-        # Simple command handling
-        if not clean_message or clean_message.lower() in ["hi", "hello", "hey"]:
-            return f"👋 Hi <@{user_id}>! How can I help you today? Ask me anything about your services, logs, or metrics!"
-
-        elif clean_message.lower() in ["help", "commands"]:
-            return (
-                f"Hi <@{user_id}>! Here's what I can do:\n\n"
-                "🔍 *AI-Powered Root Cause Analysis*\n"
-                "Ask me questions about your services and I'll investigate logs and metrics:\n"
-                '• _"Why is my xyz service slow?"_\n'
-                '• _"Check errors in api-gateway service"_\n'
-                '• _"What\'s causing high CPU on auth-service?"_\n'
-                '• _"Investigate database timeouts"_\n\n'
-                "📋 *Commands*\n"
-                "• `help` - Show this message\n"
-                "• `status` - Check bot health\n\n"
-                "I use AI to analyze your observability data and provide actionable insights! 🚀"
+            logger.info(
+                f"Processing auto-detected {platform} alert "
+                f"(severity: {severity or 'unknown'}) in channel {channel_id}"
             )
-
-        elif clean_message.lower() == "status":
-            return (
-                f"✅ System Status:\n\n"
-                f"• Bot: Online and running\n"
-                f"• AI Agent: Ready (Groq LLM)\n"
-                f"• Channel: <#{channel_id}>\n"
-                f"• Your User ID: {user_id}\n"
-                f"• Message received at: {timestamp}"
-            )
-
         else:
+            logger.info(f"Processing explicit mention from user {user_id}: '{clean_message}'")
+
+        # Simple command handling (only for explicit mentions)
+        if is_explicit_mention:
+            if not clean_message or clean_message.lower() in ["hi", "hello", "hey"]:
+                return f"👋 Hi <@{user_id}>! How can I help you today? Ask me anything about your services, logs, or metrics!"
+
+            elif clean_message.lower() in ["help", "commands"]:
+                return (
+                    f"Hi <@{user_id}>! Here's what I can do:\n\n"
+                    "🔍 *AI-Powered Root Cause Analysis*\n"
+                    "Ask me questions about your services and I'll investigate logs and metrics:\n"
+                    '• _"Why is my xyz service slow?"_\n'
+                    '• _"Check errors in api-gateway service"_\n'
+                    '• _"What\'s causing high CPU on auth-service?"_\n'
+                    '• _"Investigate database timeouts"_\n\n'
+                    "📋 *Commands*\n"
+                    "• `help` - Show this message\n"
+                    "• `status` - Check bot health\n\n"
+                    "💡 *NEW: Automatic Alert Monitoring*\n"
+                    "I now automatically detect and investigate alerts from Grafana, Sentry, and other tools!\n"
+                    "No need to tag me - I'll jump in when alerts appear 🚨\n\n"
+                    "I use AI to analyze your observability data and provide actionable insights! 🚀"
+                )
+
+            elif clean_message.lower() == "status":
+                return (
+                    f"✅ System Status:\n\n"
+                    f"• Bot: Online and running\n"
+                    f"• AI Agent: Ready (Groq LLM)\n"
+                    f"• Auto Alert Detection: Enabled ✨\n"
+                    f"• Channel: <#{channel_id}>\n"
+                    f"• Your User ID: {user_id}\n"
+                    f"• Message received at: {timestamp}"
+                )
+
+        # Process RCA query (works for both mentions and auto-detected alerts)
+        if True:  # Always process as RCA for non-command messages
             # This looks like an RCA query - create Job record and enqueue to SQS
             logger.info(f"Creating RCA job for query: '{clean_message}'")
 
@@ -287,7 +446,19 @@ class SlackEventService:
                             f"allowing request to proceed"
                         )
 
-                    # Create job record
+                    # Create job record with alert info if auto-detected
+                    job_context = {
+                        "query": clean_message,
+                        "user_id": user_id,
+                        "team_id": team_id,
+                        "is_explicit_mention": is_explicit_mention,
+                    }
+
+                    # Add alert metadata if this was auto-detected
+                    if alert_info:
+                        job_context["alert_info"] = alert_info
+                        job_context["auto_detected"] = True
+
                     job = Job(
                         id=job_id,
                         vm_workspace_id=workspace_id,
@@ -296,11 +467,7 @@ class SlackEventService:
                         trigger_thread_ts=thread_ts,
                         trigger_message_ts=timestamp,
                         status=JobStatus.QUEUED,
-                        requested_context={
-                            "query": clean_message,
-                            "user_id": user_id,
-                            "team_id": team_id,
-                        },
+                        requested_context=job_context,
                     )
                     db.add(job)
                     await db.commit()
@@ -311,11 +478,31 @@ class SlackEventService:
 
                 if success:
                     logger.info(f"✅ Job {job_id} enqueued to SQS")
-                    return (
-                        f"🔍 Got it! I'm analyzing: *\"{clean_message}\"*\n\n"
-                        f"This may take a moment while I investigate logs and metrics. "
-                        f"I'll reply here once I have the analysis ready."
-                    )
+
+                    # Different responses for auto-detected alerts vs explicit mentions
+                    if not is_explicit_mention and alert_info:
+                        platform = alert_info.get("platform", "monitoring tool")
+                        severity = alert_info.get("severity", "")
+                        severity_emoji = {
+                            "critical": "🔴",
+                            "high": "🟠",
+                            "medium": "🟡",
+                            "low": "🟢"
+                        }.get(severity, "🔵")
+
+                        return (
+                            f"{severity_emoji} *Alert Detected* {severity_emoji}\n\n"
+                            f"📊 Source: {platform.title()}\n"
+                            f"{f'⚠️ Severity: {severity.title()}' if severity else ''}\n\n"
+                            f"🤖 sit back and relax, I'm investigating this alert...\n"
+                            f"Analyzing logs, metrics, and recent changes. I'll provide my findings shortly."
+                        )
+                    else:
+                        return (
+                            f"🔍 Got it! I'm analyzing: *\"{clean_message[:100]}...\"*\n\n"
+                            f"This may take a moment while I investigate logs and metrics. "
+                            f"I'll reply here once I have the analysis ready."
+                        )
                 else:
                     logger.error(f"❌ Failed to enqueue job {job_id} to SQS")
                     # Mark job as failed since we couldn't enqueue it

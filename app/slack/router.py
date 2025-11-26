@@ -43,10 +43,13 @@ async def initiate_slack_install(
     # Create state with user_id, workspace_id, and random nonce (same pattern as GitHub)
     state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
+    # Updated scopes to listen to all messages in channels where bot is added
+    # channels:history - Read messages in public channels
+    # groups:history - Read messages in private channels
     oauth_url = (
         f"{settings.SLACK_OAUTH_AUTHORIZE_URL}?"
         f"client_id={settings.SLACK_CLIENT_ID}&"
-        f"scope=app_mentions:read,channels:read,chat:write,groups:read,channels:history&"
+        f"scope=app_mentions:read,channels:read,channels:history,groups:read,groups:history,chat:write&"
         f"user_scope=&"
         f"state={state}"
     )
@@ -94,16 +97,25 @@ async def handle_slack_events(request: Request):
     try:
         event_payload = SlackEventPayload(**payload_dict)
 
-        # Process app_mention events or member joined channel events
+        # Process multiple event types:
+        # 1. app_mention - When bot is explicitly mentioned
+        # 2. message - All messages in channels where bot is added (for auto alert detection)
+        # 3. channel_join - When bot joins a channel
+        event_type = event_payload.event.get("type")
+        event_subtype = event_payload.event.get("subtype")
+
+        logger.info(f"📩 Received Slack event - type: {event_type}, subtype: {event_subtype}")
+
         if (
-            event_payload.event.get("type") == "app_mention"
-            or event_payload.event.get("subtype") == "channel_join"
+            event_type == "app_mention"
+            or event_type == "message"
+            or event_subtype == "channel_join"
         ):
             result = await slack_event_service.handle_slack_event(event_payload)
             return JSONResponse(result)
 
         return JSONResponse(
-            {"status": "ignored", "message": "Not an app mention event"},
+            {"status": "ignored", "message": f"Event type '{event_type}' not handled"},
             status_code=200,
         )
 

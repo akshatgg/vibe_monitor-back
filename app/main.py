@@ -61,8 +61,9 @@ async def lifespan(app: FastAPI):
 
         # Start metrics push background task
         
-        metrics_task = asyncio.create_task(push_metrics_to_gateway())
-        logger.info("Metrics push task started")
+        if settings.ENVIRONMENT == "production":
+            metrics_task = asyncio.create_task(push_metrics_to_gateway())
+            logger.info("Metrics push task started")
 
         logger.info("All services started successfully")
         yield

@@ -23,18 +23,26 @@ class SlackEventPayload(BaseModel):
         Validate and extract key event information
         Ensure event has required fields
         """
-        required_fields = ["type", "user", "text", "ts", "channel"]
+        required_fields = ["type", "text", "ts", "channel"]
         for field in required_fields:
             if field not in event:
                 raise ValueError(f"Missing required event field: {field}")
+
+        # Security: Require either user or bot_id for message tracking
+        # User messages have 'user', bot messages (Grafana/Sentry) have 'bot_id'
+        if "user" not in event and "bot_id" not in event:
+            raise ValueError("Message must have either 'user' or 'bot_id' for proper tracking")
+
         return event
 
     def extract_message_context(self) -> Dict[str, Any]:
         """
         Extract context details from Slack event
+        Captures both user_id (for human messages) and bot_id (for bot alerts)
         """
         return {
             "user_id": self.event.get("user"),
+            "bot_id": self.event.get("bot_id"),  # For bot messages (Grafana/Sentry)
             "channel_id": self.event.get("channel"),
             "timestamp": self.event.get("ts"),
             "text": self.event.get("text", "").strip(),
