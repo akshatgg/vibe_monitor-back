@@ -86,8 +86,8 @@ The project uses branch-based deployments with GitHub Actions:
 
 | Branch | Environment | ECS Cluster | Service | URL |
 |--------|-------------|-------------|---------|-----|
-| `main` | Production | `vm-prod` | `vm-api-svc-prod` | https://api.vibemonitor.ai |
-| `dev` | Development | `vm-dev` | `vm-api-svc-dev` | https://dev.vibemonitor.ai |
+| `main` | Production | `vm-api-prod-cluster` | `vm-api-svc-prod` | https://api.vibemonitor.ai |
+| `dev` | Development | `vm-api-cluster-dev` | `vm-api-svc-dev` | https://dev.vibemonitor.ai |
 
 **How it works:**
 - Push to `main` branch → GitHub Actions automatically deploys to production
@@ -96,10 +96,36 @@ The project uses branch-based deployments with GitHub Actions:
 **Deployment workflow:**
 1. Build Docker image with environment-specific tag (`prod-{sha}` or `dev-{sha}`)
 2. Push to ECR repository
-3. Render task definition from `taskdef.template.json` with environment variables
+3. **Render task definition** from `taskdef.template.json` with environment variables
 4. Register new ECS task definition
 5. Update ECS service with new task definition
 6. Wait for service to stabilize
+
+### Task Definition Template System
+
+**Important:** We use a **single template file** (`taskdef.template.json`) for all environments, not separate `taskdef-dev.json` or `taskdef-prod.json` files.
+
+**Template placeholders:**
+- `ACCOUNT_ID_PLACEHOLDER` → AWS account ID
+- `ENV_PLACEHOLDER` → Environment (`prod` or `dev`)
+- `IMAGE_TAG_PLACEHOLDER` → Docker image tag
+
+**Example from template:**
+```json
+{
+  "family": "vm-api-ENV_PLACEHOLDER",
+  "image": "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.us-west-1.amazonaws.com/vm-api:IMAGE_TAG_PLACEHOLDER",
+  "secrets": [
+    {"name": "DATABASE_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-database-url"}
+  ]
+}
+```
+
+**During deployment, these get replaced to produce environment-specific task definitions:**
+- Dev: `/vm-api-dev/supabase-database-url`
+- Prod: `/vm-api-prod/supabase-database-url`
+
+This ensures environment isolation while maintaining a single source of truth for the task definition structure.
 
 **Infrastructure:**
 - All infrastructure setup scripts and documentation are in the `vm-infra` repository
