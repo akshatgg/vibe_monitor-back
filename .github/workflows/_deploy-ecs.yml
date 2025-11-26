@@ -44,6 +44,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false  # Queue deployments instead of canceling
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
