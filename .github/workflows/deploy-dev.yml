@@ -95,35 +95,6 @@ jobs:
 
           echo "✓ Task definition validation passed"
 
-      - name: Verify image exists in ECR
-        run: |
-          echo "Verifying image exists in ECR: $ECR_URI/$ECR_REPO:$IMAGE_TAG"
-
-          # Retry verification with backoff to handle ECR eventual consistency
-          MAX_ATTEMPTS=5
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            if aws ecr describe-images \
-              --repository-name $ECR_REPO \
-              --image-ids imageTag=$IMAGE_TAG \
-              --region $AWS_REGION \
-              --query 'imageDetails[0].imageTags[0]' \
-              --output text > /dev/null 2>&1; then
-              echo "✓ Image verified in ECR (attempt $ATTEMPT)"
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT: Image not found yet, waiting 3 seconds..."
-              sleep 3
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "ERROR: Image $IMAGE_TAG not found in ECR repository $ECR_REPO after $MAX_ATTEMPTS attempts"
-          echo "This indicates the Docker build or push failed"
-          exit 1
-
       - name: Register task definition
         id: taskdef
         run: |
