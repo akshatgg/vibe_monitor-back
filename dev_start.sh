@@ -116,9 +116,17 @@ export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54322/post
 export AWS_ENDPOINT_URL="http://localhost:4566"
 export SQS_QUEUE_URL="http://localhost:4566/000000000000/vm-api-queue"
 export AWS_REGION="us-east-1"
-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
-export ENVIRONMENT="development"
+# DO NOT export AWS credentials - let boto3 use ~/.aws/credentials for real AWS
+# LocalStack SQS will work without credentials when using AWS_ENDPOINT_URL
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+
+# Owner Role Configuration (for two-stage STS AssumeRole)
+# Set these if you want to test two-stage authentication locally
+export OWNER_ROLE_ARN="${OWNER_ROLE_ARN:-}"
+export OWNER_ROLE_EXTERNAL_ID="${OWNER_ROLE_EXTERNAL_ID:-}"
+
+export ENVIRONMENT="local_dev"
 
 echo -e "${GREEN}✓ Environment configured${NC}"
 echo ""

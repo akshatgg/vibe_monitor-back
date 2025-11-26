@@ -304,4 +304,49 @@ class MailgunEmail(Base):
         Index("idx_mailgun_emails_sent_at", "sent_at"),
         Index("idx_mailgun_emails_status", "status"),
     )
- 
+
+
+class AWSIntegration(Base):
+    """
+    Stores AWS IAM role ARN and temporary STS credentials for workspace integrations.
+    Uses AssumeRole to get temporary credentials instead of storing long-term keys.
+    Credentials are encrypted before storage.
+    """
+
+    __tablename__ = "aws_integrations"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # IAM Role ARN for AssumeRole
+    role_arn = Column(String, nullable=False)  # e.g., arn:aws:iam::123456789012:role/VibeMonitor
+
+    # External ID for secure cross-account access (encrypted)
+    external_id = Column(String, nullable=True)  # Encrypted external ID for AssumeRole
+
+    # Encrypted temporary STS credentials (from AssumeRole response)
+    access_key_id = Column(String, nullable=False)  # Encrypted temporary access key
+    secret_access_key = Column(String, nullable=False)  # Encrypted temporary secret key
+    session_token = Column(String, nullable=False)  # Encrypted session token
+
+    # Credential expiration tracking
+    credentials_expiration = Column(DateTime(timezone=True), nullable=False)  # When STS credentials expire
+
+    # Optional region configuration
+    aws_region = Column(String, nullable=True, default="us-west-1")
+
+    # Status tracking
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="aws_integrations")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_aws_integration_workspace", "workspace_id"),
+        Index("idx_aws_integration_active", "is_active"),
+    )
