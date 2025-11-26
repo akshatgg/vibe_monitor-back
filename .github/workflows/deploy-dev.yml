@@ -53,6 +53,7 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 30
           command: |
+            set -e  # Exit immediately if any command fails
             IMAGE_TAG=dev-${GITHUB_SHA}
             docker build -t $ECR_URI/$ECR_REPO:$IMAGE_TAG .
             docker push $ECR_URI/$ECR_REPO:$IMAGE_TAG
@@ -93,6 +94,22 @@ jobs:
           done
 
           echo "✓ Task definition validation passed"
+
+      - name: Verify image exists in ECR
+        run: |
+          echo "Verifying image exists in ECR: $ECR_URI/$ECR_REPO:$IMAGE_TAG"
+          if aws ecr describe-images \
+            --repository-name $ECR_REPO \
+            --image-ids imageTag=$IMAGE_TAG \
+            --region $AWS_REGION \
+            --query 'imageDetails[0].imageTags[0]' \
+            --output text > /dev/null 2>&1; then
+            echo "✓ Image verified in ECR"
+          else
+            echo "ERROR: Image $IMAGE_TAG not found in ECR repository $ECR_REPO"
+            echo "This indicates the Docker build or push failed"
+            exit 1
+          fi
 
       - name: Register task definition
         id: taskdef
