@@ -1,25 +1,62 @@
-name: Deploy to ECS Production
+name: ECS Deployment (Reusable)
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (dev/prod)'
+        required: true
+        type: string
+      aws_region:
+        description: 'AWS region'
+        required: false
+        type: string
+        default: 'us-west-1'
+      ecr_repo:
+        description: 'ECR repository name'
+        required: false
+        type: string
+        default: 'vm-api'
+      ecs_cluster:
+        description: 'ECS cluster name'
+        required: true
+        type: string
+      ecs_service:
+        description: 'ECS service name'
+        required: true
+        type: string
+      container_name:
+        description: 'Container name'
+        required: false
+        type: string
+        default: 'app'
+      iam_role_session_name:
+        description: 'IAM role session name'
+        required: false
+        type: string
+        default: 'gha-ecs-deploy'
+    secrets:
+      aws_account_id:
+        description: 'AWS Account ID'
+        required: true
 
 permissions:
   id-token: write
   contents: read
 
-env:
-  AWS_REGION: us-west-1
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  ECR_REPO: vm-api
-  ECS_CLUSTER: vm-api-cluster-prod
-  ECS_SERVICE: vm-api-svc-prod
-  CONTAINER_NAME: app
-  ENVIRONMENT: prod
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    env:
+      AWS_REGION: ${{ inputs.aws_region }}
+      AWS_ACCOUNT_ID: ${{ secrets.aws_account_id }}
+      ECR_REPO: ${{ inputs.ecr_repo }}
+      ECS_CLUSTER: ${{ inputs.ecs_cluster }}
+      ECS_SERVICE: ${{ inputs.ecs_service }}
+      CONTAINER_NAME: ${{ inputs.container_name }}
+      ENVIRONMENT: ${{ inputs.environment }}
 
     steps:
       - name: Checkout
@@ -30,7 +67,7 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GithubActionsEcsDeployer
-          role-session-name: gha-ecs-deploy
+          role-session-name: ${{ inputs.iam_role_session_name }}
 
       - name: Login to ECR
         id: ecr-login
@@ -52,7 +89,8 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 30
           command: |
-            IMAGE_TAG=prod-${GITHUB_SHA}
+            set -e  # Exit immediately if any command fails
+            IMAGE_TAG=${{ inputs.environment }}-${GITHUB_SHA}
             docker build -t $ECR_URI/$ECR_REPO:$IMAGE_TAG .
             docker push $ECR_URI/$ECR_REPO:$IMAGE_TAG
             echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
@@ -138,58 +176,35 @@ jobs:
         if: failure() && steps.wait-stable.outcome == 'failure'
         run: |
           echo "================================"
-          echo "❌ DEPLOYMENT FAILED - DEBUGGING"
+          echo "❌ DEPLOYMENT FAILED"
           echo "================================"
           echo ""
 
-          # Get service events
+          # Get most recent service events (last 5)
           echo "📋 Recent Service Events:"
-          echo "------------------------"
           aws ecs describe-services \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE \
             --region $AWS_REGION \
-            --query 'services[0].events[:10].[createdAt,message]' \
+            --query 'services[0].events[:5].[createdAt,message]' \
             --output table
-
           echo ""
-          echo "🔍 Task Status:"
-          echo "---------------"
 
-          # Get all tasks for this service
+          # Try to get container logs from the running/failed task
           TASK_ARNS=$(aws ecs list-tasks \
             --cluster $ECS_CLUSTER \
             --service-name $ECS_SERVICE \
             --region $AWS_REGION \
-            --query 'taskArns' \
+            --query 'taskArns[0]' \
             --output text)
 
-          if [ -n "$TASK_ARNS" ]; then
-            # Describe all tasks
-            aws ecs describe-tasks \
-              --cluster $ECS_CLUSTER \
-              --tasks $TASK_ARNS \
-              --region $AWS_REGION \
-              --query 'tasks[*].[taskArn,lastStatus,healthStatus,stopCode,stoppedReason,containers[0].exitCode]' \
-              --output table
+          if [ -n "$TASK_ARNS" ] && [ "$TASK_ARNS" != "None" ]; then
+            TASK_ID=$(echo $TASK_ARNS | rev | cut -d'/' -f1 | rev)
+            LOG_GROUP="/ecs/vm-api-logs-${ENVIRONMENT}"
+            LOG_STREAM="ecs/${TASK_ID}"
 
-            echo ""
-            echo "📝 Container Logs (Last 50 Lines):"
-            echo "----------------------------------"
-
-            # Get the first task ARN
-            TASK_ARN=$(echo $TASK_ARNS | awk '{print $1}')
-            TASK_ID=$(echo $TASK_ARN | rev | cut -d'/' -f1 | rev)
-
-            # CloudWatch log group and stream
-            LOG_GROUP="/ecs/${ENVIRONMENT}/${CONTAINER_NAME}"
-            LOG_STREAM="ecs/${CONTAINER_NAME}/${TASK_ID}"
-
-            echo "Log Group: $LOG_GROUP"
-            echo "Log Stream: $LOG_STREAM"
-            echo ""
-
-            # Fetch logs from CloudWatch
+            echo "📝 Container Logs (most recent):"
+            echo "Log: $LOG_GROUP / $LOG_STREAM"
             if aws logs get-log-events \
               --log-group-name "$LOG_GROUP" \
               --log-stream-name "$LOG_STREAM" \
@@ -197,50 +212,18 @@ jobs:
               --region $AWS_REGION \
               --query 'events[*].message' \
               --output text 2>/dev/null; then
-              echo "✓ Retrieved container logs"
+              :
             else
-              echo "⚠️ Could not retrieve logs from CloudWatch (container may not have started)"
-              echo ""
-              echo "Checking for stopped tasks with errors:"
-
-              # Get stopped tasks
-              STOPPED_TASKS=$(aws ecs list-tasks \
-                --cluster $ECS_CLUSTER \
-                --service-name $ECS_SERVICE \
-                --desired-status STOPPED \
-                --region $AWS_REGION \
-                --query 'taskArns[0:5]' \
-                --output text)
-
-              if [ -n "$STOPPED_TASKS" ]; then
-                for STOPPED_TASK in $STOPPED_TASKS; do
-                  STOPPED_TASK_ID=$(echo $STOPPED_TASK | rev | cut -d'/' -f1 | rev)
-                  STOPPED_LOG_STREAM="ecs/${CONTAINER_NAME}/${STOPPED_TASK_ID}"
-
-                  echo "Checking logs for stopped task: $STOPPED_TASK_ID"
-
-                  aws logs get-log-events \
-                    --log-group-name "$LOG_GROUP" \
-                    --log-stream-name "$STOPPED_LOG_STREAM" \
-                    --limit 30 \
-                    --region $AWS_REGION \
-                    --query 'events[*].message' \
-                    --output text 2>/dev/null || echo "No logs found"
-
-                  echo "---"
-                done
-              fi
+              echo "⚠️ No logs available (container may not have started)"
             fi
-          else
-            echo "⚠️ No tasks found for this service"
           fi
-
           echo ""
+
+          # Automatic rollback
           echo "================================"
           echo "🔄 AUTOMATIC ROLLBACK"
           echo "================================"
 
-          # Get the previous stable task definition
           PREVIOUS_TASKDEF=$(aws ecs describe-services \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE \
@@ -249,31 +232,21 @@ jobs:
             --output text)
 
           if [ -n "$PREVIOUS_TASKDEF" ] && [ "$PREVIOUS_TASKDEF" != "None" ]; then
-            echo "Rolling back to previous stable task definition: $PREVIOUS_TASKDEF"
-
+            echo "Rolling back to: $PREVIOUS_TASKDEF"
             aws ecs update-service \
               --cluster $ECS_CLUSTER \
               --service $ECS_SERVICE \
               --task-definition $PREVIOUS_TASKDEF \
               --region $AWS_REGION \
-              --no-cli-pager
-
-            echo "✅ Rollback initiated to: $PREVIOUS_TASKDEF"
-            echo "The service will automatically drain the failed deployment and restore the previous version."
+              --output text \
+              --query 'service.taskDefinition'
+            echo "✅ Rollback initiated"
           else
-            echo "⚠️ Could not find previous stable task definition for automatic rollback"
-            echo "ECS will attempt to use the last known working configuration"
+            echo "⚠️ No previous stable deployment found"
           fi
+          echo ""
 
-          echo ""
-          echo "================================"
-          echo "💡 Manual Investigation Commands:"
-          echo "================================"
-          echo "View service details:"
+          # Manual investigation commands
+          echo "💡 To investigate further:"
+          echo "  aws logs tail /ecs/vm-api-logs-${ENVIRONMENT} --follow --region $AWS_REGION"
           echo "  aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --region $AWS_REGION"
-          echo ""
-          echo "View task logs:"
-          echo "  aws logs tail /ecs/${ENVIRONMENT}/${CONTAINER_NAME} --follow --region $AWS_REGION"
-          echo ""
-          echo "Force rollback to specific revision:"
-          echo "  aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition <task-def-arn> --region $AWS_REGION"

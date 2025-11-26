@@ -1,0 +1,20 @@
+name: Deploy to ECS - Prod
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy-ecs.yml
+    with:
+      environment: prod
+      ecs_cluster: vm-api-cluster-prod
+      ecs_service: vm-api-svc-prod
+      iam_role_session_name: gha-ecs-deploy-prod
+    secrets:
+      aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
