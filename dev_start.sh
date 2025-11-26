@@ -126,7 +126,7 @@ export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
 export OWNER_ROLE_ARN="${OWNER_ROLE_ARN:-}"
 export OWNER_ROLE_EXTERNAL_ID="${OWNER_ROLE_EXTERNAL_ID:-}"
 
-export ENVIRONMENT="development"
+export ENVIRONMENT="local_dev"
 
 echo -e "${GREEN}✓ Environment configured${NC}"
 echo ""

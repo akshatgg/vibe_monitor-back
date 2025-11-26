@@ -52,38 +52,49 @@ class AWSIntegrationService:
                 os.environ['AWS_ENDPOINT_URL'] = original_endpoint
 
     @staticmethod
-    def _create_boto_session(
+    def _create_boto_client(
+        service_name: str,
         region_name: str,
         access_key_id: Optional[str] = None,
         secret_access_key: Optional[str] = None,
         session_token: Optional[str] = None
-    ) -> boto3.Session:
+    ):
         """
-        Create a boto3 session with explicit configuration
-        Use with _bypass_localstack() context manager to ensure real AWS connection
+        Create a boto3 client with explicit configuration
+
+        NOTE: To connect to real AWS instead of LocalStack, use this method
+        within the _bypass_localstack() context manager, which temporarily
+        removes AWS_ENDPOINT_URL from the environment.
 
         Args:
-            access_key_id: AWS Access Key ID
-            secret_access_key: AWS Secret Access Key
-            session_token: AWS Session Token (for temporary credentials)
+            service_name: AWS service name (e.g., 'sts', 'logs')
             region_name: AWS Region
+            access_key_id: AWS Access Key ID (optional)
+            secret_access_key: AWS Secret Access Key (optional)
+            session_token: AWS Session Token (optional)
 
         Returns:
-            boto3.Session configured with provided credentials
+            boto3 client configured with provided credentials
         """
-        return boto3.Session(
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
-            aws_session_token=session_token,
-            region_name=region_name
-        )
+        config = {
+            'region_name': region_name,
+        }
+
+        if access_key_id:
+            config['aws_access_key_id'] = access_key_id
+        if secret_access_key:
+            config['aws_secret_access_key'] = secret_access_key
+        if session_token:
+            config['aws_session_token'] = session_token
+
+        return boto3.client(service_name, **config)
 
     @staticmethod
     async def assume_owner_role(region: str) -> Dict[str, Any]:
         """
         Assume the owner role (first stage of two-stage authentication)
         Caches credentials to avoid repeated assumptions
-        Should only be called in dev/development environment
+        Should only be called in local_dev environment (local development only)
 
         Args:
             region: AWS Region
@@ -104,15 +115,13 @@ class AWSIntegrationService:
         try:
             # Bypass LocalStack to connect to real AWS STS
             with AWSIntegrationService._bypass_localstack():
-                # Create session with host credentials (from environment or ECS task role)
-                session = AWSIntegrationService._create_boto_session(
-                    access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=region
-                )
-
                 # Connect to real AWS STS (LocalStack endpoint bypassed)
-                sts_client = session.client("sts")
+                sts_client = AWSIntegrationService._create_boto_client(
+                    service_name="sts",
+                    region_name=region,
+                    access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+                )
 
                 # Prepare AssumeRole parameters for owner role
                 assume_role_params = {
@@ -173,30 +182,29 @@ class AWSIntegrationService:
             Exception: If role assumption fails
         """
         try:
-            # Check if running in dev/development environment
-            if settings.ENVIRONMENT and settings.ENVIRONMENT.lower() in ["dev", "development"]:
-                # DEV: Two-stage authentication (Host -> Owner Role -> Client Role)
+            # Check if running in local_dev environment (local development only)
+            if settings.ENVIRONMENT and settings.ENVIRONMENT.lower() == "local_dev":
+                # LOCAL_DEV: Two-stage authentication (Host -> Owner Role -> Client Role)
                 # Bypass LocalStack to connect to real AWS STS
                 with AWSIntegrationService._bypass_localstack():
                     owner_credentials = await AWSIntegrationService.assume_owner_role(region)
-                    session = AWSIntegrationService._create_boto_session(
+                    # Connect to real AWS STS with owner role credentials
+                    sts_client = AWSIntegrationService._create_boto_client(
+                        service_name="sts",
+                        region_name=region,
                         access_key_id=owner_credentials["access_key_id"],
                         secret_access_key=owner_credentials["secret_access_key"],
-                        session_token=owner_credentials["session_token"],
-                        region_name=region
+                        session_token=owner_credentials["session_token"]
                     )
-                    # Connect to real AWS STS (LocalStack endpoint bypassed)
-                    sts_client = session.client("sts")
             else:
-                # PRODUCTION: Direct authentication using ECS Task IAM Role (Host -> Client Role)
+                # DEV/PROD: Direct authentication using ECS Task IAM Role (Host -> Client Role)
                 # Don't pass credentials - let boto3 automatically use ECS task role
-                session = AWSIntegrationService._create_boto_session(
+                sts_client = AWSIntegrationService._create_boto_client(
+                    service_name="sts",
                     region_name=region
                 )
-                # Connect to real AWS STS
-                sts_client = session.client("sts")
 
-            # Prepare AssumeRole parameters for client role (common for both dev and production)
+            # Prepare AssumeRole parameters for client role (common for all environments)
             assume_role_params = {
                 "RoleArn": role_arn,
                 "RoleSessionName": "vibe-monitor-client-session",
@@ -250,15 +258,14 @@ class AWSIntegrationService:
             # Step 2: Verify CloudWatch Logs access with temporary client credentials
             # Bypass LocalStack to connect to real AWS CloudWatch
             with AWSIntegrationService._bypass_localstack():
-                session = AWSIntegrationService._create_boto_session(
+                # Test CloudWatch Logs access (always uses real AWS)
+                logs_client = AWSIntegrationService._create_boto_client(
+                    service_name="logs",
+                    region_name=region,
                     access_key_id=credentials["access_key_id"],
                     secret_access_key=credentials["secret_access_key"],
-                    session_token=credentials["session_token"],
-                    region_name=region
+                    session_token=credentials["session_token"]
                 )
-
-                # Test CloudWatch Logs access (always uses real AWS)
-                logs_client = session.client("logs")
                 logs_client.describe_log_groups(limit=1)
 
             # Extract account ID from role ARN (format: arn:aws:iam::123456789012:role/RoleName)
