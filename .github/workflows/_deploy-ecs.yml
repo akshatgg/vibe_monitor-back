@@ -157,14 +157,64 @@ jobs:
         run: |
           echo "Waiting for service to become stable (timeout: 10 minutes)..."
           echo "This monitors the ECS deployment until all tasks are running and healthy"
+          echo ""
 
-          # aws ecs wait has a default timeout of 10 minutes (40 checks at 15s intervals)
-          if aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE; then
-            echo "✅ Service is stable!"
-          else
-            echo "❌ Service failed to stabilize within 10 minutes"
-            exit 1
-          fi
+          # Monitor service with detailed status updates
+          MAX_ATTEMPTS=40  # 10 minutes (40 * 15s)
+          ATTEMPT=0
+          LAST_FAILED_COUNT=0
+
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+
+            # Get deployment status
+            DEPLOYMENT_STATUS=$(aws ecs describe-services \
+              --cluster $ECS_CLUSTER \
+              --services $ECS_SERVICE \
+              --region $AWS_REGION \
+              --query 'services[0].deployments[?rolloutState==`IN_PROGRESS`].[desiredCount,runningCount,pendingCount,failedTasks]' \
+              --output json)
+
+            # Parse counts
+            DESIRED=$(echo "$DEPLOYMENT_STATUS" | jq -r '.[0][0] // 0')
+            RUNNING=$(echo "$DEPLOYMENT_STATUS" | jq -r '.[0][1] // 0')
+            PENDING=$(echo "$DEPLOYMENT_STATUS" | jq -r '.[0][2] // 0')
+            FAILED=$(echo "$DEPLOYMENT_STATUS" | jq -r '.[0][3] // 0')
+
+            # Check if deployment is complete
+            ROLLOUT_STATE=$(aws ecs describe-services \
+              --cluster $ECS_CLUSTER \
+              --services $ECS_SERVICE \
+              --region $AWS_REGION \
+              --query 'services[0].deployments[?status==`PRIMARY`].rolloutState' \
+              --output text)
+
+            # Show status update
+            STATUS_LINE="[$ATTEMPT/$MAX_ATTEMPTS] Deployment: DESIRED=$DESIRED | RUNNING=$RUNNING | PENDING=$PENDING | FAILED=$FAILED | STATE=$ROLLOUT_STATE"
+
+            # Add warning indicator if tasks are failing
+            if [ "$FAILED" -gt 0 ] && [ "$FAILED" -gt "$LAST_FAILED_COUNT" ]; then
+              echo "$STATUS_LINE ⚠️  NEW FAILURES"
+              LAST_FAILED_COUNT=$FAILED
+            else
+              echo "$STATUS_LINE"
+            fi
+
+            # Check if deployment is complete
+            if [ "$ROLLOUT_STATE" = "COMPLETED" ]; then
+              echo ""
+              echo "✅ Service is stable!"
+              exit 0
+            fi
+
+            # Wait 15 seconds before next check
+            sleep 15
+          done
+
+          # Timeout reached
+          echo ""
+          echo "❌ Service failed to stabilize within 10 minutes"
+          exit 1
 
       - name: Get deployment status
         if: success()
@@ -182,42 +232,61 @@ jobs:
           echo "================================"
           echo ""
 
-          # Get most recent service events (last 5)
+          # Get most recent service events (last 10 for better context)
           echo "📋 Recent Service Events:"
           aws ecs describe-services \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE \
             --region $AWS_REGION \
-            --query 'services[0].events[:5].[createdAt,message]' \
+            --query 'services[0].events[:10].[createdAt,message]' \
             --output table
           echo ""
 
-          # Try to get container logs from the running/failed task
-          TASK_ARNS=$(aws ecs list-tasks \
+          # Get failed/stopped tasks details
+          echo "🔍 Checking for failed tasks..."
+          STOPPED_TASKS=$(aws ecs list-tasks \
             --cluster $ECS_CLUSTER \
-            --service-name $ECS_SERVICE \
+            --desired-status STOPPED \
             --region $AWS_REGION \
-            --query 'taskArns[0]' \
+            --query 'taskArns[0:2]' \
             --output text)
 
-          if [ -n "$TASK_ARNS" ] && [ "$TASK_ARNS" != "None" ]; then
-            TASK_ID=$(echo $TASK_ARNS | rev | cut -d'/' -f1 | rev)
-            LOG_GROUP="/ecs/vm-api-logs-${ENVIRONMENT}"
-            LOG_STREAM="ecs/${TASK_ID}"
+          if [ -n "$STOPPED_TASKS" ] && [ "$STOPPED_TASKS" != "None" ]; then
+            echo "Found stopped tasks. Getting failure details..."
+            for TASK_ARN in $STOPPED_TASKS; do
+              TASK_ID=$(echo $TASK_ARN | rev | cut -d'/' -f1 | rev)
 
-            echo "📝 Container Logs (most recent):"
-            echo "Log: $LOG_GROUP / $LOG_STREAM"
-            if aws logs get-log-events \
-              --log-group-name "$LOG_GROUP" \
-              --log-stream-name "$LOG_STREAM" \
-              --limit 50 \
-              --region $AWS_REGION \
-              --query 'events[*].message' \
-              --output text 2>/dev/null; then
-              :
-            else
-              echo "⚠️ No logs available (container may not have started)"
-            fi
+              # Get stop reason
+              STOP_INFO=$(aws ecs describe-tasks \
+                --cluster $ECS_CLUSTER \
+                --tasks $TASK_ARN \
+                --region $AWS_REGION \
+                --query 'tasks[0].[stoppedReason,containers[0].reason,containers[0].exitCode]' \
+                --output json)
+
+              STOP_REASON=$(echo "$STOP_INFO" | jq -r '.[0] // "N/A"')
+              CONTAINER_REASON=$(echo "$STOP_INFO" | jq -r '.[1] // "N/A"')
+              EXIT_CODE=$(echo "$STOP_INFO" | jq -r '.[2] // "N/A"')
+
+              echo ""
+              echo "Task: $TASK_ID"
+              echo "  Stop Reason: $STOP_REASON"
+              echo "  Container Reason: $CONTAINER_REASON"
+              echo "  Exit Code: $EXIT_CODE"
+            done
+          fi
+          echo ""
+
+          # Fetch container logs from log group (last 10 minutes)
+          LOG_GROUP="/ecs/vm-api-logs-${ENVIRONMENT}"
+          echo "📝 Container Logs (last 10 minutes from all tasks):"
+          echo "Log Group: $LOG_GROUP"
+          echo ""
+
+          if aws logs tail "$LOG_GROUP" --since 10m --region $AWS_REGION --format short 2>/dev/null | tail -100; then
+            echo ""
+          else
+            echo "⚠️ No logs available (log group may not exist or no recent logs)"
           fi
           echo ""
 
