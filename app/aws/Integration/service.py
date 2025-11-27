@@ -7,6 +7,7 @@ Implements two-stage authentication: Host -> Owner Role -> Client Role
 import os
 import uuid
 import logging
+import asyncio
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,28 @@ class AWSIntegrationService:
     # Cache for owner role credentials (to avoid repeated assumptions)
     _owner_credentials_cache: Optional[Dict[str, Any]] = None
     _owner_credentials_expiration: Optional[datetime] = None
+    _owner_credentials_lock: asyncio.Lock = asyncio.Lock()
+
+    # Per-workspace locks for client credential renewal (to avoid redundant assume_role calls)
+    _client_role_locks: Dict[str, asyncio.Lock] = {}
+    _client_role_locks_lock: asyncio.Lock = asyncio.Lock()
+
+    @staticmethod
+    async def _get_workspace_lock(workspace_id: str) -> asyncio.Lock:
+        """
+        Get or create a lock for a specific workspace
+        Thread-safe lock management for per-workspace credential renewal
+
+        Args:
+            workspace_id: Workspace ID
+
+        Returns:
+            asyncio.Lock for the workspace
+        """
+        async with AWSIntegrationService._client_role_locks_lock:
+            if workspace_id not in AWSIntegrationService._client_role_locks:
+                AWSIntegrationService._client_role_locks[workspace_id] = asyncio.Lock()
+            return AWSIntegrationService._client_role_locks[workspace_id]
 
     @staticmethod
     @contextmanager
@@ -59,6 +82,7 @@ class AWSIntegrationService:
         secret_access_key: Optional[str] = None,
         session_token: Optional[str] = None
     ):
+
         """
         Create a boto3 client with explicit configuration
 
@@ -97,7 +121,7 @@ class AWSIntegrationService:
         Should only be called in local_dev environment (local development only)
 
         Args:
-            region: AWS Region
+            region: AWS Region (from database)
 
         Returns:
             Dict containing temporary owner role credentials
@@ -105,7 +129,7 @@ class AWSIntegrationService:
         Raises:
             Exception: If owner role assumption fails
         """
-        # Check cache first (refresh if expiring within 5 minutes)
+        # Quick check without lock (optimization for cached credentials)
         now = datetime.now(timezone.utc)
         if (AWSIntegrationService._owner_credentials_cache
             and AWSIntegrationService._owner_credentials_expiration
@@ -134,11 +158,10 @@ class AWSIntegrationService:
                 if settings.OWNER_ROLE_EXTERNAL_ID:
                     assume_role_params["ExternalId"] = settings.OWNER_ROLE_EXTERNAL_ID
 
-                # Assume the owner role
                 response = sts_client.assume_role(**assume_role_params)
                 credentials = response["Credentials"]
 
-            # Cache the credentials
+                # Cache the credentials
             owner_credentials = {
                 "access_key_id": credentials["AccessKeyId"],
                 "secret_access_key": credentials["SecretAccessKey"],
@@ -146,6 +169,7 @@ class AWSIntegrationService:
                 "expiration": credentials["Expiration"],
             }
 
+            # Update cache while holding lock
             AWSIntegrationService._owner_credentials_cache = owner_credentials
             AWSIntegrationService._owner_credentials_expiration = credentials["Expiration"]
 
@@ -171,7 +195,7 @@ class AWSIntegrationService:
 
         Args:
             role_arn: AWS IAM Role ARN to assume (client role)
-            region: AWS Region
+            region: AWS Region (from database)
             duration_seconds: Duration for temporary credentials (default 3600 = 1 hour)
             external_id: Optional external ID for cross-account access security
 
@@ -205,6 +229,7 @@ class AWSIntegrationService:
                 )
 
             # Prepare AssumeRole parameters for client role (common for all environments)
+
             assume_role_params = {
                 "RoleArn": role_arn,
                 "RoleSessionName": "vibe-monitor-client-session",
@@ -243,7 +268,7 @@ class AWSIntegrationService:
 
         Args:
             role_arn: AWS IAM Role ARN (client role)
-            region: AWS Region
+            region: AWS Region (from request)
             external_id: Optional external ID for client role
 
         Returns:
@@ -422,38 +447,47 @@ class AWSIntegrationService:
         expiration_threshold = now + timedelta(minutes=5)
 
         if integration.credentials_expiration <= expiration_threshold:
-            # Refresh credentials by assuming role again
-            try:
-                # Decrypt external_id if present
-                external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
-
-                credentials = await self.assume_role(
-                    integration.role_arn,
-                    integration.aws_region,
-                    external_id=external_id
-                )
-
-                # Update with new encrypted credentials
-                integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
-                integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
-                integration.session_token = token_processor.encrypt(credentials["session_token"])
-                integration.credentials_expiration = credentials["expiration"]
-                integration.last_verified_at = now
-
-                await db.commit()
+            # Acquire workspace-specific lock to prevent concurrent renewal
+            workspace_lock = await self._get_workspace_lock(workspace_id)
+            async with workspace_lock:
+                # Double-check expiration after acquiring lock (another request might have refreshed)
                 await db.refresh(integration)
+                now = datetime.now(timezone.utc)
+                expiration_threshold = now + timedelta(minutes=5)
 
-            except Exception as e:
-                logger.error(
-                    f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
-                    exc_info=True,
-                    extra={
-                        "workspace_id": workspace_id,
-                        "role_arn": integration.role_arn,
-                        "expiration": integration.credentials_expiration,
-                    }
-                )
-                raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
+                if integration.credentials_expiration <= expiration_threshold:
+                    # Refresh credentials by assuming role again
+                    try:
+                        # Decrypt external_id if present
+                        external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
+
+                        credentials = await self.assume_role(
+                            integration.role_arn,
+                            integration.aws_region,
+                            external_id=external_id
+                        )
+
+                        # Update with new encrypted credentials
+                        integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
+                        integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
+                        integration.session_token = token_processor.encrypt(credentials["session_token"])
+                        integration.credentials_expiration = credentials["expiration"]
+                        integration.last_verified_at = now
+
+                        await db.commit()
+                        await db.refresh(integration)
+
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
+                            exc_info=True,
+                            extra={
+                                "workspace_id": workspace_id,
+                                "role_arn": integration.role_arn,
+                                "expiration": integration.credentials_expiration,
+                            }
+                        )
+                        raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
 
         return AWSIntegrationResponse(
             id=integration.id,
@@ -498,38 +532,47 @@ class AWSIntegrationService:
         expiration_threshold = now + timedelta(minutes=5)
 
         if integration.credentials_expiration <= expiration_threshold:
-            # Refresh credentials
-            try:
-                # Decrypt external_id if present
-                external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
-
-                credentials = await self.assume_role(
-                    integration.role_arn,
-                    integration.aws_region,
-                    external_id=external_id
-                )
-
-                # Update with new encrypted credentials
-                integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
-                integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
-                integration.session_token = token_processor.encrypt(credentials["session_token"])
-                integration.credentials_expiration = credentials["expiration"]
-                integration.last_verified_at = now
-
-                await db.commit()
+            # Acquire workspace-specific lock to prevent concurrent renewal
+            workspace_lock = await self._get_workspace_lock(workspace_id)
+            async with workspace_lock:
+                # Double-check expiration after acquiring lock (another request might have refreshed)
                 await db.refresh(integration)
+                now = datetime.now(timezone.utc)
+                expiration_threshold = now + timedelta(minutes=5)
 
-            except Exception as e:
-                logger.error(
-                    f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
-                    exc_info=True,
-                    extra={
-                        "workspace_id": workspace_id,
-                        "role_arn": integration.role_arn,
-                        "expiration": integration.credentials_expiration,
-                    }
-                )
-                raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
+                if integration.credentials_expiration <= expiration_threshold:
+                    # Refresh credentials
+                    try:
+                        # Decrypt external_id if present
+                        external_id = token_processor.decrypt(integration.external_id) if integration.external_id else None
+
+                        credentials = await self.assume_role(
+                            integration.role_arn,
+                            integration.aws_region,
+                            external_id=external_id
+                        )
+
+                        # Update with new encrypted credentials
+                        integration.access_key_id = token_processor.encrypt(credentials["access_key_id"])
+                        integration.secret_access_key = token_processor.encrypt(credentials["secret_access_key"])
+                        integration.session_token = token_processor.encrypt(credentials["session_token"])
+                        integration.credentials_expiration = credentials["expiration"]
+                        integration.last_verified_at = now
+
+                        await db.commit()
+                        await db.refresh(integration)
+
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to refresh AWS credentials for workspace {workspace_id}: {str(e)}",
+                            exc_info=True,
+                            extra={
+                                "workspace_id": workspace_id,
+                                "role_arn": integration.role_arn,
+                                "expiration": integration.credentials_expiration,
+                            }
+                        )
+                        raise Exception(f"Failed to refresh expired AWS credentials: {str(e)}")
 
         # Decrypt and return credentials
         return {
@@ -543,7 +586,8 @@ class AWSIntegrationService:
         self, db: AsyncSession, workspace_id: str
     ) -> bool:
         """
-        Delete (soft delete) an AWS integration
+        Delete an AWS integration (hard delete - removes record from database)
+        Also clears any cached CloudWatch Logs and Metrics clients for this workspace
 
         Args:
             db: Database session
@@ -563,8 +607,25 @@ class AWSIntegrationService:
         if not integration:
             return False
 
-        integration.is_active = False
+        await db.delete(integration)
         await db.commit()
+
+        # Clear any cached CloudWatch Logs clients for this workspace
+        try:
+            from app.aws.cloudwatch.Logs.service import CloudWatchLogsService
+            CloudWatchLogsService.clear_client_cache(workspace_id)
+        except ImportError:
+            # CloudWatch service not available, skip cache clearing
+            pass
+
+        # Clear any cached CloudWatch Metrics clients for this workspace
+        try:
+            from app.aws.cloudwatch.Metrics.service import CloudWatchMetricsService
+            CloudWatchMetricsService.clear_client_cache(workspace_id)
+        except ImportError:
+            # CloudWatch Metrics service not available, skip cache clearing
+            pass
+
         return True
 
 

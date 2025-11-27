@@ -184,7 +184,11 @@ class Settings(BaseSettings):
     # --------- Properties ---------
     @property
     def is_production(self) -> bool:
-        return bool(self.ENVIRONMENT and self.ENVIRONMENT.lower() == "production")
+        """Check if running in production environment (not local_dev or dev)"""
+        if not self.ENVIRONMENT:
+            return False
+        env = self.ENVIRONMENT.lower()
+        return env not in ["local_dev"]
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""
