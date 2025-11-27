@@ -26,6 +26,8 @@ from app.mailgun.router import router as mailgun_router
 
 from app.aws.Integration.router import router as aws_router
 
+from app.newrelic.integration.router import router as newrelic_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -46,3 +48,4 @@ api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
 api_router.include_router(aws_router, tags=["aws-integration"])
+api_router.include_router(newrelic_router, tags=["newrelic-integration"])

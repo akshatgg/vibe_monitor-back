@@ -350,3 +350,35 @@ class AWSIntegration(Base):
         Index("idx_aws_integration_workspace", "workspace_id"),
         Index("idx_aws_integration_active", "is_active"),
     )
+
+
+class NewRelicIntegration(Base):
+    """
+    Stores New Relic integration credentials for workspace integrations.
+    API keys are encrypted before storage.
+    """
+
+    __tablename__ = "newrelic_integrations"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # New Relic Account ID
+    account_id = Column(String, nullable=False)
+
+    # Encrypted New Relic User API Key (must start with NRAK)
+    api_key = Column(String, nullable=False)  # Encrypted API key
+
+    # Status tracking
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="newrelic_integrations")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_newrelic_integration_workspace", "workspace_id"),
+    )
