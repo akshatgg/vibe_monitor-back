@@ -199,6 +199,7 @@ class SlackEventService:
             # Handle app_mention events (explicit @bot mentions)
             if event_type == "app_mention":
                 user_message_ex = event_context.get("text", "").strip()
+                logger.info(f"Received app_mention with text: '{user_message_ex}'")
 
                 # Process the message and generate response
                 bot_response = await SlackEventService.process_user_message(
@@ -206,7 +207,7 @@ class SlackEventService:
                     event_context=event_context,
                     is_explicit_mention=True
                 )
-                clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message_ex).strip()
+                clean_message = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", user_message_ex).strip()
 
                 if clean_message.lower() in ["help", "status", "health"]:
                     thread_ts = event_context.get("thread_ts")
@@ -317,7 +318,7 @@ class SlackEventService:
         thread_ts = event_context.get("thread_ts") or event_context.get("timestamp")
 
         # Remove bot mention from message to get clean text
-        clean_message = re.sub(r"<@[A-Z0-9]+>", "", user_message).strip()
+        clean_message = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", user_message).strip()
 
         # For automatic alert detection, provide different initial response
         if not is_explicit_mention and alert_info:
@@ -375,6 +376,26 @@ class SlackEventService:
         if True:  # Always process as RCA for non-command messages
             # This looks like an RCA query - create Job record and enqueue to SQS
             logger.info(f"Creating RCA job for query: '{clean_message}'")
+
+            # Check if this is a thread reply and fetch conversation history
+            thread_history = None
+            original_thread_ts = event_context.get("thread_ts")
+
+            if original_thread_ts:
+                logger.info(f"Detected thread reply with thread_ts: {original_thread_ts}. Fetching conversation history...")
+                thread_history = await SlackEventService.get_thread_history(
+                    team_id=team_id,
+                    channel=channel_id,
+                    thread_ts=original_thread_ts,
+                    exclude_ts=timestamp  # Exclude current message to avoid duplicate context
+                )
+
+                if thread_history:
+                    logger.info(f"Successfully retrieved {len(thread_history)} messages from thread history")
+                else:
+                    logger.warning(f"Failed to retrieve thread history for thread_ts: {original_thread_ts}")
+            else:
+                logger.info("No thread_ts detected - this is a new conversation (not a thread reply)")
 
             # Generate job ID
             job_id = str(uuid.uuid4())
@@ -458,6 +479,11 @@ class SlackEventService:
                     if alert_info:
                         job_context["alert_info"] = alert_info
                         job_context["auto_detected"] = True
+
+                    # Add thread history to context if available
+                    if thread_history:
+                        job_context["thread_history"] = thread_history
+                        logger.info(f"Added {len(thread_history)} thread messages to job context")
 
                     job = Job(
                         id=job_id,
@@ -685,6 +711,87 @@ class SlackEventService:
 
         except Exception as e:
             logger.error(f"Error sending Slack message: {e}")
+            return None
+
+    @staticmethod
+    async def get_thread_history(
+        team_id: str, channel: str, thread_ts: str, exclude_ts: Optional[str] = None
+    ) -> Optional[list]:
+        """
+        Fetch conversation history for a specific thread using Slack's conversations.replies API
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID where the thread exists
+            thread_ts: Thread timestamp to fetch history for
+            exclude_ts: Optional timestamp to exclude (typically the current triggering message)
+
+        Returns:
+            List of messages in the thread, or None if failed
+        """
+        # Validate required parameters
+        if not channel or not isinstance(channel, str) or not channel.strip():
+            logger.error("Invalid channel parameter: must be a non-empty string")
+            return None
+
+        if not thread_ts or not isinstance(thread_ts, str) or not thread_ts.strip():
+            logger.error("Invalid thread_ts parameter: must be a non-empty string")
+            return None
+
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation:
+            logger.error(f"No installation found for team {team_id}")
+            return None
+
+        if not installation.access_token:
+            logger.error(f"No access token found for team {team_id}")
+            return None
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+            logger.info("Access token decrypted successfully for fetching thread history")
+        except Exception as err:
+            logger.error(f"Error decrypting access token for team {team_id}: {err}")
+            return None
+
+        try:
+            async with httpx.AsyncClient() as client:
+                params = {
+                    "channel": channel,
+                    "ts": thread_ts
+                }
+
+                async for attempt in retry_external_api("Slack"):
+                    with attempt:
+                        response = await client.get(
+                            f"{settings.SLACK_API_BASE_URL}/conversations.replies",
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "Content-Type": "application/json",
+                            },
+                            params=params,
+                            timeout=10.0,
+                        )
+                        response.raise_for_status()
+
+                        data = response.json()
+
+                        if data.get("ok"):
+                            messages = data.get("messages", [])
+
+                            # Filter out the current triggering message to avoid duplicate context
+                            if exclude_ts:
+                                messages = [msg for msg in messages if msg.get("ts") != exclude_ts]
+
+                            logger.info(f"Successfully fetched {len(messages)} messages from thread {thread_ts}")
+                            return messages
+                        else:
+                            logger.error(f"Failed to fetch thread history: {data.get('error')}")
+                            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching Slack thread history: {e}")
             return None
 
     @staticmethod

@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     SLACK_CLIENT_SECRET: Optional[str] = None
     SLACK_API_BASE_URL: str = "https://slack.com/api"
     SLACK_OAUTH_AUTHORIZE_URL: str = "https://slack.com/oauth/v2/authorize"
+    SLACK_USER_MENTION_PATTERN: str = r"<@[A-Z0-9]+>"  # Regex pattern for Slack user mentions (e.g., <@U12345ABC>)
 
     # Log Level
     LOG_LEVEL: (

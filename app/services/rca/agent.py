@@ -3,6 +3,7 @@ RCA Agent Service using LangChain with Groq LLM
 """
 
 import logging
+import re
 from functools import partial
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, create_model
@@ -87,9 +88,9 @@ class RCAAgentService:
                 max_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
 
-            # Create chat prompt template with system message and service mapping
+            # Create chat prompt template with system message, service mapping, and thread history
             self.prompt = ChatPromptTemplate.from_messages([
-                ("system", RCA_SYSTEM_PROMPT + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}"),
+                ("system", RCA_SYSTEM_PROMPT + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}"),
                 ("human", "{input}"),
                 ("placeholder", "{agent_scratchpad}"),
             ])
@@ -232,10 +233,43 @@ class RCAAgentService:
                 service_mapping_text = "(No services discovered - workspace may have no repositories)"
                 logger.warning("No service→repo mapping provided in context")
 
+            # Extract and format thread history from context
+            thread_history = (context or {}).get("thread_history", [])
+
+            if thread_history:
+                logger.info(f"Formatting thread history with {len(thread_history)} messages")
+
+                # Format thread messages as conversation history
+                history_lines = ["## 🧵 CONVERSATION HISTORY", ""]
+                history_lines.append("This is a follow-up question in an existing thread. Here's the previous conversation:")
+                history_lines.append("")
+
+                for msg in thread_history:
+                    user_id = msg.get("user", "unknown")
+                    text = msg.get("text", "")
+                    bot_id = msg.get("bot_id")
+
+                    # Strip bot mentions from message text (e.g., <@U12345678>)
+                    clean_text = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", text).strip()
+
+                    # Identify if message is from bot or user
+                    if bot_id:
+                        history_lines.append(f"**Assistant**: {clean_text}")
+                    else:
+                        history_lines.append(f"**User ({user_id})**: {clean_text}")
+                    history_lines.append("")
+
+                thread_history_text = "\n".join(history_lines)
+                logger.info("Thread history formatted and ready for injection")
+            else:
+                thread_history_text = ""
+                logger.info("No thread history to format")
+
             # Prepare input for the agent
             agent_input = {
                 "input": user_query,
                 "service_mapping_text": service_mapping_text,
+                "thread_history_text": thread_history_text,
             }
 
             # Execute the agent asynchronously with callbacks

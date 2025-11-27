@@ -184,6 +184,13 @@ class RCAOrchestratorWorker(BaseWorker):
                     workspace_id = job.vm_workspace_id
                     channel_id = job.trigger_channel_id
                     thread_ts = job.trigger_thread_ts
+                    thread_history = job.requested_context.get("thread_history")
+
+                    # Log thread history detection
+                    if thread_history:
+                        logger.info(f"📜 Thread history detected: {len(thread_history)} messages in conversation")
+                    else:
+                        logger.info("📝 No thread history - this is a new conversation")
 
                     # Send initial "thinking" message to Slack
                     if team_id and channel_id:
