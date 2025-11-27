@@ -7,10 +7,10 @@ import logging
 import httpx
 from typing import Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from datetime import datetime, timezone
 
-from app.models import NewRelicIntegration, Membership
+from app.models import NewRelicIntegration
 from app.utils.token_processor import token_processor
 from .schemas import (
     NewRelicIntegrationCreate,
@@ -100,33 +100,6 @@ async def verify_newrelic_credentials(
         return False, f"Verification error: {str(e)}"
 
 
-async def verify_user_workspace_membership(
-    db: AsyncSession, user_id: str, workspace_id: str
-) -> bool:
-    """
-    Verify that a user is a member of the workspace.
-    Standalone function that can be used by router and RCA bot.
-
-    Args:
-        db: Database session
-        user_id: User ID
-        workspace_id: Workspace ID
-
-    Returns:
-        bool: True if user is a member, False otherwise
-    """
-    result = await db.execute(
-        select(Membership).where(
-            and_(
-                Membership.user_id == user_id,
-                Membership.workspace_id == workspace_id
-            )
-        )
-    )
-    membership = result.scalar_one_or_none()
-    return membership is not None
-
-
 async def get_newrelic_integration(
     db: AsyncSession, workspace_id: str
 ) -> Optional[NewRelicIntegrationResponse]:
@@ -181,13 +154,8 @@ async def create_newrelic_integration(
         NewRelicIntegrationResponse
 
     Raises:
-        ValueError: If integration already exists, user is not a member, or API key is invalid
+        ValueError: If integration already exists or API key is invalid
     """
-    # Verify user is a member of the workspace
-    is_member = await verify_user_workspace_membership(db, user_id, workspace_id)
-    if not is_member:
-        raise ValueError("User is not a member of this workspace")
-
     # Check if integration already exists for this workspace
     result = await db.execute(
         select(NewRelicIntegration).where(
@@ -275,15 +243,7 @@ async def delete_newrelic_integration(
 
     Returns:
         bool: True if deleted, False if not found
-
-    Raises:
-        ValueError: If user is not a member of the workspace
     """
-    # Verify user is a member of the workspace
-    is_member = await verify_user_workspace_membership(db, user_id, workspace_id)
-    if not is_member:
-        raise ValueError("User is not a member of this workspace")
-
     result = await db.execute(
         select(NewRelicIntegration).where(
             NewRelicIntegration.workspace_id == workspace_id

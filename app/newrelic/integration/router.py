@@ -40,15 +40,13 @@ async def store_newrelic_integration(
     This endpoint:
     1. Receives New Relic Account ID and User API Key
     2. Validates that the API key starts with NRAK
-    3. Verifies that the user is a member of the workspace
+    3. Verifies credentials with New Relic API
     4. Encrypts and stores the credentials in the database
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
     - account_id: New Relic Account ID (request body)
     - api_key: New Relic User API Key (must start with NRAK) (request body)
-
-    The user must be a member of the workspace to create the integration.
     """
     try:
         integration = await create_newrelic_integration(
@@ -105,7 +103,6 @@ async def delete_integration(
     Delete New Relic integration for a specific workspace.
 
     This will remove the stored New Relic credentials from the database.
-    The user must be a member of the workspace to delete the integration.
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
