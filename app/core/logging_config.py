@@ -2,13 +2,15 @@
 Centralized logging configuration with request_id and job_id context support using loguru.
 
 This module configures loguru to intercept all standard logging calls and provides
-automatic context propagation using contextvars.
+automatic context propagation using contextvars. Also supports OpenTelemetry log export.
 """
 
 import json
 import logging
 import sys
 from contextvars import ContextVar
+from types import FrameType
+from typing import Optional
 
 from loguru import logger
 
@@ -39,7 +41,9 @@ class InterceptHandler(logging.Handler):
         # Find caller from where the logging call originated
         from app.core.config import settings
 
-        frame, depth = sys._getframe(settings.LOGGING_FRAME_DEPTH), settings.LOGGING_FRAME_DEPTH
+        frame: Optional[FrameType] = sys._getframe(settings.LOGGING_FRAME_DEPTH)
+        depth: int = settings.LOGGING_FRAME_DEPTH
+
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
@@ -134,16 +138,54 @@ def custom_json_sink(message):
     sys.stderr.write(json.dumps(log_record) + "\n")
 
 
-def configure_logging():
+def otel_sink(message, otel_handler: logging.Handler):
+    """
+    Bridge loguru records to OpenTelemetry logging handler.
+
+    This function converts loguru records to standard logging.LogRecord format
+    and emits them to the OpenTelemetry handler for OTLP export.
+
+    Args:
+        message: Loguru message object
+        otel_handler: OpenTelemetry LoggingHandler instance
+    """
+    record = message.record
+
+    # Convert loguru record to standard logging.LogRecord
+    log_record = logging.LogRecord(
+        name=record["name"],
+        level=record["level"].no,
+        pathname=record["file"].path,
+        lineno=record["line"],
+        msg=record["message"],
+        args=(),
+        exc_info=record["exception"],
+    )
+
+    # Add context (request_id, job_id) as extra attributes
+    if "request_id" in record["extra"]:
+        log_record.request_id = record["extra"]["request_id"]
+    if "job_id" in record["extra"]:
+        log_record.job_id = record["extra"]["job_id"]
+
+    # Emit to OpenTelemetry handler
+    otel_handler.emit(log_record)
+
+
+def configure_logging(otel_handler: Optional[logging.Handler] = None):
     """
     Configure logging for the application using loguru.
 
+    Args:
+        otel_handler: Optional OpenTelemetry LoggingHandler for OTLP log export
+
     This function:
     1. Removes default loguru handler
-    2. Adds custom JSON sink for simplified JSON logging
-    3. Configures context filter to automatically inject request_id and job_id from contextvars
-    4. Intercepts all standard logging calls to redirect to loguru
-    5. Configures log level from settings
+    2. Adds custom JSON sink for simplified JSON logging (console)
+    3. Adds OpenTelemetry sink if handler provided (OTLP export)
+    4. Configures context filter to automatically inject request_id and job_id from contextvars
+    5. Intercepts all standard logging calls to redirect to loguru
+    6. Configures log level from settings
     """
     # Remove default handler
     logger.remove()
@@ -160,24 +202,15 @@ def configure_logging():
         filter=context_filter,  # This filter injects request_id and job_id automatically
     )
 
-    # Add file handler for production if needed (also JSON format)
-    try:
-        if settings.ENVIRONMENT and settings.ENVIRONMENT.lower() == "production":
-            import os
-
-            os.makedirs("logs", exist_ok=True)
-
-            logger.add(
-                "logs/vm-api.log",
-                serialize=True,  # Use built-in JSON serialization for file
-                level=log_level,
-                rotation="500 MB",
-                retention="10 days",
-                compression="zip",
-                filter=context_filter,  # Also add filter to file handler
-            )
-    except Exception as e:
-        logger.warning(f"Could not create file handler: {e}")
+    # Add OpenTelemetry sink if handler provided
+    if otel_handler:
+        logger.add(
+            lambda msg: otel_sink(msg, otel_handler),
+            level=log_level,
+            filter=context_filter,  # Also add filter to OTel handler
+            format="{message}",  # Simple format since OTel handles structured logging
+        )
+        logger.info("OpenTelemetry logging sink configured")
 
     # Intercept standard logging
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)

@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import asyncio
 from dotenv import load_dotenv
 from loguru import logger
 import sentry_sdk
@@ -13,8 +12,9 @@ from app.core.config import settings
 from app.core.database import init_database
 from app.core.logging_config import configure_logging
 from app.middleware import RequestIDMiddleware
-from app.core.metrics import setup_metrics, push_metrics_to_gateway
 from app.github.webhook.router import limiter
+from app.core.otel_config import setup_otel_metrics, setup_otel_logs, shutdown_otel
+from app.core.otel_metrics import init_meter
 
 from app.worker import RCAOrchestratorWorker
 from app.services.sqs.client import sqs_client
@@ -33,7 +33,7 @@ if settings.SENTRY_DSN:
         traces_sample_rate=1.0 if not settings.is_production else 0.1,
         environment=settings.ENVIRONMENT,
         send_default_pii=False,
-        enable_logs=True
+        enable_logs=True,
     )
     logger.info("Sentry initialized")
 
@@ -48,22 +48,32 @@ async def lifespan(app: FastAPI):
     logger.info("Starting VM API application...")
 
     worker = RCAOrchestratorWorker()
-    metrics_task = None
 
     try:
         # Initialize database
         await init_database()
         logger.info("Database initialized")
 
+        # Initialize OpenTelemetry (if enabled)
+        if settings.OTEL_ENABLED and settings.OTEL_OTLP_ENDPOINT:
+            try:
+                # Setup metrics
+                meter_provider = setup_otel_metrics(settings.OTEL_OTLP_ENDPOINT)
+                init_meter(meter_provider.get_meter("vm-api"))
+                logger.info(
+                    f"OpenTelemetry metrics configured: {settings.OTEL_OTLP_ENDPOINT}"
+                )
+
+                # Setup logs
+                otel_log_handler = setup_otel_logs(settings.OTEL_OTLP_ENDPOINT)
+                configure_logging(otel_handler=otel_log_handler)
+                logger.info("OpenTelemetry logs configured")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenTelemetry: {e}")
+
         # Start SQS worker
         await worker.start()
         logger.info("SQS worker started")
-
-        # Start metrics push background task
-        
-        if settings.ENVIRONMENT == "production":
-            metrics_task = asyncio.create_task(push_metrics_to_gateway())
-            logger.info("Metrics push task started")
 
         logger.info("All services started successfully")
         yield
@@ -75,14 +85,10 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down VM API application...")
 
         try:
-            # Stop metrics push task
-            if metrics_task:
-                metrics_task.cancel()
-                try:
-                    await metrics_task
-                except asyncio.CancelledError:
-                    pass
-                logger.info("Metrics push task stopped")
+            # Shutdown OpenTelemetry first (flush remaining data)
+            if settings.OTEL_ENABLED:
+                shutdown_otel()
+                logger.info("OpenTelemetry shutdown complete")
 
             # Stop SQS worker
             await worker.stop()
@@ -123,8 +129,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Setup Prometheus metrics BEFORE including routers
-setup_metrics(app)
+# Instrument FastAPI with OpenTelemetry
+if settings.OTEL_ENABLED:
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app)
+        logger.info("FastAPI instrumented with OpenTelemetry")
+    except Exception as e:
+        logger.error(f"Failed to instrument FastAPI with OpenTelemetry: {e}")
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

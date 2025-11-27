@@ -49,9 +49,9 @@
         {"name": "GITHUB_CLIENT_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-client-id"},
         {"name": "GITHUB_PRIVATE_KEY_PEM", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-private-key-pem"},
         {"name": "GITHUB_WEBHOOK_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-webhook-secret"},
-        {"name": "LOKI_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/loki-url"},
-        {"name": "PUSHGATEWAY_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/pushgateway-url"},
-        {"name": "DEPLOY_ENV", "valueFrom": "/vm-api-ENV_PLACEHOLDER/deploy-env"},
+        {"name": "OTEL_ENABLED", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-enabled"},
+        {"name": "OTEL_OTLP_ENDPOINT", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-otlp-endpoint"},
+        {"name": "HOSTNAME", "valueFrom": "/vm-api-ENV_PLACEHOLDER/hostname"},
         {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"}
 
       ]

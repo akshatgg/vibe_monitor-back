@@ -68,11 +68,13 @@ class Settings(BaseSettings):
     SLACK_OAUTH_AUTHORIZE_URL: str = "https://slack.com/oauth/v2/authorize"
 
     # Log Level
-    LOG_LEVEL: str  # Required: Must be set in environment (e.g., INFO, DEBUG, WARNING, ERROR)
+    LOG_LEVEL: (
+        str  # Required: Must be set in environment (e.g., INFO, DEBUG, WARNING, ERROR)
+    )
 
     # Groq
     GROQ_API_KEY: Optional[str] = None
-    GROQ_LLM_MODEL: Optional[str]=None
+    GROQ_LLM_MODEL: Optional[str] = None
 
     # AWS Host Credentials (for assuming customer IAM roles)
     AWS_ACCESS_KEY_ID: Optional[str] = None
@@ -99,13 +101,21 @@ class Settings(BaseSettings):
 
     # External API Retry Configuration (Grafana, GitHub, Slack, Google OAuth, Mailgun)
     # Uses tenacity library for retry logic with exponential backoff
-    EXTERNAL_API_RETRY_ATTEMPTS: int = 4  # Total attempts (3 retries + 1 initial = 4 total)
-    EXTERNAL_API_RETRY_MIN_WAIT: float = 0.5  # Minimum wait time between retries (seconds)
-    EXTERNAL_API_RETRY_MAX_WAIT: float = 2.0  # Maximum wait time between retries (seconds)
+    EXTERNAL_API_RETRY_ATTEMPTS: int = (
+        4  # Total attempts (3 retries + 1 initial = 4 total)
+    )
+    EXTERNAL_API_RETRY_MIN_WAIT: float = (
+        0.5  # Minimum wait time between retries (seconds)
+    )
+    EXTERNAL_API_RETRY_MAX_WAIT: float = (
+        2.0  # Maximum wait time between retries (seconds)
+    )
     EXTERNAL_API_RETRY_MULTIPLIER: float = 1.0  # Exponential backoff multiplier
 
     # Workspace Settings
-    DEFAULT_DAILY_REQUEST_LIMIT: int = 10  # Default daily RCA request limit per workspace
+    DEFAULT_DAILY_REQUEST_LIMIT: int = (
+        10  # Default daily RCA request limit per workspace
+    )
 
     # Job Orchestration Settings
     MAX_JOB_RETRIES: int = 3  # Maximum retry attempts for RCA jobs
@@ -113,35 +123,57 @@ class Settings(BaseSettings):
         60  # Base backoff unit for exponential backoff (60s = 1 min)
     )
 
-    # Monitoring Configuration
-    PUSHGATEWAY_URL: str = "pushgateway:9091"  # Pushgateway URL for pushing metrics
-    LOKI_URL: Optional[str] = None  # Loki URL for logs (used by Promtail)
-    DEPLOY_ENV: str = "local"  # Deployment environment (local, staging, production)
-    HOSTNAME: Optional[str] = None  # Hostname for identifying the instance
+    # OpenTelemetry Configuration
+    OTEL_ENABLED: bool = True  # Enable/disable OpenTelemetry
+    OTEL_OTLP_ENDPOINT: Optional[str] = (
+        None  # OTLP endpoint URL (e.g., "http://ec2-ip:4317")
+    )
+    HOSTNAME: Optional[str] = (
+        None  # Hostname for resource attributes (auto-detected if None)
+    )
 
     # Sentry Configuration
     SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
 
     # RCA Service Discovery Settings
-    RCA_MAX_REPOS_TO_FETCH: int = 50  # Maximum number of repositories to fetch for service discovery
-    RCA_MAX_REPOS_TO_SCAN: int = 20  # Maximum number of repositories to scan for service names
-    RCA_MAX_FILES_TO_ANALYZE: int = 10  # Maximum number of files to analyze per repository
-    RCA_REPO_SCAN_CONCURRENCY: int = 5  # Number of repositories to scan in parallel (avoids overwhelming system)
-    RCA_SLACK_MESSAGE_MAX_LENGTH: int = 500  # Maximum length for Slack progress messages
-    RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = 3  # Max consecutive Slack failures before circuit breaker opens
+    RCA_MAX_REPOS_TO_FETCH: int = (
+        50  # Maximum number of repositories to fetch for service discovery
+    )
+    RCA_MAX_REPOS_TO_SCAN: int = (
+        20  # Maximum number of repositories to scan for service names
+    )
+    RCA_MAX_FILES_TO_ANALYZE: int = (
+        10  # Maximum number of files to analyze per repository
+    )
+    RCA_REPO_SCAN_CONCURRENCY: int = (
+        5  # Number of repositories to scan in parallel (avoids overwhelming system)
+    )
+    RCA_SLACK_MESSAGE_MAX_LENGTH: int = (
+        500  # Maximum length for Slack progress messages
+    )
+    RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = (
+        3  # Max consecutive Slack failures before circuit breaker opens
+    )
 
     # RCA Agent LLM Settings
-    RCA_AGENT_TEMPERATURE: float = 0.2  # Balanced temperature for creative problem-solving while staying focused
-    RCA_AGENT_MAX_TOKENS: int = 8192  # Increased for detailed multi-service investigations
-    RCA_AGENT_MAX_ITERATIONS: int = 25  # Increased for complex multi-service investigations
+    RCA_AGENT_TEMPERATURE: float = (
+        0.2  # Balanced temperature for creative problem-solving while staying focused
+    )
+    RCA_AGENT_MAX_TOKENS: int = (
+        8192  # Increased for detailed multi-service investigations
+    )
+    RCA_AGENT_MAX_ITERATIONS: int = (
+        25  # Increased for complex multi-service investigations
+    )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
 
     # Logging Configuration
-    LOGGING_FRAME_DEPTH: int = 6  # Frame depth for finding logging call origin in stack trace
-
+    LOGGING_FRAME_DEPTH: int = (
+        6  # Frame depth for finding logging call origin in stack trace
+    )
 
     class Config:
         env_file = ".env"
@@ -151,7 +183,7 @@ class Settings(BaseSettings):
     # --------- Properties ---------
     @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT and self.ENVIRONMENT.lower() == "production"
+        return bool(self.ENVIRONMENT and self.ENVIRONMENT.lower() == "production")
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""
