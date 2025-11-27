@@ -25,6 +25,8 @@ from app.grafana.router import router as grafana_router
 from app.mailgun.router import router as mailgun_router
 
 from app.aws.Integration.router import router as aws_router
+from app.aws.cloudwatch.Logs.router import router as cloudwatch_logs_router
+from app.aws.cloudwatch.Metrics.router import router as cloudwatch_metrics_router
 
 from app.newrelic.integration.router import router as newrelic_router
 
@@ -48,4 +50,13 @@ api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
 api_router.include_router(aws_router, tags=["aws-integration"])
+
 api_router.include_router(newrelic_router, tags=["newrelic-integration"])
+
+
+# CloudWatch routers only in local_dev (for testing via Postman/Swagger)
+# In dev/prod, RCA bot accesses service functions directly
+if not settings.is_production:
+    api_router.include_router(cloudwatch_logs_router, tags=["cloudwatch-logs"])
+    api_router.include_router(cloudwatch_metrics_router, tags=["cloudwatch-metrics"])
+
