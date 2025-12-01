@@ -1,0 +1,3 @@
+"""
+New Relic Logs module
+"""

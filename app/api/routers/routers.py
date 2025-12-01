@@ -29,6 +29,8 @@ from app.aws.cloudwatch.Logs.router import router as cloudwatch_logs_router
 from app.aws.cloudwatch.Metrics.router import router as cloudwatch_metrics_router
 
 from app.newrelic.integration.router import router as newrelic_router
+from app.newrelic.Logs.router import router as newrelic_logs_router
+from app.newrelic.Metrics.router import router as newrelic_metrics_router
 
 # Create main API router
 api_router = APIRouter()
@@ -59,4 +61,6 @@ api_router.include_router(newrelic_router, tags=["newrelic-integration"])
 if not settings.is_production:
     api_router.include_router(cloudwatch_logs_router, tags=["cloudwatch-logs"])
     api_router.include_router(cloudwatch_metrics_router, tags=["cloudwatch-metrics"])
+    api_router.include_router(newrelic_logs_router, tags=["newrelic-logs"])
+    api_router.include_router(newrelic_metrics_router, tags=["newrelic-metrics"])
 
