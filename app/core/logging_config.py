@@ -110,6 +110,11 @@ def build_simplified_json_record(record):
             "value": (
                 str(record["exception"].value) if record["exception"].value else None
             ),
+            "traceback": (
+                record["exception"].traceback.strip()
+                if record["exception"].traceback
+                else None
+            ),
         }
     else:
         log_record["exception"] = None
