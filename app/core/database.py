@@ -1,4 +1,5 @@
 import logging
+from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
@@ -65,7 +66,8 @@ engine = create_async_engine(
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
         "timeout": 10,  # Connection timeout in seconds
-        "statement_cache_size": 0,  # Disable prepared statements (required for Transaction mode/pgbouncer)
+        "statement_cache_size": 0,  # Disable prepared statement caching
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4().hex}__",  # Unique names for Transaction mode
         "server_settings": {
             "application_name": "vm-api",
         },
