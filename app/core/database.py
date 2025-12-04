@@ -65,6 +65,7 @@ engine = create_async_engine(
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
         "timeout": 10,  # Connection timeout in seconds
+        "statement_cache_size": 0,  # Disable prepared statements (required for Transaction mode/pgbouncer)
         "server_settings": {
             "application_name": "vm-api",
         },
