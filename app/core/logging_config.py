@@ -10,6 +10,7 @@ import logging
 import sys
 from contextvars import ContextVar
 from types import FrameType
+import traceback
 from typing import Optional
 
 from loguru import logger
@@ -103,6 +104,20 @@ def build_simplified_json_record(record):
 
     # Add exception if present
     if record["exception"]:
+        traceback_text = None
+        if record["exception"].traceback:
+            try:
+                traceback_text = "".join(
+                    traceback.format_exception(
+                        record["exception"].type,
+                        record["exception"].value,
+                        record["exception"].traceback,
+                    )
+                ).strip()
+            except Exception:
+                # Fall back to stringifying the traceback object if formatting fails
+                traceback_text = str(record["exception"].traceback)
+
         log_record["exception"] = {
             "type": (
                 record["exception"].type.__name__ if record["exception"].type else None
@@ -110,11 +125,7 @@ def build_simplified_json_record(record):
             "value": (
                 str(record["exception"].value) if record["exception"].value else None
             ),
-            "traceback": (
-                record["exception"].traceback.strip()
-                if record["exception"].traceback
-                else None
-            ),
+            "traceback": traceback_text,
         }
     else:
         log_record["exception"] = None
