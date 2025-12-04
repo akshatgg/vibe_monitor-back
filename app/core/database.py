@@ -55,12 +55,12 @@ engine = create_async_engine(
     pool_recycle=3600
     if not settings.is_local
     else -1,  # Recycle connections in deployed envs (dev/staging/prod)
-    # Supabase Session Mode pooler limits (typically 15-50 depending on plan)
-    # Conservative settings to stay well within limits
-    pool_size=3 if not settings.is_local else 5,  # Small base pool
-    max_overflow=7
+    # Direct connection to Supabase (no pooler) - asyncpg handles pooling
+    # Supabase typically allows 100+ direct connections depending on plan
+    pool_size=10 if not settings.is_local else 5,  # Healthy base pool
+    max_overflow=20
     if not settings.is_local
-    else 10,  # Conservative overflow (total max: 10 for prod, 15 for local)
+    else 10,  # Allow overflow for burst traffic (total max: 30 for prod, 15 for local)
     pool_timeout=30,  # Wait up to 30 seconds for connection from pool
     pool_pre_ping=True,  # Test connections before use
     connect_args={
