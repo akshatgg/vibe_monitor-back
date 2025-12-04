@@ -38,9 +38,15 @@ class SlackEventPayload(BaseModel):
         subtype = event.get("subtype")
         has_text = "text" in event and event["text"]
 
-        # If no text and no recognized subtype, it's invalid
+        # Allow messages with subtypes to not have text field
+        # Only require text for regular messages (no subtype)
         if not has_text and not subtype:
             raise ValueError("Missing required event field: text")
+
+        # If message has a subtype, it's valid even without text
+        # (e.g., message_changed, file_share, message_deleted)
+        if subtype:
+            return event
 
         # Security: Require either user or bot_id for message tracking
         # User messages have 'user', bot messages (Grafana/Sentry) have 'bot_id'

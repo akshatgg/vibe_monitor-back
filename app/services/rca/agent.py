@@ -89,11 +89,17 @@ class RCAAgentService:
             )
 
             # Create chat prompt template with system message, service mapping, and thread history
-            self.prompt = ChatPromptTemplate.from_messages([
-                ("system", RCA_SYSTEM_PROMPT + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}"),
-                ("human", "{input}"),
-                ("placeholder", "{agent_scratchpad}"),
-            ])
+            self.prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        RCA_SYSTEM_PROMPT
+                        + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}",
+                    ),
+                    ("human", "{input}"),
+                    ("placeholder", "{agent_scratchpad}"),
+                ]
+            )
 
             logger.info("RCA Agent LLM initialized successfully")
 
@@ -225,23 +231,33 @@ class RCAAgentService:
 
             # Format the mapping for the prompt
             if service_repo_mapping:
-                mapping_lines = [f"- Service `{service}` → Repository `{repo}`"
-                                for service, repo in service_repo_mapping.items()]
+                mapping_lines = [
+                    f"- Service `{service}` → Repository `{repo}`"
+                    for service, repo in service_repo_mapping.items()
+                ]
                 service_mapping_text = "\n".join(mapping_lines)
-                logger.info(f"Injecting service→repo mapping with {len(service_repo_mapping)} entries")
+                logger.info(
+                    f"Injecting service→repo mapping with {len(service_repo_mapping)} entries"
+                )
             else:
-                service_mapping_text = "(No services discovered - workspace may have no repositories)"
+                service_mapping_text = (
+                    "(No services discovered - workspace may have no repositories)"
+                )
                 logger.warning("No service→repo mapping provided in context")
 
             # Extract and format thread history from context
             thread_history = (context or {}).get("thread_history", [])
 
             if thread_history:
-                logger.info(f"Formatting thread history with {len(thread_history)} messages")
+                logger.info(
+                    f"Formatting thread history with {len(thread_history)} messages"
+                )
 
                 # Format thread messages as conversation history
                 history_lines = ["## 🧵 CONVERSATION HISTORY", ""]
-                history_lines.append("This is a follow-up question in an existing thread. Here's the previous conversation:")
+                history_lines.append(
+                    "This is a follow-up question in an existing thread. Here's the previous conversation:"
+                )
                 history_lines.append("")
 
                 for msg in thread_history:
@@ -250,7 +266,9 @@ class RCAAgentService:
                     bot_id = msg.get("bot_id")
 
                     # Strip bot mentions from message text (e.g., <@U12345678>)
-                    clean_text = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", text).strip()
+                    clean_text = re.sub(
+                        settings.SLACK_USER_MENTION_PATTERN, "", text
+                    ).strip()
 
                     # Identify if message is from bot or user
                     if bot_id:
@@ -274,13 +292,25 @@ class RCAAgentService:
 
             # Execute the agent asynchronously with callbacks
             if callbacks:
-                result = await agent_executor.ainvoke(agent_input, config={"callbacks": callbacks})
+                result = await agent_executor.ainvoke(
+                    agent_input, config={"callbacks": callbacks}
+                )
             else:
                 result = await agent_executor.ainvoke(agent_input)
 
             logger.info(
                 f"RCA analysis completed successfully for workspace: {workspace_id}"
             )
+
+            # Handle case where result might be None
+            if result is None:
+                logger.warning("Agent executor returned None result")
+                return {
+                    "output": "Analysis completed but no output generated.",
+                    "intermediate_steps": [],
+                    "success": True,
+                    "error": None,
+                }
 
             return {
                 "output": result.get(
@@ -349,6 +379,7 @@ class RCAAgentService:
             "success": False,
             "error": "RCA analysis failed for unknown reasons",
         }
+
 
 # Singleton instance
 rca_agent_service = RCAAgentService()
