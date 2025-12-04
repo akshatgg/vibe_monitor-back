@@ -22,9 +22,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
-# Check if we're in production mode
-IS_PRODUCTION = settings.is_production
-
 
 # Request models for API endpoints
 class LogsQueryRequest(BaseModel):
@@ -68,7 +65,7 @@ async def get_logs_health_func(workspace_id: Optional[str]) -> LogsHealthRespons
     return LogsHealthResponse(
         status="healthy" if provider_healthy else "unhealthy",
         provider_type="LokiProvider",
-        provider_healthy=provider_healthy
+        provider_healthy=provider_healthy,
     )
 
 
@@ -82,19 +79,23 @@ async def get_label_values_func(workspace_id: str, label_name: str) -> LabelResp
     return await logs_service.get_label_values(workspace_id, label_name)
 
 
-async def query_logs_func(workspace_id: str, request: LogsQueryRequest) -> LogQueryResponse:
+async def query_logs_func(
+    workspace_id: str, request: LogsQueryRequest
+) -> LogQueryResponse:
     """Query logs with custom LogQL query - Standalone function"""
     params = LogQueryParams(
         query=request.query,
         start=request.start,
         end=request.end,
         limit=request.limit,
-        direction=request.direction
+        direction=request.direction,
     )
     return await logs_service.query_logs(workspace_id, params)
 
 
-async def search_logs_func(workspace_id: str, request: LogsSearchRequest) -> LogQueryResponse:
+async def search_logs_func(
+    workspace_id: str, request: LogsSearchRequest
+) -> LogQueryResponse:
     """Search logs containing specific text - Standalone function"""
     time_range = TimeRange(start=request.start, end=request.end)
     return await logs_service.search_logs(
@@ -102,7 +103,7 @@ async def search_logs_func(workspace_id: str, request: LogsSearchRequest) -> Log
         search_term=request.search_term,
         service_name=request.service_name,
         time_range=time_range,
-        limit=request.limit
+        limit=request.limit,
     )
 
 
@@ -112,7 +113,7 @@ async def get_service_logs_func(
     start: str,
     end: str,
     limit: int,
-    direction: Literal["FORWARD", "BACKWARD"]
+    direction: Literal["FORWARD", "BACKWARD"],
 ) -> LogQueryResponse:
     """Get logs for a specific service - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -121,16 +122,12 @@ async def get_service_logs_func(
         service_name=service_name,
         time_range=time_range,
         limit=limit,
-        direction=direction
+        direction=direction,
     )
 
 
 async def get_error_logs_func(
-    workspace_id: str,
-    service_name: Optional[str],
-    start: str,
-    end: str,
-    limit: int
+    workspace_id: str, service_name: Optional[str], start: str, end: str, limit: int
 ) -> LogQueryResponse:
     """Get error logs (filtered by error/ERROR keywords) - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -138,16 +135,12 @@ async def get_error_logs_func(
         workspace_id=workspace_id,
         service_name=service_name,
         time_range=time_range,
-        limit=limit
+        limit=limit,
     )
 
 
 async def get_warning_logs_func(
-    workspace_id: str,
-    service_name: Optional[str],
-    start: str,
-    end: str,
-    limit: int
+    workspace_id: str, service_name: Optional[str], start: str, end: str, limit: int
 ) -> LogQueryResponse:
     """Get warning logs (filtered by warn/WARNING keywords) - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -155,16 +148,12 @@ async def get_warning_logs_func(
         workspace_id=workspace_id,
         service_name=service_name,
         time_range=time_range,
-        limit=limit
+        limit=limit,
     )
 
 
 async def get_info_logs_func(
-    workspace_id: str,
-    service_name: Optional[str],
-    start: str,
-    end: str,
-    limit: int
+    workspace_id: str, service_name: Optional[str], start: str, end: str, limit: int
 ) -> LogQueryResponse:
     """Get info logs (filtered by info/INFO keywords) - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -172,16 +161,12 @@ async def get_info_logs_func(
         workspace_id=workspace_id,
         service_name=service_name,
         time_range=time_range,
-        limit=limit
+        limit=limit,
     )
 
 
 async def get_debug_logs_func(
-    workspace_id: str,
-    service_name: Optional[str],
-    start: str,
-    end: str,
-    limit: int
+    workspace_id: str, service_name: Optional[str], start: str, end: str, limit: int
 ) -> LogQueryResponse:
     """Get debug logs (filtered by debug/DEBUG keywords) - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -189,7 +174,7 @@ async def get_debug_logs_func(
         workspace_id=workspace_id,
         service_name=service_name,
         time_range=time_range,
-        limit=limit
+        limit=limit,
     )
 
 
@@ -199,7 +184,7 @@ async def get_logs_by_level_func(
     service_name: Optional[str],
     start: str,
     end: str,
-    limit: int
+    limit: int,
 ) -> LogQueryResponse:
     """Get logs filtered by custom log level - Standalone function"""
     time_range = TimeRange(start=start, end=end)
@@ -208,7 +193,7 @@ async def get_logs_by_level_func(
         log_level=log_level,
         service_name=service_name,
         time_range=time_range,
-        limit=limit
+        limit=limit,
     )
 
 
@@ -327,7 +312,9 @@ async def get_warning_logs_endpoint(
 ) -> LogQueryResponse:
     """Get warning logs (filtered by warn/WARNING keywords) - FastAPI endpoint"""
     try:
-        return await get_warning_logs_func(workspace_id, service_name, start, end, limit)
+        return await get_warning_logs_func(
+            workspace_id, service_name, start, end, limit
+        )
     except Exception as e:
         logger.error(f"Failed to get warning logs: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve warning logs")
@@ -385,88 +372,87 @@ async def get_logs_by_level_endpoint(
 
 
 # ==================== CONDITIONAL ROUTE REGISTRATION ====================
-# Register routes only in development mode
-# In production, standalone functions remain available for LLM model usage
+# Register routes only in local development
+# In deployed envs (dev/prod), standalone functions remain available for LLM usage
 # =======================================================================
 
-if not IS_PRODUCTION:
+if settings.is_local:
     logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: Registering logs routes")
 
     router.add_api_route(
         "/health",
         get_logs_health_endpoint,
         methods=["GET"],
-        response_model=LogsHealthResponse
+        response_model=LogsHealthResponse,
     )
 
     router.add_api_route(
         "/labels",
         get_log_labels_endpoint,
         methods=["GET"],
-        response_model=LabelResponse
+        response_model=LabelResponse,
     )
 
     router.add_api_route(
         "/labels/{label_name}/values",
         get_label_values_endpoint,
         methods=["GET"],
-        response_model=LabelResponse
+        response_model=LabelResponse,
     )
 
     router.add_api_route(
-        "/query",
-        query_logs_endpoint,
-        methods=["POST"],
-        response_model=LogQueryResponse
+        "/query", query_logs_endpoint, methods=["POST"], response_model=LogQueryResponse
     )
 
     router.add_api_route(
         "/search",
         search_logs_endpoint,
         methods=["POST"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/service/{service_name}",
         get_service_logs_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/errors",
         get_error_logs_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/warnings",
         get_warning_logs_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/info",
         get_info_logs_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/debug",
         get_debug_logs_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 
     router.add_api_route(
         "/level/{log_level}",
         get_logs_by_level_endpoint,
         methods=["GET"],
-        response_model=LogQueryResponse
+        response_model=LogQueryResponse,
     )
 else:
-    logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: Logs routes disabled (functions available for LLM usage)")
+    logger.info(
+        f"ENVIRONMENT={settings.ENVIRONMENT}: Logs routes disabled (functions available for LLM usage)"
+    )

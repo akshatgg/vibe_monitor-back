@@ -44,10 +44,10 @@ api_router.include_router(metrics_router)
 api_router.include_router(datasources_router)
 api_router.include_router(github_app_router, tags=["github-oauth"])
 
-# Include dev-only routers (not exposed in production)
-if not settings.is_production:
+# Include dev-only routers (only exposed in local development)
+if settings.is_local:
     api_router.include_router(github_tools_router, tags=["github-tools"])
-    api_router.include_router(get_servicename, tags=["repository-services"]) 
+    api_router.include_router(get_servicename, tags=["repository-services"])
 api_router.include_router(github_webhook_router, tags=["github-webhooks"])
 api_router.include_router(mailgun_router, tags=["mailgun"])
 api_router.include_router(grafana_router, tags=["grafana"])
@@ -56,11 +56,10 @@ api_router.include_router(aws_router, tags=["aws-integration"])
 api_router.include_router(newrelic_router, tags=["newrelic-integration"])
 
 
-# CloudWatch routers only in local_dev (for testing via Postman/Swagger)
-# In dev/prod, RCA bot accesses service functions directly
-if not settings.is_production:
+# CloudWatch/NewRelic routers only in local (for testing via Postman/Swagger)
+# In deployed envs (dev/prod), RCA bot accesses service functions directly (no HTTP routes)
+if settings.is_local:
     api_router.include_router(cloudwatch_logs_router, tags=["cloudwatch-logs"])
     api_router.include_router(cloudwatch_metrics_router, tags=["cloudwatch-metrics"])
     api_router.include_router(newrelic_logs_router, tags=["newrelic-logs"])
     api_router.include_router(newrelic_metrics_router, tags=["newrelic-metrics"])
-

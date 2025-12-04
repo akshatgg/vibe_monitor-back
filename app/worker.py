@@ -18,9 +18,7 @@ from app.services.rca.get_service_name.service import extract_service_names_from
 
 
 async def scan_repositories_in_batches(
-    repositories: list,
-    workspace_id: str,
-    batch_size: int = None
+    repositories: list, workspace_id: str, batch_size: int = None
 ) -> dict:
     """
     Scan repositories in parallel batches to extract service names efficiently.
@@ -38,7 +36,7 @@ async def scan_repositories_in_batches(
         batch_size = settings.RCA_REPO_SCAN_CONCURRENCY
 
     service_repo_mapping = {}
-    repos_to_scan = repositories[:settings.RCA_MAX_REPOS_TO_SCAN]
+    repos_to_scan = repositories[: settings.RCA_MAX_REPOS_TO_SCAN]
     total_repos = len(repos_to_scan)
 
     async def scan_single_repo(repo: dict, index: int) -> tuple:
@@ -57,11 +55,13 @@ async def scan_repositories_in_batches(
                     workspace_id=workspace_id,
                     repo=repo_name,
                     user_id="rca-agent",
-                    db=task_db
+                    db=task_db,
                 )
 
                 if services:
-                    logger.info(f"  [{index + 1}/{total_repos}] {repo_name} → {services}")
+                    logger.info(
+                        f"  [{index + 1}/{total_repos}] {repo_name} → {services}"
+                    )
                     return repo_name, services, None
                 else:
                     return repo_name, [], None
@@ -75,12 +75,13 @@ async def scan_repositories_in_batches(
         batch_end = min(batch_start + batch_size, len(repos_to_scan))
         batch = repos_to_scan[batch_start:batch_end]
 
-        logger.info(f"Scanning batch {batch_start // batch_size + 1} ({len(batch)} repos): {[r.get('name') for r in batch]}")
+        logger.info(
+            f"Scanning batch {batch_start // batch_size + 1} ({len(batch)} repos): {[r.get('name') for r in batch]}"
+        )
 
         # Create tasks for all repos in this batch
         tasks = [
-            scan_single_repo(repo, batch_start + i)
-            for i, repo in enumerate(batch)
+            scan_single_repo(repo, batch_start + i) for i, repo in enumerate(batch)
         ]
 
         # Execute batch in parallel
@@ -149,7 +150,9 @@ class RCAOrchestratorWorker(BaseWorker):
                         return
 
                     # Check if job should be delayed (backoff)
-                    if job.backoff_until and job.backoff_until > datetime.now(timezone.utc):
+                    if job.backoff_until and job.backoff_until > datetime.now(
+                        timezone.utc
+                    ):
                         # Calculate delay in seconds
                         delay = (
                             job.backoff_until - datetime.now(timezone.utc)
@@ -169,9 +172,11 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
                         return
 
-                    logger.info(
-                        f"🔍 Processing job {job_id}: {job.requested_context.get('query')}"
-                    )
+                    # Safely extract context from job (handle None case)
+                    requested_context = job.requested_context or {}
+                    query = requested_context.get("query", "")
+
+                    logger.info(f"🔍 Processing job {job_id}: {query}")
 
                     # Update job status to RUNNING
                     job.status = JobStatus.RUNNING
@@ -179,16 +184,17 @@ class RCAOrchestratorWorker(BaseWorker):
                     await db.commit()
 
                     # Extract context from job
-                    query = job.requested_context.get("query", "")
-                    team_id = job.requested_context.get("team_id")
+                    team_id = requested_context.get("team_id")
                     workspace_id = job.vm_workspace_id
                     channel_id = job.trigger_channel_id
                     thread_ts = job.trigger_thread_ts
-                    thread_history = job.requested_context.get("thread_history")
+                    thread_history = requested_context.get("thread_history")
 
                     # Log thread history detection
                     if thread_history:
-                        logger.info(f"📜 Thread history detected: {len(thread_history)} messages in conversation")
+                        logger.info(
+                            f"📜 Thread history detected: {len(thread_history)} messages in conversation"
+                        )
                     else:
                         logger.info("📝 No thread history - this is a new conversation")
 
@@ -202,7 +208,9 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
 
                     # PRE-PROCESSING: Discover service→repo mappings BEFORE invoking AI agent
-                    logger.info(f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}")
+                    logger.info(
+                        f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}"
+                    )
 
                     service_repo_mapping = {}
                     try:
@@ -212,7 +220,7 @@ class RCAOrchestratorWorker(BaseWorker):
                             first=settings.RCA_MAX_REPOS_TO_FETCH,
                             after=None,
                             user_id="rca-agent",
-                            db=db
+                            db=db,
                         )
 
                         if repos_response.get("success"):
@@ -230,15 +238,25 @@ class RCAOrchestratorWorker(BaseWorker):
 
                             # Extract service names from repositories in parallel batches
                             service_repo_mapping = await scan_repositories_in_batches(
-                                repositories=repositories,
-                                workspace_id=workspace_id
+                                repositories=repositories, workspace_id=workspace_id
                             )
 
-                            logger.info(f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped")
+                            logger.info(
+                                f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped"
+                            )
 
                             if team_id and channel_id:
-                                services_list = ", ".join([f"`{s}`" for s in list(service_repo_mapping.keys())[:10]])
-                                more_text = f" and {len(service_repo_mapping) - 10} more" if len(service_repo_mapping) > 10 else ""
+                                services_list = ", ".join(
+                                    [
+                                        f"`{s}`"
+                                        for s in list(service_repo_mapping.keys())[:10]
+                                    ]
+                                )
+                                more_text = (
+                                    f" and {len(service_repo_mapping) - 10} more"
+                                    if len(service_repo_mapping) > 10
+                                    else ""
+                                )
                                 await slack_event_service.send_message(
                                     team_id=team_id,
                                     channel=channel_id,
@@ -246,17 +264,23 @@ class RCAOrchestratorWorker(BaseWorker):
                                     thread_ts=thread_ts,
                                 )
                         else:
-                            logger.warning("Failed to fetch repositories for service discovery")
+                            logger.warning(
+                                "Failed to fetch repositories for service discovery"
+                            )
 
                     except Exception as e:
-                        logger.error(f"Error during service discovery pre-processing: {e}")
+                        logger.error(
+                            f"Error during service discovery pre-processing: {e}"
+                        )
                         # Mark job as failed
                         job.status = JobStatus.FAILED
                         job.finished_at = datetime.now(timezone.utc)
                         job.error_message = f"Service discovery failed: {str(e)}"
                         await db.commit()
 
-                        logger.warning("Service discovery failed, marking job as FAILED and exiting")
+                        logger.warning(
+                            "Service discovery failed, marking job as FAILED and exiting"
+                        )
                         return
 
                     # Perform RCA analysis using AI agent
@@ -338,7 +362,8 @@ class RCAOrchestratorWorker(BaseWorker):
 
                             # Re-enqueue to SQS for retry with delay
                             await sqs_client.send_message(
-                                message_body={"job_id": job_id}, delay_seconds=delay_seconds
+                                message_body={"job_id": job_id},
+                                delay_seconds=delay_seconds,
                             )
 
                             # Notify user about retry
@@ -346,7 +371,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 await slack_callback.send_retry_notification(
                                     retry_count=job.retries,
                                     max_retries=job.max_retries,
-                                    backoff_minutes=backoff_seconds // 60
+                                    backoff_minutes=backoff_seconds // 60,
                                 )
 
                         else:
@@ -363,12 +388,13 @@ class RCAOrchestratorWorker(BaseWorker):
                             # Send final error message to user (sanitized)
                             if slack_callback:
                                 await slack_callback.send_final_error(
-                                    error_msg=error_msg,
-                                    retry_count=job.retries
+                                    error_msg=error_msg, retry_count=job.retries
                                 )
 
                 except Exception as e:
-                    logger.exception(f"❌ Unexpected error processing job {job_id}: {e}")
+                    logger.exception(
+                        f"❌ Unexpected error processing job {job_id}: {e}"
+                    )
 
                     # Try to mark job as failed
                     try:
@@ -387,7 +413,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                     error_callback = SlackProgressCallback(
                                         team_id=team_id,
                                         channel_id=job.trigger_channel_id,
-                                        thread_ts=job.trigger_thread_ts
+                                        thread_ts=job.trigger_thread_ts,
                                     )
                                     await error_callback.send_unexpected_error()
                     except Exception as recovery_error:

@@ -47,12 +47,12 @@ class SQSClient:
                 raise ValueError("AWS_REGION not configured")
             client_kwargs = {"region_name": self.region}
 
-            # Add endpoint_url for LocalStack support in development
-            if settings.AWS_ENDPOINT_URL and settings.ENVIRONMENT in [
-                "dev",
-                "development",
-            ]:
+            # Add endpoint_url for LocalStack support in local development only
+            if settings.AWS_ENDPOINT_URL and settings.is_local:
                 client_kwargs["endpoint_url"] = settings.AWS_ENDPOINT_URL
+                logger.info(
+                    f"SQS client using LocalStack endpoint: {settings.AWS_ENDPOINT_URL}"
+                )
 
             self._sqs = await self._session.client("sqs", **client_kwargs).__aenter__()
         return self._sqs

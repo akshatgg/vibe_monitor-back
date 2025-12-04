@@ -22,10 +22,6 @@ router = APIRouter(prefix="/github-tools", tags=["github-tools"])
 auth_service = AuthService()
 
 
-# Check if we're in production mode
-IS_PRODUCTION = settings.is_production
-
-
 # ==================== STANDALONE FUNCTIONS ====================
 # These functions can be called directly without FastAPI dependencies
 # =========================================================
@@ -1086,14 +1082,14 @@ async def search_code_endpoint(
 
 
 # ==================== CONDITIONAL ROUTE REGISTRATION ====================
-# Register routes only in development mode
-# In production, standalone functions remain available for LLM model usage
+# Register routes only in local development
+# In deployed envs (dev/prod), standalone functions remain available for LLM usage
 # =======================================================================
 
-if not IS_PRODUCTION:
+if settings.is_local:
     logger.info(f"ENVIRONMENT={settings.ENVIRONMENT}: Registering GitHub tools routes")
 
-    # Register all routes for development/testing
+    # Register all routes for local development/testing
     router.add_api_route(
         "/repositories",
         list_repositories_graphql_endpoint,

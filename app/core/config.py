@@ -66,7 +66,9 @@ class Settings(BaseSettings):
     SLACK_CLIENT_SECRET: Optional[str] = None
     SLACK_API_BASE_URL: str = "https://slack.com/api"
     SLACK_OAUTH_AUTHORIZE_URL: str = "https://slack.com/oauth/v2/authorize"
-    SLACK_USER_MENTION_PATTERN: str = r"<@[A-Z0-9]+>"  # Regex pattern for Slack user mentions (e.g., <@U12345ABC>)
+    SLACK_USER_MENTION_PATTERN: str = (
+        r"<@[A-Z0-9]+>"  # Regex pattern for Slack user mentions (e.g., <@U12345ABC>)
+    )
 
     # Log Level
     LOG_LEVEL: (
@@ -82,9 +84,15 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
 
     # AWS Owner Role Configuration (Two-stage STS AssumeRole) (only for dev)
-    OWNER_ROLE_ARN: Optional[str] = None  # e.g., arn:aws:iam::961341549304:role/VibemonitorOwnerRole
-    OWNER_ROLE_EXTERNAL_ID: Optional[str] = None  # External ID for owner role assumption
-    OWNER_ROLE_SESSION_NAME: str = "vibe-monitor-owner-session"  # Session name for owner role
+    OWNER_ROLE_ARN: Optional[str] = (
+        None  # e.g., arn:aws:iam::961341549304:role/VibemonitorOwnerRole
+    )
+    OWNER_ROLE_EXTERNAL_ID: Optional[str] = (
+        None  # External ID for owner role assumption
+    )
+    OWNER_ROLE_SESSION_NAME: str = (
+        "vibe-monitor-owner-session"  # Session name for owner role
+    )
     OWNER_ROLE_DURATION_SECONDS: int = 3600  # Owner role session duration (1 hour)
 
     # AWS SQS
@@ -183,12 +191,22 @@ class Settings(BaseSettings):
 
     # --------- Properties ---------
     @property
-    def is_production(self) -> bool:
-        """Check if running in production environment (not local_dev or dev)"""
+    def is_local(self) -> bool:
+        """
+        Check if running in local development environment.
+
+        Returns True only for local development (local or local_dev).
+        Any other environment (dev, staging, prod) returns False.
+
+        Supported values:
+        - "local" or "local_dev" → True (local development)
+        - "dev", "staging", "prod", or anything else → False (deployed)
+        """
         if not self.ENVIRONMENT:
             return False
         env = self.ENVIRONMENT.lower()
-        return env not in ["local_dev"]
+        # Support both 'local' and 'local_dev' for backward compatibility
+        return env in ["local", "local_dev"]
 
     def _get_env_list(self, key: str) -> Optional[List[str]]:
         """Helper to parse env var list (JSON or comma-separated)."""

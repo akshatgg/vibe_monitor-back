@@ -30,7 +30,7 @@ configure_logging()
 if settings.SENTRY_DSN:
     sentry_sdk.init(
         dsn=settings.SENTRY_DSN,
-        traces_sample_rate=1.0 if not settings.is_production else 0.1,
+        traces_sample_rate=1.0 if settings.is_local else 0.1,
         environment=settings.ENVIRONMENT,
         send_default_pii=False,
         enable_logs=True,
@@ -108,7 +108,7 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     lifespan=lifespan,
-    openapi_url="/openapi.json" if not settings.is_production else None,
+    openapi_url="/openapi.json" if settings.is_local else None,
 )
 
 # Add rate limiter state

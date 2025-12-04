@@ -22,16 +22,33 @@ class SlackEventPayload(BaseModel):
         """
         Validate and extract key event information
         Ensure event has required fields
+
+        Note: 'text' field is optional for certain message subtypes:
+        - message_changed (edits)
+        - file_share (file uploads)
+        - message_deleted
         """
-        required_fields = ["type", "text", "ts", "channel"]
+        # Core required fields (text is optional for certain subtypes)
+        required_fields = ["type", "ts", "channel"]
         for field in required_fields:
             if field not in event:
                 raise ValueError(f"Missing required event field: {field}")
 
+        # Check if this is a message subtype that may not have text
+        subtype = event.get("subtype")
+        has_text = "text" in event and event["text"]
+
+        # If no text and no recognized subtype, it's invalid
+        if not has_text and not subtype:
+            raise ValueError("Missing required event field: text")
+
         # Security: Require either user or bot_id for message tracking
         # User messages have 'user', bot messages (Grafana/Sentry) have 'bot_id'
-        if "user" not in event and "bot_id" not in event:
-            raise ValueError("Message must have either 'user' or 'bot_id' for proper tracking")
+        # Exception: message subtypes may not have user/bot_id
+        if not subtype and "user" not in event and "bot_id" not in event:
+            raise ValueError(
+                "Message must have either 'user' or 'bot_id' for proper tracking"
+            )
 
         return event
 

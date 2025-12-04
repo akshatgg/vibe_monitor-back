@@ -8,12 +8,30 @@ from .config import settings
 
 
 def get_database_url() -> str:
-    """Get database URL based on environment"""
-    if settings.is_production:
-        # Production: Use Supabase hosted database URL
+    """
+    Get database URL based on environment.
+
+    - Local development (local/local_dev): Uses DATABASE_URL (local postgres)
+    - Deployed environments (dev/staging/prod): Uses SUPABASE_DATABASE_URL (hosted)
+    """
+    if settings.is_local:
+        # Local development: Use local DATABASE_URL
+        if not settings.DATABASE_URL:
+            raise ValueError(
+                "DATABASE_URL is required for local development. "
+                "Please set it in your .env file."
+            )
+
+        base_url = settings.DATABASE_URL
+        if base_url.startswith("postgresql://"):
+            base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
+        return base_url
+
+    else:
+        # Deployed environments (dev/staging/prod): Use Supabase hosted database
         if not settings.SUPABASE_DATABASE_URL:
             raise ValueError(
-                "SUPABASE_DATABASE_URL is required for production environment"
+                f"SUPABASE_DATABASE_URL is required for {settings.ENVIRONMENT} environment"
             )
 
         # Convert postgresql:// to postgresql+asyncpg:// for async driver if needed
@@ -23,19 +41,6 @@ def get_database_url() -> str:
                 "postgres://", "postgresql+asyncpg://"
             )
         return url
-
-    else:
-        # Development: Require DATABASE_URL to be set explicitly
-        if not settings.DATABASE_URL:
-            raise ValueError(
-                "DATABASE_URL is required for development environment. "
-                "Please set it in your .env file or environment variables."
-            )
-
-        base_url = settings.DATABASE_URL
-        if base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
-        return base_url
 
 
 # Get database URL based on environment
@@ -48,11 +53,11 @@ engine = create_async_engine(
     future=True,
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600
-    if settings.is_production
-    else -1,  # Recycle connections in production
-    pool_size=10 if settings.is_production else 5,  # Connection pool size
+    if not settings.is_local
+    else -1,  # Recycle connections in deployed envs (dev/staging/prod)
+    pool_size=10 if not settings.is_local else 5,  # Connection pool size
     max_overflow=20
-    if settings.is_production
+    if not settings.is_local
     else 10,  # Max connections beyond pool_size
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
