@@ -322,7 +322,25 @@ class RCAAgentService:
             }
 
         except Exception as e:
-            logger.error(f"Error during RCA analysis: {e}", exc_info=True)
+            # Enhanced error logging for Groq API errors
+            error_details = {"error_type": type(e).__name__, "error_message": str(e)}
+
+            # Extract failed_generation from Groq API errors if available
+            if hasattr(e, "body") and isinstance(e.body, dict):
+                error_body = e.body
+                if "error" in error_body and isinstance(error_body["error"], dict):
+                    error_info = error_body["error"]
+                    error_details["error_code"] = error_info.get("code")
+                    error_details["error_type_api"] = error_info.get("type")
+
+                    # Capture failed_generation for debugging
+                    if "failed_generation" in error_info:
+                        error_details["failed_generation"] = error_info["failed_generation"]
+                        logger.error(
+                            f"Groq API tool_use_failed - failed_generation: {error_info['failed_generation']}"
+                        )
+
+            logger.error(f"Error during RCA analysis: {error_details}", exc_info=True)
             return {
                 "output": None,
                 "intermediate_steps": [],
