@@ -335,7 +335,9 @@ class RCAAgentService:
 
                     # Capture failed_generation for debugging
                     if "failed_generation" in error_info:
-                        error_details["failed_generation"] = error_info["failed_generation"]
+                        error_details["failed_generation"] = error_info[
+                            "failed_generation"
+                        ]
                         logger.error(
                             f"Groq API tool_use_failed - failed_generation: {error_info['failed_generation']}"
                         )

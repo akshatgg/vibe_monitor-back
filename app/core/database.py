@@ -55,12 +55,16 @@ engine = create_async_engine(
     pool_recycle=3600
     if not settings.is_local
     else -1,  # Recycle connections in deployed envs (dev/staging/prod)
-    pool_size=10 if not settings.is_local else 5,  # Connection pool size
-    max_overflow=20
+    # Supabase Session Mode pooler has limits (usually 15-50 depending on plan)
+    # Use smaller pool_size to stay within limits, but allow overflow
+    pool_size=5 if not settings.is_local else 5,  # Base connection pool size
+    max_overflow=10
     if not settings.is_local
-    else 10,  # Max connections beyond pool_size
+    else 10,  # Max connections beyond pool_size (total max: pool_size + max_overflow)
+    pool_timeout=30,  # Wait up to 30 seconds for connection from pool
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
+        "timeout": 10,  # Connection timeout in seconds
         "server_settings": {
             "application_name": "vm-api",
         },
