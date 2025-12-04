@@ -362,7 +362,7 @@ class RCAAgentService:
                 )
 
             except Exception as e:
-                logger.error(f"Attempt {attempt + 1} failed: {e}")
+                logger.error(f"Attempt {attempt + 1} failed: {e}", exc_info=True)
 
                 if attempt == max_retries:
                     return {

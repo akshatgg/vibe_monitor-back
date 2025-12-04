@@ -305,15 +305,14 @@ class RCAOrchestratorWorker(BaseWorker):
                             send_tool_output=False,  # Don't send verbose tool outputs
                         )
 
-                    result = await rca_agent_service.analyze_with_retry(
+                    result = await rca_agent_service.analyze(
                         user_query=query,
                         context=analysis_context,
-                        max_retries=2,
                         callbacks=[slack_callback] if slack_callback else None,
                     )
 
-                    # Process result
-                    if result["success"]:
+                    # Process result with null safety
+                    if result and result.get("success"):
                         logger.info(f"✅ Job {job_id} completed successfully")
 
                         # Update job status
@@ -326,70 +325,30 @@ class RCAOrchestratorWorker(BaseWorker):
                             await slack_event_service.send_message(
                                 team_id=team_id,
                                 channel=channel_id,
-                                text=result["output"],
+                                text=result.get("output", "Analysis completed."),
                                 thread_ts=thread_ts,
                             )
 
                         logger.info(f"📤 Job {job_id} result sent to Slack")
 
                     else:
-                        # Analysis failed - implement retry logic
-                        error_msg = result.get("error", "Unknown error occurred")
+                        # Analysis failed - mark as failed
+                        error_msg = (result or {}).get(
+                            "error", "Unknown error occurred"
+                        )
                         logger.error(f"❌ Job {job_id} failed: {error_msg}")
 
-                        job.retries += 1
+                        # Mark job as failed
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.now(timezone.utc)
+                        job.error_message = error_msg
+                        await db.commit()
 
-                        if job.retries < job.max_retries:
-                            # Retry with exponential backoff (2^retries * base_backoff)
-                            backoff_seconds = (
-                                2**job.retries * settings.JOB_RETRY_BASE_BACKOFF_SECONDS
-                            )  # 1min, 2min, 4min, etc.
-                            job.status = JobStatus.QUEUED
-                            job.backoff_until = datetime.now(timezone.utc) + timedelta(
-                                seconds=backoff_seconds
+                        # Send error message to user
+                        if slack_callback:
+                            await slack_callback.send_final_error(
+                                error_msg=error_msg, retry_count=0
                             )
-                            job.error_message = (
-                                f"Attempt {job.retries}/{job.max_retries}: {error_msg}"
-                            )
-                            await db.commit()
-
-                            # SQS has max delay of 900s (15 min), use that as cap
-                            delay_seconds = min(backoff_seconds, 900)
-
-                            logger.info(
-                                f"🔄 Job {job_id} will retry in {backoff_seconds}s (attempt {job.retries}/{job.max_retries})"
-                            )
-
-                            # Re-enqueue to SQS for retry with delay
-                            await sqs_client.send_message(
-                                message_body={"job_id": job_id},
-                                delay_seconds=delay_seconds,
-                            )
-
-                            # Notify user about retry
-                            if slack_callback:
-                                await slack_callback.send_retry_notification(
-                                    retry_count=job.retries,
-                                    max_retries=job.max_retries,
-                                    backoff_minutes=backoff_seconds // 60,
-                                )
-
-                        else:
-                            # Max retries exceeded
-                            job.status = JobStatus.FAILED
-                            job.finished_at = datetime.now(timezone.utc)
-                            job.error_message = error_msg
-                            await db.commit()
-
-                            logger.error(
-                                f"❌ Job {job_id} failed after {job.retries} retries: {error_msg}"
-                            )
-
-                            # Send final error message to user (sanitized)
-                            if slack_callback:
-                                await slack_callback.send_final_error(
-                                    error_msg=error_msg, retry_count=job.retries
-                                )
 
                 except Exception as e:
                     logger.exception(
