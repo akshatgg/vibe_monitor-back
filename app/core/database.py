@@ -1,5 +1,4 @@
 import logging
-from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
@@ -56,18 +55,17 @@ engine = create_async_engine(
     pool_recycle=3600
     if not settings.is_local
     else -1,  # Recycle connections in deployed envs (dev/staging/prod)
-    # Supabase Session Mode pooler has limits (usually 15-50 depending on plan)
-    # Use smaller pool_size to stay within limits, but allow overflow
-    pool_size=5 if not settings.is_local else 5,  # Base connection pool size
-    max_overflow=10
+    # Supabase Session Mode pooler limits (typically 15-50 depending on plan)
+    # Conservative settings to stay well within limits
+    pool_size=3 if not settings.is_local else 5,  # Small base pool
+    max_overflow=7
     if not settings.is_local
-    else 10,  # Max connections beyond pool_size (total max: pool_size + max_overflow)
+    else 10,  # Conservative overflow (total max: 10 for prod, 15 for local)
     pool_timeout=30,  # Wait up to 30 seconds for connection from pool
+    pool_pre_ping=True,  # Test connections before use
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
         "timeout": 10,  # Connection timeout in seconds
-        "statement_cache_size": 0,  # Disable prepared statement caching
-        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4().hex}__",  # Unique names for Transaction mode
         "server_settings": {
             "application_name": "vm-api",
         },
