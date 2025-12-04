@@ -62,7 +62,6 @@ engine = create_async_engine(
     if not settings.is_local
     else 10,  # Allow overflow for burst traffic (total max: 30 for prod, 15 for local)
     pool_timeout=30,  # Wait up to 30 seconds for connection from pool
-    pool_pre_ping=True,  # Test connections before use
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
         "timeout": 10,  # Connection timeout in seconds
