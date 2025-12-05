@@ -12,7 +12,7 @@ def get_database_url() -> str:
     Get database URL based on environment.
 
     - Local development (local/local_dev): Uses DATABASE_URL (local postgres)
-    - Deployed environments (dev/staging/prod): Uses SUPABASE_DATABASE_URL (hosted)
+    - Deployed environments (dev/staging/prod): Uses SUPABASE_DATABASE_URL (AWS RDS)
     """
     if settings.is_local:
         # Local development: Use local DATABASE_URL
@@ -28,7 +28,7 @@ def get_database_url() -> str:
         return base_url
 
     else:
-        # Deployed environments (dev/staging/prod): Use Supabase hosted database
+        # Deployed environments (dev/staging/prod): Use AWS RDS PostgreSQL
         if not settings.SUPABASE_DATABASE_URL:
             raise ValueError(
                 f"SUPABASE_DATABASE_URL is required for {settings.ENVIRONMENT} environment"
@@ -54,13 +54,13 @@ engine = create_async_engine(
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600
     if not settings.is_local
-    else -1,  # Recycle connections in deployed envs (dev/staging/prod)
-    # Direct connection to Supabase (no pooler) - asyncpg handles pooling
-    # Supabase typically allows 100+ direct connections depending on plan
-    pool_size=10 if not settings.is_local else 5,  # Healthy base pool
+    else -1,  # Recycle connections every hour in deployed envs
+    # Direct connection to AWS RDS - asyncpg handles connection pooling
+    # RDS allows 100+ concurrent connections (db.t4g.micro: max_connections=100+)
+    pool_size=10 if not settings.is_local else 5,  # Base connection pool
     max_overflow=20
     if not settings.is_local
-    else 10,  # Allow overflow for burst traffic (total max: 30 for prod, 15 for local)
+    else 10,  # Burst capacity (total max: 30 for deployed, 15 for local)
     pool_timeout=30,  # Wait up to 30 seconds for connection from pool
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds
