@@ -371,8 +371,9 @@ LOG_LEVEL=INFO
 
 ### Database
 ```bash
-DATABASE_URL=postgresql://user:pass@localhost:54322/postgres  # Dev
-SUPABASE_DATABASE_URL=postgresql://...                        # Prod
+# PostgreSQL connection (works with local or AWS RDS)
+DATABASE_URL=postgresql://user:pass@localhost:54322/postgres  # Local
+DATABASE_URL=postgresql://user:pass@rds-endpoint:5432/postgres  # Deployed (from SSM)
 ```
 
 ### JWT Authentication
@@ -423,7 +424,7 @@ ALLOWED_ORIGINS=["http://localhost:3000","https://vibemonitor.ai"]
 
 ### 4. Environment-Aware Configuration
 - Development: Local PostgreSQL (Docker)
-- Production: Supabase hosted PostgreSQL
+- Production: AWS RDS PostgreSQL
 - Config loaded from Pydantic Settings
 
 ---

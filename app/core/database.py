@@ -9,38 +9,26 @@ from .config import settings
 
 def get_database_url() -> str:
     """
-    Get database URL based on environment.
+    Get database URL for PostgreSQL connection.
 
-    - Local development (local/local_dev): Uses DATABASE_URL (local postgres)
-    - Deployed environments (dev/staging/prod): Uses SUPABASE_DATABASE_URL (AWS RDS)
+    Works with any PostgreSQL database (local, AWS RDS, or other providers).
+    Converts standard postgresql:// URLs to asyncpg format.
     """
-    if settings.is_local:
-        # Local development: Use local DATABASE_URL
-        if not settings.DATABASE_URL:
-            raise ValueError(
-                "DATABASE_URL is required for local development. "
-                "Please set it in your .env file."
-            )
+    if not settings.DATABASE_URL:
+        raise ValueError(
+            f"DATABASE_URL is required. Please set it in your .env file "
+            f"(local: {settings.ENVIRONMENT}) or SSM Parameter Store (deployed)."
+        )
 
-        base_url = settings.DATABASE_URL
-        if base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
-        return base_url
+    url = settings.DATABASE_URL
 
-    else:
-        # Deployed environments (dev/staging/prod): Use AWS RDS PostgreSQL
-        if not settings.SUPABASE_DATABASE_URL:
-            raise ValueError(
-                f"SUPABASE_DATABASE_URL is required for {settings.ENVIRONMENT} environment"
-            )
+    # Convert postgresql:// or postgres:// to postgresql+asyncpg:// for async driver
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://")
 
-        # Convert postgresql:// to postgresql+asyncpg:// for async driver if needed
-        url = settings.SUPABASE_DATABASE_URL
-        if url.startswith("postgresql://") or url.startswith("postgres://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://").replace(
-                "postgres://", "postgresql+asyncpg://"
-            )
-        return url
+    return url
 
 
 # Get database URL based on environment

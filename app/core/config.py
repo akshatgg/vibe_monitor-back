@@ -8,13 +8,12 @@ class Settings(BaseSettings):
     ENVIRONMENT: Optional[str] = None
 
     WEB_APP_URL: Optional[str] = None
-    # Database
+    # Database (PostgreSQL - local or deployed)
     DATABASE_URL: Optional[str] = None
 
-    # Supabase (for production)
+    # Supabase (for storage/auth features if used)
     SUPABASE_ANON_KEY: Optional[str] = None
     SUPABASE_SERVICE_KEY: Optional[str] = None
-    SUPABASE_DATABASE_URL: Optional[str] = None
 
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None

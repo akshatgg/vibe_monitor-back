@@ -116,14 +116,14 @@ The project uses branch-based deployments with GitHub Actions:
   "family": "vm-api-ENV_PLACEHOLDER",
   "image": "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.us-west-1.amazonaws.com/vm-api:IMAGE_TAG_PLACEHOLDER",
   "secrets": [
-    {"name": "DATABASE_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-database-url"}
+    {"name": "DATABASE_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/database-url"}
   ]
 }
 ```
 
 **During deployment, these get replaced to produce environment-specific task definitions:**
-- Dev: `/vm-api-dev/supabase-database-url`
-- Prod: `/vm-api-prod/supabase-database-url`
+- Dev: `/vm-api-dev/database-url`
+- Prod: `/vm-api-prod/database-url`
 
 This ensures environment isolation while maintaining a single source of truth for the task definition structure.
 
