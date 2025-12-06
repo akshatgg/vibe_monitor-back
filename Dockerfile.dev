@@ -1,6 +1,11 @@
 # Dockerfile.dev
 FROM python:3.12-slim
 
+# Service metadata for observability and service discovery
+LABEL service.name="vm-api"
+LABEL service.description="VibeMonitor API - Development"
+LABEL service.team="platform"
+
 WORKDIR /app
 
 # Set Poetry environment variables for optimal Docker performance

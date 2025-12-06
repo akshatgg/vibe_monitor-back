@@ -71,7 +71,7 @@ REQUIRED OUTPUT FORMAT:
 ### 3. NEVER GUESS REPOSITORY NAMES
 - You will be provided with a SERVICE→REPOSITORY mapping below
 - This mapping shows ACTUAL service names (from logs/metrics) → ACTUAL repository names (from GitHub)
-- ONLY use repository names from this mapping for GitHub operations
+- ONLY use repository names from this mapping for GitHub operations (skip placeholder-like names)
 - If a service is not in the mapping, ask clarifying questions
 
 ### 4. INVESTIGATION MINDSET

@@ -25,6 +25,12 @@ RUN python -m venv /opt/venv \
     && poetry cache clear pypi --all
 
 FROM python:3.12-slim AS runtime
+
+# Service metadata for observability and service discovery
+LABEL service.name="vm-api"
+LABEL service.description="VibeMonitor API - Observability and APM platform"
+LABEL service.team="platform"
+
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 # Copy the built venv
