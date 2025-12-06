@@ -320,6 +320,15 @@ class SlackEventService:
         # Remove bot mention from message to get clean text
         clean_message = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", user_message).strip()
 
+        # Check if this is an image-only message
+        files = event_context.get("files", [])
+        has_images = any(f.get("mimetype", "").startswith("image/") for f in files)
+
+        # If no text but has images, set default message
+        if not clean_message and has_images:
+            clean_message = "Please analyze this image/screenshot for any errors or issues."
+            logger.info("Image-only message detected, using default query text")
+
         # For automatic alert detection, provide different initial response
         if not is_explicit_mention and alert_info:
             platform = alert_info.get("platform", "monitoring tool")
@@ -484,6 +493,32 @@ class SlackEventService:
                     if thread_history:
                         job_context["thread_history"] = thread_history
                         logger.info(f"Added {len(thread_history)} thread messages to job context")
+
+                    # Add files (images) to context if present
+                    files = event_context.get("files", [])
+                    if files:
+                        # Filter for image files only with proper validation
+                        image_files = []
+                        for f in files:
+                            mimetype = f.get("mimetype", "")
+                            url_private = f.get("url_private")
+
+                            # Validate image file has required fields
+                            if mimetype.startswith("image/"):
+                                if url_private:
+                                    image_files.append(f)
+                                else:
+                                    logger.warning(
+                                        f"Skipping image file '{f.get('name', 'unknown')}' - "
+                                        f"missing url_private field"
+                                    )
+
+                        if image_files:
+                            job_context["files"] = image_files
+                            job_context["has_images"] = True
+                            logger.info(f"Added {len(image_files)} validated image(s) to job context - will use Gemini for processing")
+                        elif files:
+                            logger.warning(f"Found {len(files)} file(s) but none were valid images with required fields")
 
                     job = Job(
                         id=job_id,

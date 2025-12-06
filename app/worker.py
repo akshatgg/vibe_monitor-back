@@ -7,6 +7,7 @@ from loguru import logger
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
+from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.callbacks import SlackProgressCallback
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
@@ -284,9 +285,20 @@ class RCAOrchestratorWorker(BaseWorker):
                         return
 
                     # Perform RCA analysis using AI agent
-                    logger.info(
-                        f"🤖 Invoking RCA agent for job {job_id} (workspace: {workspace_id})"
-                    )
+                    # Determine which LLM to use based on whether images are present
+                    has_images = job.requested_context.get("has_images", False)
+                    files = job.requested_context.get("files", [])
+
+                    if has_images and files:
+                        logger.info(
+                            f"🖼️ Invoking Gemini RCA agent for job {job_id} (workspace: {workspace_id}) - {len(files)} image(s) detected"
+                        )
+                        selected_agent = gemini_rca_agent_service
+                    else:
+                        logger.info(
+                            f"🤖 Invoking Groq RCA agent for job {job_id} (workspace: {workspace_id})"
+                        )
+                        selected_agent = rca_agent_service
 
                     # Add workspace_id and service mapping to context for RCA tools
                     analysis_context = {
@@ -305,7 +317,7 @@ class RCAOrchestratorWorker(BaseWorker):
                             send_tool_output=False,  # Don't send verbose tool outputs
                         )
 
-                    result = await rca_agent_service.analyze(
+                    result = await selected_agent.analyze_with_retry(
                         user_query=query,
                         context=analysis_context,
                         callbacks=[slack_callback] if slack_callback else None,

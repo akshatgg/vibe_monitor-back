@@ -269,7 +269,6 @@ class RCAAgentService:
                     clean_text = re.sub(
                         settings.SLACK_USER_MENTION_PATTERN, "", text
                     ).strip()
-
                     # Identify if message is from bot or user
                     if bot_id:
                         history_lines.append(f"**Assistant**: {clean_text}")

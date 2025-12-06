@@ -436,3 +436,17 @@ class SlackProgressCallback(AsyncCallbackHandler):
             ),
             context="unexpected error message"
         )
+
+    async def send_image_processing_notification(self, image_count: int) -> None:
+        """
+        Send notification that images are being processed by Gemini.
+
+        Args:
+            image_count: Number of images being analyzed
+        """
+        image_text = "the image" if image_count == 1 else "images"
+        await self._send_to_slack(
+            text=f"Analyzing {image_text} received.",
+            context="image processing notification",
+            use_hourglass=True
+        )

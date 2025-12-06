@@ -28,7 +28,7 @@ class SlackEventPayload(BaseModel):
         - file_share (file uploads)
         - message_deleted
         """
-        # Core required fields (text is optional for certain subtypes)
+        # Text is optional if files are present (image-only messages)
         required_fields = ["type", "ts", "channel"]
         for field in required_fields:
             if field not in event:
@@ -56,6 +56,10 @@ class SlackEventPayload(BaseModel):
                 "Message must have either 'user' or 'bot_id' for proper tracking"
             )
 
+        # Ensure either text or files are present
+        if not event.get("text") and not event.get("files"):
+            raise ValueError("Message must have either 'text' or 'files'")
+
         return event
 
     def extract_message_context(self) -> Dict[str, Any]:
@@ -63,6 +67,8 @@ class SlackEventPayload(BaseModel):
         Extract context details from Slack event
         Captures both user_id (for human messages) and bot_id (for bot alerts)
         """
+        files = self.event.get("files", [])
+
         return {
             "user_id": self.event.get("user"),
             "bot_id": self.event.get("bot_id"),  # For bot messages (Grafana/Sentry)
@@ -73,6 +79,7 @@ class SlackEventPayload(BaseModel):
             "thread_ts": self.event.get(
                 "thread_ts"
             ),  # Thread timestamp for threaded replies
+            "files": files,  # Attachments/images from Slack message
         }
 
 

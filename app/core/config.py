@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_LLM_MODEL: Optional[str] = None
 
+    # Gemini
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_LLM_MODEL: Optional[str] = None
+
     # AWS Host Credentials (for assuming customer IAM roles)
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
@@ -174,6 +178,10 @@ class Settings(BaseSettings):
         25  # Increased for complex multi-service investigations
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
+
+    # RCA Image Processing Settings
+    RCA_SLACK_IMAGE_DOWNLOAD_TIMEOUT: float = 30.0  # Timeout for downloading Slack images (seconds)
+    RCA_SLACK_IMAGE_MAX_REDIRECTS: int = 5  # Maximum redirects to follow when downloading Slack images
 
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
