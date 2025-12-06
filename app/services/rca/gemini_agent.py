@@ -233,12 +233,28 @@ class GeminiRCAAgentService:
                             break
 
                         # Get redirect location and follow it with auth header
-                        current_url = response.headers.get("location")
-                        if not current_url:
+                        redirect_url = response.headers.get("location")
+                        if not redirect_url:
                             raise Exception("Redirect response missing Location header")
 
+                        # Parse redirect URL to validate domain
+                        parsed = urlparse(redirect_url)
+
+                        # only follow redirects to files.slack.com, not the slack login or workspace url, we need an image hrere.
+                        if parsed.netloc and not parsed.netloc.startswith("files.slack.com"):
+                            logger.error(
+                                f"Rejecting redirect to non-files domain: {parsed.netloc}. "
+                                f"This typically indicates an authentication issue. "
+                                f"Slack workspace URLs return HTML login pages, not images."
+                            )
+                            raise Exception(
+                                f"Invalid redirect to {parsed.netloc} - expected files.slack.com. "
+                                f"This may indicate an expired or invalid access token."
+                            )
+
+                        current_url = redirect_url
+
                         # Sanitize URL to prevent token exposure in logs
-                        parsed = urlparse(current_url)
                         safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                         logger.info(f"Following redirect ({redirect_count + 1}/{max_redirects}): {safe_url}")
                     else:
@@ -247,6 +263,18 @@ class GeminiRCAAgentService:
                     # Debug: Check what we actually downloaded
                     content_type = response.headers.get("content-type", "unknown")
                     first_bytes = response.content[:100] if len(response.content) >= 100 else response.content
+
+                    # Validate we got an image, not HTML
+                    if content_type.startswith("text/html"):
+                        logger.error(
+                            f"Received HTML instead of image for {file_obj.get('name')}. "
+                            f"Content-Type: {content_type}, First bytes: {first_bytes[:50]!r}"
+                        )
+                        raise Exception(
+                            f"Failed to download {file_obj.get('name')}: received HTML page instead of image. "
+                            f"This may indicate an authentication issue or invalid URL."
+                        )
+
                     logger.info(
                         f"Downloaded {file_obj.get('name')}: "
                         f"{len(response.content)} bytes, "
