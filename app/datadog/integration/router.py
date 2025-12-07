@@ -1,9 +1,9 @@
 """
-New Relic Integration API router.
-Provides 3 endpoints for managing New Relic integrations:
-1. Create New Relic integration (store account ID and API key)
-2. Check New Relic integration status
-3. Delete New Relic integration
+Datadog Integration API router.
+Provides 3 endpoints for managing Datadog integrations:
+1. Create Datadog integration (store API key, App key, and site)
+2. Check Datadog integration status
+3. Delete Datadog integration
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,17 +14,17 @@ from app.core.database import get_db
 from app.models import User, Membership
 from app.onboarding.services.auth_service import AuthService
 from .schemas import (
-    NewRelicIntegrationCreate,
-    NewRelicIntegrationResponse,
-    NewRelicIntegrationStatusResponse,
+    DatadogIntegrationCreate,
+    DatadogIntegrationResponse,
+    DatadogIntegrationStatusResponse,
 )
 from .service import (
-    create_newrelic_integration,
-    get_newrelic_integration_status,
-    delete_newrelic_integration,
+    create_datadog_integration,
+    get_datadog_integration_status,
+    delete_datadog_integration,
 )
 
-router = APIRouter(prefix="/newrelic", tags=["newrelic-integration"])
+router = APIRouter(prefix="/datadog", tags=["datadog-integration"])
 auth_service = AuthService()
 
 
@@ -60,32 +60,33 @@ async def verify_workspace_access(
         )
 
 
-@router.post("/integration", response_model=NewRelicIntegrationResponse, status_code=201)
-async def store_newrelic_integration(
-    request: NewRelicIntegrationCreate,
+@router.post("/integration", response_model=DatadogIntegrationResponse, status_code=201)
+async def store_datadog_integration(
+    request: DatadogIntegrationCreate,
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Setup New Relic integration for a workspace.
+    Setup Datadog integration for a workspace.
 
     This endpoint:
-    1. Receives New Relic Account ID and User API Key
-    2. Validates that the API key starts with NRAK
-    3. Verifies credentials with New Relic API
+    1. Receives Datadog API Key, Application Key, and Region
+    2. Validates the credentials format
+    3. Verifies credentials with Datadog API
     4. Encrypts and stores the credentials in the database
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
-    - account_id: New Relic Account ID (request body)
-    - api_key: New Relic User API Key (must start with NRAK) (request body)
+    - api_key: Datadog organization-level API key (request body)
+    - app_key: Datadog organization-level Application Key with permissions (request body)
+    - region: Datadog region code (e.g., us1, us5, eu1) (request body)
     """
     # Verify user has access to this workspace
     await verify_workspace_access(workspace_id, current_user, db)
 
     try:
-        integration = await create_newrelic_integration(
+        integration = await create_datadog_integration(
             db=db,
             user_id=current_user.id,
             workspace_id=workspace_id,
@@ -97,21 +98,21 @@ async def store_newrelic_integration(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to setup New Relic integration: {str(e)}"
+            status_code=500, detail=f"Failed to setup Datadog integration: {str(e)}"
         )
 
 
-@router.get("/integration/status", response_model=NewRelicIntegrationStatusResponse)
+@router.get("/integration/status", response_model=DatadogIntegrationStatusResponse)
 async def get_integration_status(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Check if New Relic integration is configured for a workspace.
+    Check if Datadog integration is configured for a workspace.
 
     Returns:
-    - is_connected: Boolean indicating if the workspace is connected to New Relic
+    - is_connected: Boolean indicating if the workspace is connected to Datadog
     - integration: Integration details if connected, null otherwise
 
     Required:
@@ -121,14 +122,14 @@ async def get_integration_status(
     await verify_workspace_access(workspace_id, current_user, db)
 
     try:
-        status = await get_newrelic_integration_status(
+        status = await get_datadog_integration_status(
             db=db, workspace_id=workspace_id
         )
         return status
 
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to get New Relic integration status: {str(e)}"
+            status_code=500, detail=f"Failed to get Datadog integration status: {str(e)}"
         )
 
 
@@ -139,9 +140,9 @@ async def delete_integration(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Delete New Relic integration for a specific workspace.
+    Delete Datadog integration for a specific workspace.
 
-    This will remove the stored New Relic credentials from the database.
+    This will remove the stored Datadog credentials from the database.
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
@@ -150,18 +151,18 @@ async def delete_integration(
     await verify_workspace_access(workspace_id, current_user, db)
 
     try:
-        deleted = await delete_newrelic_integration(
+        deleted = await delete_datadog_integration(
             db=db, user_id=current_user.id, workspace_id=workspace_id
         )
 
         if not deleted:
             raise HTTPException(
                 status_code=404,
-                detail="New Relic integration not found for this workspace",
+                detail="Datadog integration not found for this workspace",
             )
 
         return {
-            "message": "New Relic integration deleted successfully",
+            "message": "Datadog integration deleted successfully",
             "workspace_id": workspace_id,
         }
 
@@ -171,5 +172,5 @@ async def delete_integration(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to delete New Relic integration: {str(e)}"
+            status_code=500, detail=f"Failed to delete Datadog integration: {str(e)}"
         )

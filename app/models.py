@@ -378,7 +378,37 @@ class NewRelicIntegration(Base):
     # Relationships
     workspace = relationship("Workspace", backref="newrelic_integrations")
 
+
+class DatadogIntegration(Base):
+    """
+    Stores Datadog integration credentials for workspace integrations.
+    API keys and App keys are encrypted before storage.
+    """
+
+    __tablename__ = "datadog_integrations"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # Datadog API Key (organization-level)
+    api_key = Column(String, nullable=False)  # Encrypted API key
+
+    # Datadog Application Key (organization-level with permissions)
+    app_key = Column(String, nullable=False)  # Encrypted App key
+
+    # Datadog Region code (e.g., us1, us5, eu1, ap1)
+    region = Column(String, nullable=False)
+
+    # Status tracking
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="datadog_integrations")
+
     # Indexes for query performance
     __table_args__ = (
-        Index("idx_newrelic_integration_workspace", "workspace_id"),
+        Index("idx_datadog_integration_workspace", "workspace_id"),
     )
