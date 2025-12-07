@@ -50,6 +50,42 @@ def get_datadog_domain(region: str) -> str:
 # STANDALONE UTILITY FUNCTIONS (Can be used by router and RCA bot)
 # =============================================================================
 
+async def get_datadog_credentials(
+    db: AsyncSession,
+    workspace_id: str
+) -> Optional[dict]:
+    """
+    Get decrypted Datadog credentials for a workspace.
+    Standalone function that can be used by Logs, Metrics, and other services.
+
+    Args:
+        db: Database session
+        workspace_id: Workspace ID
+
+    Returns:
+        Dict with api_key, app_key, and region or None if not found
+    """
+    result = await db.execute(
+        select(DatadogIntegration).where(
+            DatadogIntegration.workspace_id == workspace_id
+        )
+    )
+    integration = result.scalar_one_or_none()
+
+    if not integration:
+        return None
+
+    # Decrypt credentials
+    api_key = token_processor.decrypt(integration.api_key)
+    app_key = token_processor.decrypt(integration.app_key)
+
+    return {
+        "api_key": api_key,
+        "app_key": app_key,
+        "region": integration.region
+    }
+
+
 async def verify_datadog_credentials(
     api_key: str, app_key: str, region: str
 ) -> Tuple[bool, str]:
