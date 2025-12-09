@@ -52,7 +52,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
             # Log the response
             logger.info(
-                f"{request.method} {request.url.path} - Request completed with status {response.status_code}"
+                f"{request.method} {request.url.path} - Request passed with status {response.status_code}"
             )
 
             return response

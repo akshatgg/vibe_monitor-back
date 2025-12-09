@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_LLM_MODEL: Optional[str] = None
 
+    # LLM Guard Security Settings
+    LLM_GUARD_TEMPERATURE: float = 0.0  # Deterministic for security checks
+    LLM_GUARD_TIMEOUT: float = 10.0  # Seconds timeout for guard validation
+    LLM_GUARD_MAX_TOKENS: Optional[int] = None  # No limit by default
+
     # Gemini
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_LLM_MODEL: Optional[str] = None
@@ -97,6 +102,7 @@ class Settings(BaseSettings):
         "vibe-monitor-owner-session"  # Session name for owner role
     )
     OWNER_ROLE_DURATION_SECONDS: int = 3600  # Owner role session duration (1 hour)
+    
 
     # AWS SQS
     AWS_REGION: Optional[str] = None

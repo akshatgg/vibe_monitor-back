@@ -50,7 +50,6 @@ class SlackEventPayload(BaseModel):
 
         # Security: Require either user or bot_id for message tracking
         # User messages have 'user', bot messages (Grafana/Sentry) have 'bot_id'
-        # Exception: message subtypes may not have user/bot_id
         if not subtype and "user" not in event and "bot_id" not in event:
             raise ValueError(
                 "Message must have either 'user' or 'bot_id' for proper tracking"

@@ -24,7 +24,7 @@ from app.slack.schemas import (
 from app.models import SlackInstallation
 from app.models import Job, JobStatus
 from app.slack.alert_detector import alert_detector
-
+from app.security.llm_guard import llm_guard
 
 from app.utils.token_processor import token_processor
 from app.utils.rate_limiter import check_rate_limit, ResourceType
@@ -380,6 +380,33 @@ class SlackEventService:
                     f"• Your User ID: {user_id}\n"
                     f"• Message received at: {timestamp}"
                 )
+
+        # ═══════════════════════════════════════════════════════════════
+        # SECURITY: LLM Guard - Validate message for prompt injection
+        # ═══════════════════════════════════════════════════════════════
+        logger.info(f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'")
+        guard_result = await llm_guard.validate_message(
+            user_message=clean_message,
+            context=f"Slack message from user {user_id} in channel {channel_id}"
+        )
+
+        if guard_result["blocked"]:
+            # Log the security incident
+            logger.error(
+                f"[SECURITY] Message BLOCKED by LLM Guard - "
+                f"User: {user_id}, Channel: {channel_id}, "
+                f"Reason: {guard_result['reason']}, "
+                f"LLM Response: {guard_result['llm_response']}"
+            )
+
+            # Return user-friendly error message
+            return (
+                f"⚠️ Sorry <@{user_id}>, your message was blocked due to security concerns.\n\n"
+                f"If you believe this is a mistake, please rephrase your message and try again, "
+                f"or contact support@vibemonitor.ai for assistance."
+            )
+
+        logger.info("[SECURITY] Message PASSED LLM Guard validation ✓")
 
         # Process RCA query (works for both mentions and auto-detected alerts)
         if True:  # Always process as RCA for non-command messages

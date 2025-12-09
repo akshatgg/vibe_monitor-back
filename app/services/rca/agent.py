@@ -101,7 +101,7 @@ class RCAAgentService:
                 ]
             )
 
-            logger.info("RCA Agent LLM initialized successfully")
+            logger.info(f"RCA Agent for text analysis initialised successfully with Groq model: {settings.GROQ_LLM_MODEL}")
 
         except Exception as e:
             logger.error(f"Failed to initialize RCA agent LLM: {e}")
@@ -206,6 +206,9 @@ class RCAAgentService:
                 - error: Error message if failed
         """
         try:
+            # NOTE: Security validation is now performed at the worker level
+            # using LLM-based guard before RCA agent is invoked
+
             # Extract workspace_id from context (REQUIRED - no default)
             workspace_id = (context or {}).get("workspace_id")
 
@@ -312,9 +315,7 @@ class RCAAgentService:
                 }
 
             return {
-                "output": result.get(
-                    "output", "Analysis completed but no output generated."
-                ),
+                "output": result.get("output", "Analysis completed but no output generated."),
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "success": True,
                 "error": None,

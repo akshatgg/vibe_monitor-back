@@ -92,6 +92,7 @@ class GeminiRCAAgentService:
                 temperature=settings.RCA_AGENT_TEMPERATURE,
                 max_output_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
+            logger.info(f"Using {settings.GEMINI_LLM_MODEL} for image analysis")
 
             # Create chat prompt template with system message, service mapping, and thread history
             self.prompt = ChatPromptTemplate.from_messages([

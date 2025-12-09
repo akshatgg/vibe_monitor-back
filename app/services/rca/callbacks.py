@@ -30,6 +30,10 @@ def sanitize_error_for_user(error_msg: Optional[str]) -> str:
     elif not isinstance(error_msg, str):
         error_msg = str(error_msg)
 
+    # Log the original error for debugging (internal only)
+    if error_msg:
+        logger.error(f"❌ Analysis encountered an error: {error_msg}")
+
     # Always return a simple generic message - customers shouldn't see internal errors
     return "Something went wrong while processing your request"
 
