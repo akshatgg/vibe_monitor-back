@@ -11,14 +11,14 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from urllib.parse import urlencode
-    
+
 from app.models import User, RefreshToken
-from ..schemas.schemas import UserResponse
-from ...core.database import get_db
-from ...core.config import settings
-from ...utils.retry_decorator import retry_external_api
-from .workspace_service import WorkspaceService
-from ...mailgun.service import mailgun_service
+from ..schemas.google_auth_schemas import UserResponse
+from app.core.database import get_db
+from app.core.config import settings
+from app.utils.retry_decorator import retry_external_api
+from app.onboarding.services.workspace_service import WorkspaceService
+from app.mailgun.service import mailgun_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,13 @@ class AuthService:
             async for attempt in retry_external_api("Google"):
                 with attempt:
                     response = await client.post(self.GOOGLE_TOKEN_URL, data=data)
+
+                    # If error, log details for debugging
+                    if response.status_code != 200:
+                        error_detail = response.text
+                        logger.error(f"Google token exchange failed: {error_detail}")
+                        logger.error(f"Request data: client_id={data['client_id'][:10]}..., redirect_uri={data['redirect_uri']}")
+
                     response.raise_for_status()
                     return response.json()
 
@@ -136,27 +143,34 @@ class AuthService:
                     return user_data
 
     async def validate_id_token(self, id_token: str) -> Dict[str, str]:
-        """Validate Google ID token (JWT signature, audience, expiry)"""
+        """Validate Google ID token with signature verification using Google's public keys"""
         try:
-            # For production, you should fetch Google's public keys and validate the signature
-            # For now, we'll decode without verification (not recommended for production)
-            payload = jwt.get_unverified_claims(id_token)
+            # Fetch Google's public keys for signature verification
+            async with httpx.AsyncClient() as client:
+                async for attempt in retry_external_api("Google"):
+                    with attempt:
+                        response = await client.get("https://www.googleapis.com/oauth2/v3/certs")
+                        response.raise_for_status()
+                        jwks = response.json()
 
-            # Validate audience
-            if payload.get("aud") != self.GOOGLE_CLIENT_ID:
-                raise HTTPException(status_code=400, detail="Invalid token audience")
-
-            # Validate expiry
-            exp = payload.get("exp")
-            if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(
-                timezone.utc
-            ):
-                raise HTTPException(status_code=400, detail="Token has expired")
-
-            # Validate issuer
-            iss = payload.get("iss")
-            if iss not in ["https://accounts.google.com", "accounts.google.com"]:
-                raise HTTPException(status_code=400, detail="Invalid token issuer")
+            # Verify the token signature and decode payload
+            # This validates signature, audience, issuer, and expiration automatically
+            # Note: We skip at_hash validation since we verify user info via access token separately
+            payload = jwt.decode(
+                id_token,
+                jwks,
+                algorithms=["RS256"],
+                audience=self.GOOGLE_CLIENT_ID,
+                issuer=["https://accounts.google.com", "accounts.google.com"],
+                options={
+                    "verify_signature": True,
+                    "verify_aud": True,
+                    "verify_iat": True,
+                    "verify_exp": True,
+                    "verify_iss": True,
+                    "verify_at_hash": False,  # Skip at_hash validation (we verify access token separately)
+                }
+            )
 
             return payload
 
@@ -168,7 +182,6 @@ class AuthService:
     ) -> UserResponse:
         """Create new user or return existing user"""
         email = google_user_info.get("email")
-        google_user_info.get("sub")
         name = google_user_info.get("name", "")
 
         # Check if user exists by email

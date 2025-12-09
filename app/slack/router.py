@@ -12,7 +12,7 @@ from app.slack.schemas import SlackEventPayload
 from app.slack.service import slack_event_service
 from app.core.config import settings
 from app.core.database import get_db
-from app.onboarding.services.auth_service import AuthService
+from app.auth.services.google_auth_service import AuthService
 from app.models import SlackInstallation, Workspace, Membership
 from fastapi.responses import RedirectResponse
 

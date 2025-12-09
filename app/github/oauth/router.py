@@ -7,7 +7,7 @@ import secrets
 import logging
 
 from .service import GitHubAppService
-from ...onboarding.services.auth_service import AuthService
+from ...auth.services.google_auth_service import AuthService
 from ...core.database import get_db
 from ...core.config import settings
 from ...utils.token_processor import token_processor

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import logging
 
-from ...onboarding.services.auth_service import AuthService
+from ...auth.services.google_auth_service import AuthService
 from .service import (
     get_github_integration_with_token,
     execute_github_graphql,

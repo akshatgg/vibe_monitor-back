@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.onboarding.services.auth_service import AuthService
+from app.auth.services.google_auth_service import AuthService
 from app.models import User, MailgunEmail, SlackInstallation, Membership
 from app.mailgun.service import mailgun_service, verify_scheduler_token
 from app.mailgun.schemas import EmailResponse

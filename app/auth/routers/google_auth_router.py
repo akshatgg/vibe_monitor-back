@@ -3,10 +3,10 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from ..schemas.schemas import UserResponse, RefreshTokenRequest
-from ..services.auth_service import AuthService
-from ...core.config import settings
-from ...core.database import get_db
+from ..schemas.google_auth_schemas import RefreshTokenRequest, UserResponse
+from ..services.google_auth_service import AuthService
+from app.core.config import settings
+from app.core.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 auth_service = AuthService()

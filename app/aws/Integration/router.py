@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models import User, Membership
-from app.onboarding.services.auth_service import AuthService
+from app.auth.services.google_auth_service import AuthService
 from .schemas import (
     AWSIntegrationCreate,
     AWSIntegrationResponse,

@@ -9,7 +9,7 @@ from ..schemas.schemas import (
     WorkspaceWithMembership,
 )
 from ..services.workspace_service import WorkspaceService
-from ..services.auth_service import AuthService
+from app.auth.services.google_auth_service import AuthService
 from app.models import User
 from ...core.database import get_db
 
