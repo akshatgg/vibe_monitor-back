@@ -46,10 +46,11 @@ async def initiate_slack_install(
     # Updated scopes to listen to all messages in channels where bot is added
     # channels:history - Read messages in public channels
     # groups:history - Read messages in private channels
+    # files:read - Download images/files from messages for RCA analysis
     oauth_url = (
         f"{settings.SLACK_OAUTH_AUTHORIZE_URL}?"
         f"client_id={settings.SLACK_CLIENT_ID}&"
-        f"scope=app_mentions:read,channels:read,channels:history,groups:read,groups:history,chat:write&"
+        f"scope=app_mentions:read,channels:read,channels:history,groups:read,groups:history,chat:write,files:read&"
         f"user_scope=&"
         f"state={state}"
     )
