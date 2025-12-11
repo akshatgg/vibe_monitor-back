@@ -400,8 +400,8 @@ class SlackEventService:
 
         if guard_result["blocked"]:
             # Log the security incident
-            logger.error(
-                f"[SECURITY] Message BLOCKED by LLM Guard - "
+            logger.warning(
+                f"Message BLOCKED by LLM Guard - "
                 f"User: {user_id}, Channel: {channel_id}, "
                 f"Reason: {guard_result['reason']}, "
                 f"LLM Response: {guard_result['llm_response']}"
