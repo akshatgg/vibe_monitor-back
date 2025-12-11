@@ -412,3 +412,52 @@ class DatadogIntegration(Base):
     __table_args__ = (
         Index("idx_datadog_integration_workspace", "workspace_id"),
     )
+
+class SecurityEventType(enum.Enum):
+    PROMPT_INJECTION = "prompt_injection"
+    GUARD_DEGRADED = "guard_degraded"
+
+
+class SecurityEvent(Base):
+    """
+    Tracks security events such as prompt injection attempts and guard degradation.
+    Used for monitoring and alerting on security threats.
+    """
+
+    __tablename__ = "security_events"
+
+    id = Column(String, primary_key=True)
+
+    # Event classification
+    event_type = Column(Enum(SecurityEventType), nullable=False)
+    severity = Column(String, nullable=False)  # e.g., 'low', 'medium', 'high', 'critical'
+
+    # Context
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)
+    slack_integration_id = Column(
+        String, ForeignKey("slack_installations.id"), nullable=True
+    )
+    slack_user_id = Column(String, nullable=True)  # Slack user ID who triggered the event
+
+    # Event details
+    message_preview = Column(Text, nullable=True)  # Preview of the message that triggered the event
+    guard_response = Column(String, nullable=True)  # "true", "false", or null for guard degradation
+    reason = Column(String, nullable=True)  # Human-readable reason for the event
+    event_metadata = Column(JSON, nullable=True)  # Additional context (error details, etc.)
+
+    # Timestamp
+    detected_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="security_events")
+    slack_integration = relationship("SlackInstallation", backref="security_events")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_security_events_type", "event_type"),
+        Index("idx_security_events_workspace", "workspace_id"),
+        Index("idx_security_events_detected_at", "detected_at"),
+        Index("idx_security_events_slack_user", "slack_user_id"),
+        Index("idx_security_events_slack_integration", "slack_integration_id"),
+    )
