@@ -12,7 +12,6 @@ LangChain instance to avoid any interference.
 import logging
 import uuid
 from typing import Dict, Any, Optional
-from datetime import datetime
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from app.core.config import settings

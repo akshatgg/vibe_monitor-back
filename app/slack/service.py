@@ -384,10 +384,18 @@ class SlackEventService:
         # ═══════════════════════════════════════════════════════════════
         # SECURITY: LLM Guard - Validate message for prompt injection
         # ═══════════════════════════════════════════════════════════════
+        # Get Slack installation details for security event tracking
+        slack_integration = await SlackEventService.get_installation(team_id)
+        slack_integration_id = slack_integration.id if slack_integration else None
+        workspace_id = slack_integration.workspace_id if slack_integration else None
+
         logger.info(f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'")
         guard_result = await llm_guard.validate_message(
             user_message=clean_message,
-            context=f"Slack message from user {user_id} in channel {channel_id}"
+            context=f"Slack message from user {user_id} in channel {channel_id}",
+            workspace_id=workspace_id,
+            slack_integration_id=slack_integration_id,
+            slack_user_id=user_id,
         )
 
         if guard_result["blocked"]:
@@ -439,10 +447,7 @@ class SlackEventService:
             try:
                 # Create Job record in database
                 async with AsyncSessionLocal() as db:
-                    # Get slack integration ID and workspace_id from team_id
-                    slack_integration = await SlackEventService.get_installation(
-                        team_id
-                    )
+                    # Verify we have slack integration (already fetched earlier for LLM guard)
                     if not slack_integration:
                         logger.error(f"No Slack installation found for team {team_id}")
                         return (
@@ -450,17 +455,14 @@ class SlackEventService:
                             f"Please reinstall the app or contact support."
                         )
 
-                    if not slack_integration.workspace_id:
+                    if not workspace_id:
                         logger.error(
-                            f"Slack installation {slack_integration.id} has no workspace_id"
+                            f"Slack installation {slack_integration_id} has no workspace_id"
                         )
                         return (
                             f"❌ Sorry <@{user_id}>, your Slack workspace is not linked to a VibeMonitor workspace. "
                             f"Please complete the setup or contact support."
                         )
-
-                    slack_integration_id = slack_integration.id
-                    workspace_id = slack_integration.workspace_id
 
                     # Check rate limit before creating job
 
