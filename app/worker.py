@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import signal
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from dotenv import load_dotenv
-from loguru import logger
+
 from app.workers.base_worker import BaseWorker
 from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
@@ -16,6 +16,8 @@ from app.core.logging_config import set_job_id, clear_job_id
 from app.models import Job, JobStatus
 from app.github.tools.router import list_repositories_graphql
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
+
+logger = logging.getLogger(__name__)
 
 
 async def scan_repositories_in_batches(

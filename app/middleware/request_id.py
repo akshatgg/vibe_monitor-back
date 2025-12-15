@@ -9,12 +9,14 @@ The request_id is:
 """
 
 import uuid
-from loguru import logger
+import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.logging_config import set_request_id, clear_request_id
+
+logger = logging.getLogger(__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

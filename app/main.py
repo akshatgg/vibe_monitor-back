@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from loguru import logger
+import logging
 import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,8 +23,11 @@ from app.services.sqs.client import sqs_client
 # Load environment variables
 load_dotenv()
 
-# Configure logging with request_id and job_id support using loguru
+# Configure logging with request_id and job_id support using stdlib logging
 configure_logging()
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 # Initialize Sentry for error tracking
 if settings.SENTRY_DSN:

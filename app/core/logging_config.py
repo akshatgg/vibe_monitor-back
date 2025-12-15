@@ -1,19 +1,19 @@
 """
-Centralized logging configuration with request_id and job_id context support using loguru.
+Centralized logging configuration with request_id and job_id context support using stdlib logging.
 
-This module configures loguru to intercept all standard logging calls and provides
+This module configures stdlib logging with JSON formatting and provides
 automatic context propagation using contextvars. Also supports OpenTelemetry log export.
+
+Uses ONLY stdlib - no external logging dependencies.
 """
 
 import json
 import logging
 import sys
 from contextvars import ContextVar
-from types import FrameType
-import traceback
-from typing import Optional
-
-from loguru import logger
+from typing import Optional, Dict, Any
+import threading
+from datetime import datetime
 
 from app.core.config import settings
 
@@ -23,62 +23,39 @@ request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 job_id_var: ContextVar[str] = ContextVar("job_id", default="-")
 
 
-class InterceptHandler(logging.Handler):
-    """
-    Handler that intercepts standard logging calls and redirects them to loguru.
-
-    This ensures all existing logging.getLogger() calls throughout the codebase
-    work seamlessly with loguru without requiring code changes.
-    """
-
-    def emit(self, record: logging.LogRecord):
-        """Intercept standard logging record and pass to loguru."""
-        # Get corresponding Loguru level if it exists
-        try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
-
-        # Find caller from where the logging call originated
-        from app.core.config import settings
-
-        frame: Optional[FrameType] = sys._getframe(settings.LOGGING_FRAME_DEPTH)
-        depth: int = settings.LOGGING_FRAME_DEPTH
-
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
-
-
-def context_filter(record):
+class ContextFilter(logging.Filter):
     """
     Filter that adds request_id and job_id from contextvars to log records.
 
     This allows all logs within a request/job to automatically include the context
     without needing to manually bind the logger everywhere.
     """
-    # Set request_id only if not empty or default "-"
-    request_id = request_id_var.get()
-    if request_id and request_id != "-":
-        record["extra"]["request_id"] = request_id
 
-    # Set job_id only if not empty or default "-"
-    job_id = job_id_var.get()
-    if job_id and job_id != "-":
-        record["extra"]["job_id"] = job_id
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Add context variables to the log record."""
+        # Add request_id if set
+        request_id = request_id_var.get()
+        if request_id and request_id != "-":
+            record.request_id = request_id
 
-    return record
+        # Add job_id if set
+        job_id = job_id_var.get()
+        if job_id and job_id != "-":
+            record.job_id = job_id
+
+        # Add process and thread info
+        record.process_id = threading.current_thread().ident
+        record.process_name = "MainProcess"  # For compatibility
+        record.thread_name = threading.current_thread().name
+
+        return True
 
 
-def build_simplified_json_record(record):
+class JSONFormatter(logging.Formatter):
     """
-    Build a simplified JSON log record from a loguru record.
+    Custom JSON formatter using only stdlib - no external dependencies.
 
-    Only includes essential fields:
+    Outputs simplified, clean JSON logs with essential fields:
     - timestamp
     - level
     - message
@@ -88,155 +65,112 @@ def build_simplified_json_record(record):
     - process info
     - thread info
     """
-    log_record = {
-        "timestamp": record["time"].strftime("%Y-%m-%d %H:%M:%S"),
-        "level": record["level"].name,
-        "message": record["message"],
-    }
 
-    # Add request_id if present
-    if "request_id" in record["extra"]:
-        log_record["request_id"] = record["extra"]["request_id"]
-
-    # Add job_id if present
-    if "job_id" in record["extra"]:
-        log_record["job_id"] = record["extra"]["job_id"]
-
-    # Add exception if present
-    if record["exception"]:
-        traceback_text = None
-        if record["exception"].traceback:
-            try:
-                traceback_text = "".join(
-                    traceback.format_exception(
-                        record["exception"].type,
-                        record["exception"].value,
-                        record["exception"].traceback,
-                    )
-                ).strip()
-            except Exception:
-                # Fall back to stringifying the traceback object if formatting fails
-                traceback_text = str(record["exception"].traceback)
-
-        log_record["exception"] = {
-            "type": (
-                record["exception"].type.__name__ if record["exception"].type else None
+    def format(self, record: logging.LogRecord) -> str:
+        """Format the log record as JSON."""
+        # Build log record dictionary (explicitly typed to satisfy mypy)
+        log_record: Dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created).strftime(
+                "%Y-%m-%d %H:%M:%S"
             ),
-            "value": (
-                str(record["exception"].value) if record["exception"].value else None
-            ),
-            "traceback": traceback_text,
+            "level": record.levelname,
+            "message": record.getMessage(),
         }
-    else:
-        log_record["exception"] = None
 
-    # Add process info
-    log_record["process"] = {
-        "id": record["process"].id,
-        "name": record["process"].name,
-    }
+        # Add request_id if present
+        if hasattr(record, "request_id"):
+            log_record["request_id"] = record.request_id
 
-    # Add thread info
-    log_record["thread"] = {
-        "id": record["thread"].id,
-        "name": record["thread"].name,
-    }
+        # Add job_id if present
+        if hasattr(record, "job_id"):
+            log_record["job_id"] = record.job_id
 
-    return log_record
+        # Add exception if present
+        if record.exc_info:
+            log_record["exception"] = {
+                "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
+                "value": str(record.exc_info[1]) if record.exc_info[1] else None,
+                "traceback": self.formatException(record.exc_info),
+            }
+        else:
+            log_record["exception"] = None
 
+        # Add process info
+        log_record["process"] = {
+            "id": getattr(record, "process_id", 0),
+            "name": getattr(record, "process_name", "MainProcess"),
+        }
 
-def custom_json_sink(message):
-    """
-    Custom sink that wraps sys.stderr and formats logs as simplified JSON.
-    """
-    record = message.record
-    log_record = build_simplified_json_record(record)
-    sys.stderr.write(json.dumps(log_record) + "\n")
+        # Add thread info
+        log_record["thread"] = {
+            "id": getattr(record, "process_id", 0),  # Using process_id for thread id
+            "name": getattr(record, "thread_name", "MainThread"),
+        }
 
-
-def otel_sink(message, otel_handler: logging.Handler):
-    """
-    Bridge loguru records to OpenTelemetry logging handler.
-
-    This function converts loguru records to standard logging.LogRecord format
-    and emits them to the OpenTelemetry handler for OTLP export.
-
-    Args:
-        message: Loguru message object
-        otel_handler: OpenTelemetry LoggingHandler instance
-    """
-    record = message.record
-
-    # Convert loguru record to standard logging.LogRecord
-    log_record = logging.LogRecord(
-        name=record["name"],
-        level=record["level"].no,
-        pathname=record["file"].path,
-        lineno=record["line"],
-        msg=record["message"],
-        args=(),
-        exc_info=record["exception"],
-    )
-
-    # Add context (request_id, job_id) as extra attributes
-    if "request_id" in record["extra"]:
-        log_record.request_id = record["extra"]["request_id"]
-    if "job_id" in record["extra"]:
-        log_record.job_id = record["extra"]["job_id"]
-
-    # Emit to OpenTelemetry handler
-    otel_handler.emit(log_record)
+        # Return JSON string
+        return json.dumps(log_record)
 
 
 def configure_logging(otel_handler: Optional[logging.Handler] = None):
     """
-    Configure logging for the application using loguru.
+    Configure logging for the application using stdlib logging.
 
     Args:
         otel_handler: Optional OpenTelemetry LoggingHandler for OTLP log export
 
     This function:
-    1. Removes default loguru handler
-    2. Adds custom JSON sink for simplified JSON logging (console)
-    3. Adds OpenTelemetry sink if handler provided (OTLP export)
-    4. Configures context filter to automatically inject request_id and job_id from contextvars
-    5. Intercepts all standard logging calls to redirect to loguru
-    6. Configures log level from settings
+    1. Configures root logger with JSON formatter
+    2. Adds context filter to automatically inject request_id and job_id from contextvars
+    3. Adds OpenTelemetry handler if provided (OTLP export)
+    4. Configures log level from settings
+    5. Suppresses overly verbose library logs
     """
-    # Remove default handler
-    logger.remove()
+    # Get root logger
+    root_logger = logging.getLogger()
+
+    # Remove all existing handlers
+    root_logger.handlers.clear()
 
     # Determine log level (required - will fail if not set in environment)
-    log_level = settings.LOG_LEVEL
+    log_level = getattr(logging, settings.LOG_LEVEL.upper())
 
-    # Add console handler with custom JSON sink
-    logger.add(
-        custom_json_sink,  # Use custom JSON sink
-        level=log_level,
-        backtrace=True,
-        diagnose=True,
-        filter=context_filter,  # This filter injects request_id and job_id automatically
-    )
+    # Create context filter
+    context_filter = ContextFilter()
 
-    # Add OpenTelemetry sink if handler provided
+    # Create console handler with JSON formatter
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(log_level)
+
+    # Use custom JSON formatter (stdlib only!)
+    json_formatter = JSONFormatter()
+    console_handler.setFormatter(json_formatter)
+    console_handler.addFilter(context_filter)
+
+    # Add console handler to root logger
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(log_level)
+
+    # Add OpenTelemetry handler if provided
     if otel_handler:
-        logger.add(
-            lambda msg: otel_sink(msg, otel_handler),
-            level=log_level,
-            filter=context_filter,  # Also add filter to OTel handler
-            format="{message}",  # Simple format since OTel handles structured logging
-        )
-        logger.info("OpenTelemetry logging sink configured")
-
-    # Intercept standard logging
-    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+        otel_handler.setLevel(log_level)
+        otel_handler.addFilter(context_filter)
+        root_logger.addHandler(otel_handler)
+        logging.info("OpenTelemetry logging handler configured")
 
     # Set logging level for commonly verbose libraries
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    logger.info("Logging configured successfully with loguru")
+    # CRITICAL: Suppress OpenTelemetry attribute warnings that were causing noise
+    logging.getLogger("opentelemetry.attributes").setLevel(logging.ERROR)
+    logging.getLogger("opentelemetry.sdk.trace").setLevel(logging.WARNING)
+    logging.getLogger("opentelemetry.sdk.metrics").setLevel(logging.WARNING)
+
+    logging.info("Logging configured successfully with stdlib logging")
 
 
 def set_request_id(request_id: str):
