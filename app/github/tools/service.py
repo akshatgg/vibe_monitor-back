@@ -5,6 +5,7 @@ This service provides helper functions for GitHub-related operations
 used across multiple endpoints in the GitHub tools router.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,8 @@ from ...utils.token_processor import token_processor
 from ...utils.retry_decorator import retry_external_api
 from ...models import GitHubIntegration, Membership
 from ...core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 github_app_service = GitHubAppService()
@@ -102,7 +105,11 @@ async def get_github_integration_with_token(
     # Decrypt and return access token
     access_token = None
     if integration.access_token:
-        access_token = token_processor.decrypt(integration.access_token)
+        try:
+            access_token = token_processor.decrypt(integration.access_token)
+        except Exception as e:
+            logger.error(f"Failed to decrypt GitHub access token: {e}")
+            raise Exception("Failed to decrypt GitHub credentials")
 
     return integration, access_token
 

@@ -473,11 +473,15 @@ class AWSIntegrationService:
                     # Refresh credentials by assuming role again
                     try:
                         # Decrypt external_id if present
-                        external_id = (
-                            token_processor.decrypt(integration.external_id)
-                            if integration.external_id
-                            else None
-                        )
+                        try:
+                            external_id = (
+                                token_processor.decrypt(integration.external_id)
+                                if integration.external_id
+                                else None
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to decrypt AWS external_id: {e}")
+                            raise Exception("Failed to decrypt AWS credentials")
 
                         credentials = await self.assume_role(
                             integration.role_arn,
@@ -570,11 +574,15 @@ class AWSIntegrationService:
                     # Refresh credentials
                     try:
                         # Decrypt external_id if present
-                        external_id = (
-                            token_processor.decrypt(integration.external_id)
-                            if integration.external_id
-                            else None
-                        )
+                        try:
+                            external_id = (
+                                token_processor.decrypt(integration.external_id)
+                                if integration.external_id
+                                else None
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to decrypt AWS external_id: {e}")
+                            raise Exception("Failed to decrypt AWS credentials")
 
                         credentials = await self.assume_role(
                             integration.role_arn,
@@ -613,12 +621,16 @@ class AWSIntegrationService:
                         )
 
         # Decrypt and return credentials
-        return {
-            "access_key_id": token_processor.decrypt(integration.access_key_id),
-            "secret_access_key": token_processor.decrypt(integration.secret_access_key),
-            "session_token": token_processor.decrypt(integration.session_token),
-            "region": integration.aws_region,
-        }
+        try:
+            return {
+                "access_key_id": token_processor.decrypt(integration.access_key_id),
+                "secret_access_key": token_processor.decrypt(integration.secret_access_key),
+                "session_token": token_processor.decrypt(integration.session_token),
+                "region": integration.aws_region,
+            }
+        except Exception as e:
+            logger.error(f"Failed to decrypt AWS credentials: {e}")
+            raise Exception("Failed to decrypt AWS credentials")
 
     async def delete_aws_integration(self, db: AsyncSession, workspace_id: str) -> bool:
         """

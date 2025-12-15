@@ -59,7 +59,7 @@ class NewRelicLogsService:
         try:
             api_key = token_processor.decrypt(integration.api_key)
         except Exception as e:
-            logger.error(f"Failed to decrypt New Relic API key: {str(e)}")
+            logger.error(f"Failed to decrypt New Relic API key: {e}")
             raise Exception("Failed to decrypt New Relic credentials")
 
         return {

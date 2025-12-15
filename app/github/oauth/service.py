@@ -4,6 +4,7 @@ from sqlalchemy import select
 import httpx
 from jose import jwt
 import time
+import logging
 from typing import Dict
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -13,6 +14,8 @@ from ...models import GitHubIntegration
 from ...core.config import settings
 from ...utils.token_processor import token_processor
 from ...utils.retry_decorator import retry_external_api
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubAppService:
@@ -240,7 +243,11 @@ class GitHubAppService:
 
         if token_is_valid:
             # Return existing token (decrypted)
-            return token_processor.decrypt(integration.access_token)
+            try:
+                return token_processor.decrypt(integration.access_token)
+            except Exception as e:
+                logger.error(f"Failed to decrypt GitHub access token: {e}")
+                raise Exception("Failed to decrypt GitHub credentials")
 
         # Token expired or missing - get a new one
         token_data = await self.get_installation_access_token(

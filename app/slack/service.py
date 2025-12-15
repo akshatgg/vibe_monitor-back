@@ -740,8 +740,8 @@ class SlackEventService:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for slack message")
         except Exception as err:
-            logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return None
+            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            raise Exception("Failed to decrypt Slack credentials")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -816,8 +816,8 @@ class SlackEventService:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for fetching thread history")
         except Exception as err:
-            logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return None
+            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            raise Exception("Failed to decrypt Slack credentials")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -888,8 +888,8 @@ class SlackEventService:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for slack message update")
         except Exception as err:
-            logger.error(f"Error decrypting access token for team {team_id}: {err}")
-            return False
+            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            raise Exception("Failed to decrypt Slack credentials")
 
         try:
             async with httpx.AsyncClient() as client:

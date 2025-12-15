@@ -47,7 +47,11 @@ class LogsService:
                 )
 
             # Decrypt the API token
-            decrypted_token = token_processor.decrypt(integration.api_token)
+            try:
+                decrypted_token = token_processor.decrypt(integration.api_token)
+            except Exception as e:
+                logger.error(f"Failed to decrypt Grafana API token: {e}")
+                raise Exception("Failed to decrypt Grafana credentials")
 
             # Auto-discover Loki UID from Grafana
             datasource_uid = await get_loki_uid_cached(

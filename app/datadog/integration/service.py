@@ -76,8 +76,12 @@ async def get_datadog_credentials(
         return None
 
     # Decrypt credentials
-    api_key = token_processor.decrypt(integration.api_key)
-    app_key = token_processor.decrypt(integration.app_key)
+    try:
+        api_key = token_processor.decrypt(integration.api_key)
+        app_key = token_processor.decrypt(integration.app_key)
+    except Exception as e:
+        logger.error(f"Failed to decrypt Datadog credentials: {e}")
+        raise Exception("Failed to decrypt Datadog credentials")
 
     return {
         "api_key": api_key,

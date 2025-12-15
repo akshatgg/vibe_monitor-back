@@ -10,6 +10,7 @@ import httpx
 from app.core.database import AsyncSessionLocal
 from app.models import GrafanaIntegration
 from app.utils.retry_decorator import retry_external_api
+from app.utils.token_processor import token_processor
 from .models import LabelResponse
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,15 @@ class DatasourcesService:
             if not integration:
                 raise ValueError(f"No Grafana configuration found for workspace {workspace_id}")
 
-            return integration.grafana_url, integration.api_token
+            # Decrypt the API token before returning
+            try:
+                decrypted_token = token_processor.decrypt(integration.api_token)
+                logger.debug("Successfully decrypted Grafana API token")
+            except Exception as e:
+                logger.error(f"Failed to decrypt Grafana API token: {e}")
+                raise Exception("Failed to decrypt Grafana credentials")
+
+            return integration.grafana_url, decrypted_token
 
     def _get_headers(self, api_token: str) -> Dict[str, str]:
         """Get headers for Grafana API requests"""
