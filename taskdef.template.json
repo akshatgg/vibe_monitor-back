@@ -53,8 +53,8 @@
         {"name": "OTEL_ENABLED", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-enabled"},
         {"name": "OTEL_OTLP_ENDPOINT", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-otlp-endpoint"},
         {"name": "HOSTNAME", "valueFrom": "/vm-api-ENV_PLACEHOLDER/hostname"},
-        {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"}
-
+        {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"},
+        {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-prod/engagement-slack-webhook-url"}
       ]
     }
   ]

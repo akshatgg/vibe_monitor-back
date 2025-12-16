@@ -381,7 +381,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when chain encounters an error"""
         sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text=f"❌ *Analysis encountered an error:* {sanitized_error}",
+            text=f"❌ *Analysis encountered an error.",
             context="chain error"
         )
 

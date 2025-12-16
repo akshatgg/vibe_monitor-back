@@ -192,6 +192,12 @@ class Settings(BaseSettings):
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
 
+    # Engagement Reporting
+    ENGAGEMENT_SLACK_WEBHOOK_URL: Optional[str] = None  # Slack webhook URL for #engagement channel
+    ENGAGEMENT_REPORT_HOUR_UTC: int = 0  # Hour in UTC to send daily report (0 = midnight UTC)
+    ENGAGEMENT_REPORT_MINUTE_UTC: int = 30  # Minute in UTC to send daily report (30 = 6:00 AM IST)
+    ENGAGEMENT_SLACK_TIMEOUT: float = 10.0  # Timeout for Slack webhook requests in seconds
+
     # Logging Configuration
     LOGGING_FRAME_DEPTH: int = (
         6  # Frame depth for finding logging call origin in stack trace

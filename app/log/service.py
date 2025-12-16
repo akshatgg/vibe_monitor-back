@@ -161,7 +161,7 @@ class LogsService:
 
         if filters:
             for key, value in filters.items():
-                # Escape both key and value to prevent LogQL injection
+                # Escape both   key and value to prevent LogQL injection
                 escaped_key = self._escape_logql_value(key)
                 escaped_value = self._escape_logql_value(value)
                 labels.append(f'{escaped_key}="{escaped_value}"')
