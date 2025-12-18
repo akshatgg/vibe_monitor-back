@@ -137,6 +137,7 @@ class GrafanaIntegration(Base):
 
     id = Column(String, primary_key=True)
     vm_workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
     grafana_url = Column(String(500), nullable=False)
     api_token = Column(String(500), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -172,6 +173,7 @@ class SlackInstallation(Base):
     workspace_id = Column(
         String, ForeignKey("workspaces.id"), nullable=True
     )  # Optional link to internal workspace
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True)
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -181,6 +183,7 @@ class GitHubIntegration(Base):
 
     id = Column(String, primary_key=True)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
 
     github_user_id = Column(String, nullable=False)
     github_username = Column(String, nullable=False)
@@ -349,6 +352,7 @@ class AWSIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
 
     # IAM Role ARN for AssumeRole
     role_arn = Column(String, nullable=False)  # e.g., arn:aws:iam::123456789012:role/VibeMonitor
@@ -394,6 +398,7 @@ class NewRelicIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
 
     # New Relic Account ID
     account_id = Column(String, nullable=False)
@@ -421,6 +426,7 @@ class DatadogIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
 
     # Datadog API Key (organization-level)
     api_key = Column(String, nullable=False)  # Encrypted API key

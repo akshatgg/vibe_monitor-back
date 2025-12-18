@@ -308,27 +308,13 @@ class RCAOrchestratorWorker(BaseWorker):
                             await slack_callback.send_missing_integration_message("github")
                         return
 
+                    # Log warning if health_status is not healthy, but proceed anyway
+                    # The actual API call will determine real health status
                     if github_integration.health_status not in ('healthy', None):
-                        logger.warning(
-                            f"GitHub integration unhealthy for workspace {workspace_id}: "
-                            f"status={github_integration.health_status}"
+                        logger.info(
+                            f"GitHub integration has health_status={github_integration.health_status}, "
+                            f"will verify with actual API call for workspace {workspace_id}"
                         )
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = f"GitHub integration unhealthy: {github_integration.health_status}"
-                        await db.commit()
-
-                        if team_id and channel_id:
-                            slack_callback = SlackProgressCallback(
-                                team_id=team_id,
-                                channel_id=channel_id,
-                                thread_ts=thread_ts,
-                                send_tool_output=False,
-                            )
-                            await slack_callback.send_no_healthy_integrations_message(
-                                unhealthy_providers=["github"]
-                            )
-                        return
 
                     # PRE-PROCESSING: Discover service→repo mappings
                     logger.info(
@@ -347,6 +333,18 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
 
                         if repos_response.get("success"):
+                            # GitHub API succeeded - mark integration as healthy
+                            if github_integration.health_status != 'healthy':
+                                github_integration.health_status = 'healthy'
+                                github_integration.status = 'active'
+                                github_integration.last_error = None
+                                github_integration.last_verified_at = datetime.now(timezone.utc)
+                                await db.commit()
+                                logger.info(
+                                    f"✅ GitHub integration marked healthy after successful API call: "
+                                    f"workspace_id={workspace_id}"
+                                )
+
                             repositories = repos_response.get("repositories", [])
                             total_repos = len(repositories)
                             logger.info(f"Found {total_repos} repositories to scan")
@@ -387,11 +385,24 @@ class RCAOrchestratorWorker(BaseWorker):
                                     thread_ts=thread_ts,
                                 )
                         else:
+                            # GitHub API call failed - mark integration as unhealthy
+                            github_integration.health_status = 'failed'
+                            github_integration.status = 'error'
+                            github_integration.last_error = 'Failed to fetch repositories'
+                            github_integration.last_verified_at = datetime.now(timezone.utc)
+                            await db.commit()
                             logger.warning(
-                                "Failed to fetch repositories for service discovery"
+                                f"Failed to fetch repositories for service discovery, "
+                                f"marked GitHub integration as unhealthy: workspace_id={workspace_id}"
                             )
 
                     except Exception as e:
+                        # GitHub API call threw exception - mark integration as unhealthy
+                        github_integration.health_status = 'failed'
+                        github_integration.status = 'error'
+                        github_integration.last_error = str(e)
+                        github_integration.last_verified_at = datetime.now(timezone.utc)
+
                         logger.error(
                             f"Error during service discovery pre-processing: {e}"
                         )
