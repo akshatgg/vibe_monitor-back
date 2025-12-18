@@ -381,9 +381,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when chain encounters an error"""
         sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text=f"❌ *Analysis encountered an error.",
+            text="❌ *Analysis encountered an error.*",
             context="chain error"
         )
+        logger.debug(f"❌ Chain error details (not sent to user): {sanitized_error}")
 
     async def send_retry_notification(
         self,
@@ -453,4 +454,76 @@ class SlackProgressCallback(AsyncCallbackHandler):
             text=f"Analyzing {image_text} received.",
             context="image processing notification",
             use_hourglass=True
+        )
+
+    async def send_no_healthy_integrations_message(
+        self, unhealthy_providers: list[str] | None = None
+    ) -> None:
+        """
+        Send notification when integrations are unhealthy.
+
+        Args:
+            unhealthy_providers: List of provider names that are unhealthy
+        """
+        if unhealthy_providers:
+            for provider in unhealthy_providers:
+                await self._send_to_slack(
+                    text=(
+                        f"⚠️ *{provider.capitalize()} integration is unavailable*\n\n"
+                        f"The {provider.capitalize()} integration required for RCA analysis "
+                        "is currently unhealthy or experiencing issues.\n\n"
+                        "*To resolve this:*\n"
+                        "• Check your integration health status in the dashboard\n"
+                        "• Verify your API tokens and credentials are valid\n"
+                        f"• Ensure {provider.capitalize()} service is accessible"
+                    ),
+                    context=f"unhealthy {provider} integration message"
+                )
+        else:
+            await self._send_to_slack(
+                text=(
+                    "⚠️ *Unable to start RCA analysis*\n\n"
+                    "No healthy integrations found for this workspace.\n\n"
+                    "*To resolve this:*\n"
+                    "• Check your integration health status in the dashboard\n"
+                    "• Verify your API tokens and credentials are valid"
+                ),
+                context="no healthy integrations message"
+            )
+
+    async def send_missing_integration_message(self, provider: str) -> None:
+        """
+        Send notification when a required integration is not configured.
+
+        Args:
+            provider: The provider name that is missing (e.g., 'github')
+        """
+        await self._send_to_slack(
+            text=(
+                f"⚠️ *{provider.capitalize()} integration is not configured*\n\n"
+                f"The {provider.capitalize()} integration is required for RCA analysis "
+                "but has not been set up for this workspace.\n\n"
+                "*To resolve this:*\n"
+                f"• Connect your {provider.capitalize()} account in the dashboard\n"
+                "• Ensure the integration is properly configured"
+            ),
+            context=f"missing {provider} integration message"
+        )
+
+    async def send_degraded_integrations_warning(
+        self, unhealthy_providers: list[str]
+    ) -> None:
+        """
+        Send warning when some integrations are unhealthy but RCA will proceed.
+
+        Args:
+            unhealthy_providers: List of provider names that are unhealthy
+        """
+        providers_list = ", ".join([p.capitalize() for p in unhealthy_providers])
+        await self._send_to_slack(
+            text=(
+                f"⚠️ *Some integrations are unhealthy/degraded:* {providers_list}\n\n"
+                "Proceeding with available tools. Some capabilities may be limited."
+            ),
+            context="degraded integrations warning"
         )

@@ -35,6 +35,8 @@ from app.datadog.integration.router import router as datadog_router
 from app.datadog.Logs.router import router as datadog_logs_router
 from app.datadog.Metrics.router import router as datadog_metrics_router
 
+from app.integrations.router import router as integrations_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -69,3 +71,4 @@ if settings.is_local:
     api_router.include_router(newrelic_metrics_router, tags=["newrelic-metrics"])
     api_router.include_router(datadog_logs_router, tags=["datadog-logs"])
     api_router.include_router(datadog_metrics_router, tags=["datadog-metrics"])
+    api_router.include_router(integrations_router, tags=["integrations"])

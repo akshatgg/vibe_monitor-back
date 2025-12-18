@@ -9,6 +9,7 @@ from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
 from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.callbacks import SlackProgressCallback
+from app.integrations.service import get_workspace_integrations
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
@@ -282,7 +283,54 @@ class RCAOrchestratorWorker(BaseWorker):
                             thread_ts=thread_ts,
                         )
 
-                    # PRE-PROCESSING: Discover service→repo mappings BEFORE invoking AI agent
+                    # PRE-CHECK: Verify GitHub integration exists and is healthy (required)
+                    all_integrations = await get_workspace_integrations(workspace_id, db)
+                    github_integration = next(
+                        (i for i in all_integrations if i.provider == 'github'), None
+                    )
+
+                    if not github_integration:
+                        logger.warning(
+                            f"GitHub integration not found for workspace {workspace_id}"
+                        )
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.now(timezone.utc)
+                        job.error_message = "GitHub integration not configured"
+                        await db.commit()
+
+                        if team_id and channel_id:
+                            slack_callback = SlackProgressCallback(
+                                team_id=team_id,
+                                channel_id=channel_id,
+                                thread_ts=thread_ts,
+                                send_tool_output=False,
+                            )
+                            await slack_callback.send_missing_integration_message("github")
+                        return
+
+                    if github_integration.health_status not in ('healthy', None):
+                        logger.warning(
+                            f"GitHub integration unhealthy for workspace {workspace_id}: "
+                            f"status={github_integration.health_status}"
+                        )
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.now(timezone.utc)
+                        job.error_message = f"GitHub integration unhealthy: {github_integration.health_status}"
+                        await db.commit()
+
+                        if team_id and channel_id:
+                            slack_callback = SlackProgressCallback(
+                                team_id=team_id,
+                                channel_id=channel_id,
+                                thread_ts=thread_ts,
+                                send_tool_output=False,
+                            )
+                            await slack_callback.send_no_healthy_integrations_message(
+                                unhealthy_providers=["github"]
+                            )
+                        return
+
+                    # PRE-PROCESSING: Discover service→repo mappings
                     logger.info(
                         f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}"
                     )
@@ -358,6 +406,31 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
                         return
 
+                    # Check for unhealthy optional integrations (exclude slack and github)
+                    # GitHub is already checked before service discovery
+                    # Other integrations are optional - warn but proceed with RCA
+                    unhealthy_optional = [
+                        i.provider for i in all_integrations
+                        if i.provider not in ('slack', 'github')
+                        and i.health_status not in ('healthy', None)
+                    ]
+
+                    if unhealthy_optional:
+                        logger.warning(
+                            f"Some integrations unhealthy for workspace {workspace_id}: {unhealthy_optional}. "
+                            "Proceeding with available tools."
+                        )
+                        if team_id and channel_id:
+                            slack_callback = SlackProgressCallback(
+                                team_id=team_id,
+                                channel_id=channel_id,
+                                thread_ts=thread_ts,
+                                send_tool_output=False,
+                            )
+                            await slack_callback.send_degraded_integrations_warning(
+                                unhealthy_providers=unhealthy_optional
+                            )
+
                     # Perform RCA analysis using AI agent
                     # Determine which LLM to use based on whether images are present
                     has_images = job.requested_context.get("has_images", False)
@@ -395,6 +468,7 @@ class RCAOrchestratorWorker(BaseWorker):
                         user_query=query,
                         context=analysis_context,
                         callbacks=[slack_callback] if slack_callback else None,
+                        db=db,  # Pass db session for capability-based tool resolution
                     )
 
                     # Process result with null safety
@@ -422,6 +496,7 @@ class RCAOrchestratorWorker(BaseWorker):
                         error_msg = (result or {}).get(
                             "error", "Unknown error occurred"
                         )
+                        error_type = (result or {}).get("error_type")
                         logger.error(f"❌ Job {job_id} failed: {error_msg}")
 
                         # Mark job as failed
@@ -430,11 +505,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = error_msg
                         await db.commit()
 
-                        # Send error message to user
+                        # Send appropriate error message to user based on error type
                         if slack_callback:
-                            await slack_callback.send_final_error(
-                                error_msg=error_msg, retry_count=0
-                            )
+                            if error_type == "no_healthy_integrations":
+                                await slack_callback.send_no_healthy_integrations_message()
+                            else:
+                                await slack_callback.send_final_error(
+                                    error_msg=error_msg, retry_count=0
+                                )
 
                 except Exception as e:
                     logger.exception(

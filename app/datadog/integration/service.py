@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timezone
 
-from app.models import DatadogIntegration
+from app.models import DatadogIntegration, Integration
 from app.utils.token_processor import token_processor
+from app.integrations.health_checks import check_datadog_health
 from .schemas import (
     DatadogIntegrationCreate,
     DatadogIntegrationResponse,
@@ -232,10 +233,25 @@ async def create_datadog_integration(
     encrypted_api_key = token_processor.encrypt(integration_data.api_key)
     encrypted_app_key = token_processor.encrypt(integration_data.app_key)
 
-    # Create new integration
+    # Create Integration control plane record first
+    control_plane_id = str(uuid.uuid4())
+    control_plane_integration = Integration(
+        id=control_plane_id,
+        workspace_id=workspace_id,
+        provider='datadog',
+        status='active',
+        health_status='unknown',  # Will be updated after health check
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(control_plane_integration)
+    await db.flush()  # Get ID without committing
+
+    # Create provider-specific integration linked to control plane
     integration = DatadogIntegration(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
+        integration_id=control_plane_id,  # Link to control plane
         api_key=encrypted_api_key,
         app_key=encrypted_app_key,
         region=integration_data.region,
@@ -245,6 +261,27 @@ async def create_datadog_integration(
     db.add(integration)
     await db.commit()
     await db.refresh(integration)
+
+    # Run initial health check to populate health_status
+    try:
+        health_status, error_message = await check_datadog_health(integration)
+        control_plane_integration.health_status = health_status
+        control_plane_integration.last_verified_at = datetime.now(timezone.utc)
+        control_plane_integration.last_error = error_message
+        if health_status == 'healthy':
+            control_plane_integration.status = 'active'
+        elif health_status in ['failed', 'degraded']:
+            control_plane_integration.status = 'error'
+        await db.commit()
+        logger.info(
+            f"Datadog integration created with health_status={health_status}: "
+            f"workspace_id={workspace_id}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"Failed to run initial health check for Datadog integration: {e}. "
+            f"Setting health_status to 'unknown'"
+        )
 
     return DatadogIntegrationResponse(
         id=integration.id,

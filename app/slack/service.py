@@ -21,8 +21,9 @@ from app.slack.schemas import (
     SlackInstallationCreate,
     SlackInstallationResponse,
 )
-from app.models import SlackInstallation
+from app.models import SlackInstallation, Integration
 from app.models import Job, JobStatus
+from app.integrations.health_checks import check_slack_health
 from app.slack.alert_detector import alert_detector
 from app.security.llm_guard import llm_guard
 
@@ -669,14 +670,55 @@ class SlackEventService:
                         workspace_id=workspace_id,
                     )
 
+                    # Create Integration control plane record first (if workspace_id is available)
+                    control_plane_id = None
+                    control_plane_integration = None
+                    if workspace_id:
+                        control_plane_id = str(uuid.uuid4())
+                        control_plane_integration = Integration(
+                            id=control_plane_id,
+                            workspace_id=workspace_id,
+                            provider='slack',
+                            status='active',
+                            health_status='unknown',  # Will be updated after health check
+                            created_at=datetime.now(timezone.utc),
+                            updated_at=datetime.now(timezone.utc),
+                        )
+                        db.add(control_plane_integration)
+                        await db.flush()  # Get ID without committing
+
                     installation_db = SlackInstallation(
-                        id=str(uuid.uuid4()), **installation_data.model_dump()
+                        id=str(uuid.uuid4()),
+                        integration_id=control_plane_id,  # Link to control plane (may be None)
+                        **installation_data.model_dump()
                     )
                     db.add(installation_db)
                     logger.info(f"Created new installation for {team_id} ({team_name})")
 
                 await db.commit()
                 await db.refresh(installation_db)
+
+                # Run initial health check if control plane integration was created
+                if control_plane_integration:
+                    try:
+                        health_status, error_message = await check_slack_health(installation_db)
+                        control_plane_integration.health_status = health_status
+                        control_plane_integration.last_verified_at = datetime.now(timezone.utc)
+                        control_plane_integration.last_error = error_message
+                        if health_status == 'healthy':
+                            control_plane_integration.status = 'active'
+                        elif health_status in ['failed', 'degraded']:
+                            control_plane_integration.status = 'error'
+                        await db.commit()
+                        logger.info(
+                            f"Slack integration created with health_status={health_status}: "
+                            f"team_id={team_id}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to run initial health check for Slack integration: {e}. "
+                            f"Setting health_status to 'unknown'"
+                        )
 
                 return SlackInstallationResponse.model_validate(installation_db)
 

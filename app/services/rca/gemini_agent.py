@@ -1,5 +1,10 @@
 """
 RCA Agent Service using LangChain with Gemini LLM (supports multimodal inputs: text + images)
+
+Updated to use capability-based tool filtering:
+- Tools are selected based on workspace integrations
+- Only healthy integrations contribute tools
+- Uses IntegrationCapabilityResolver and AgentExecutorBuilder
 """
 
 import base64
@@ -7,76 +12,36 @@ import logging
 import re
 import io
 import httpx
-from functools import partial
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse
-from pydantic import BaseModel, create_model
 from PIL import Image
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.tools import StructuredTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from .prompts import RCA_SYSTEM_PROMPT
-from .tools.grafana.tools import (
-    fetch_logs_tool,
-    fetch_error_logs_tool,
-    fetch_cpu_metrics_tool,
-    fetch_memory_metrics_tool,
-    fetch_http_latency_tool,
-    fetch_metrics_tool,
-    get_datasources_tool,
-    get_labels_tool,
-    get_label_values_tool,
-)
-
-from .tools.github.tools import (
-    get_repository_commits_tool,
-    list_pull_requests_tool,
-    search_code_tool,
-    download_file_tool,
-    read_repository_file_tool,
-    get_repository_tree_tool,
-    get_branch_recent_commits_tool,
-    get_repository_metadata_tool,
-)
+from .capabilities import IntegrationCapabilityResolver
+from .builder import AgentExecutorBuilder
 
 logger = logging.getLogger(__name__)
-
-# Define all available RCA tools in one place (single source of truth)
-ALL_RCA_TOOLS = [
-    # Grafana/Observability tools
-    fetch_error_logs_tool,
-    fetch_logs_tool,
-    fetch_cpu_metrics_tool,
-    fetch_memory_metrics_tool,
-    fetch_http_latency_tool,
-    fetch_metrics_tool,
-    get_datasources_tool,
-    get_labels_tool,
-    get_label_values_tool,
-    # GitHub tools
-    read_repository_file_tool,
-    search_code_tool,
-    get_repository_commits_tool,
-    list_pull_requests_tool,
-    download_file_tool,
-    get_repository_tree_tool,
-    get_branch_recent_commits_tool,
-    get_repository_metadata_tool,
-]
 
 
 class GeminiRCAAgentService:
     """
-    Service for Root Cause Analysis using AI agent with Gemini (supports images)
+    Service for Root Cause Analysis using AI agent with Gemini (supports images).
+
+    Updated to use capability-based tool filtering:
+    - Resolves workspace integrations to capabilities
+    - Only loads tools for available, healthy integrations
+    - Uses AgentExecutorBuilder for clean construction
     """
 
     def __init__(self):
         """Initialize the RCA agent with Gemini LLM (shared across all requests)"""
         self.llm = None
         self.prompt = None
+        self.capability_resolver = IntegrationCapabilityResolver(only_healthy=True)
         self._initialize_llm()
 
     def _initialize_llm(self):
@@ -107,81 +72,56 @@ class GeminiRCAAgentService:
             logger.error(f"Failed to initialize Gemini RCA agent LLM: {e}")
             raise
 
-    def _create_schema_without_workspace_id(
-        self, original_schema: type[BaseModel]
-    ) -> type[BaseModel]:
+    async def _create_agent_executor_for_workspace(
+        self,
+        workspace_id: str,
+        db: AsyncSession,
+        service_mapping: Optional[Dict[str, str]] = None,
+        thread_history: Optional[str] = None,
+    ):
         """
-        Create a new Pydantic schema excluding the workspace_id field.
+        Create a workspace-specific agent executor with capability-filtered tools.
+
+        This method:
+        1. Resolves workspace integrations to capabilities
+        2. Filters tools based on available capabilities
+        3. Binds workspace_id to selected tools
+        4. Creates the agent executor
 
         Args:
-            original_schema: The original tool schema that includes workspace_id
+            workspace_id: The workspace ID
+            db: Database session for querying integrations
+            service_mapping: Optional service→repo mapping
+            thread_history: Optional thread history
 
         Returns:
-            A new schema with workspace_id field removed
+            AgentExecutor configured with capability-filtered tools
         """
-        # Get all fields except workspace_id
-        fields = {
-            name: (field.annotation, field)
-            for name, field in original_schema.model_fields.items()
-            if name != "workspace_id"
-        }
-
-        # Create new model without workspace_id
-        new_schema = create_model(
-            f"{original_schema.__name__}WithoutWorkspace", **fields
+        # Resolve capabilities from workspace integrations
+        execution_context = await self.capability_resolver.resolve(
+            workspace_id=workspace_id,
+            db=db,
+            service_mapping=service_mapping or {},
+            thread_history=thread_history,
         )
 
-        return new_schema
-
-    def _create_agent_executor_for_workspace(self, workspace_id: str) -> AgentExecutor:
-        """
-        Create a workspace-specific agent executor with tools bound to the given workspace_id.
-
-        This method creates a new executor for each request to ensure thread-safety and
-        prevent workspace_id conflicts between concurrent requests.
-
-        Args:
-            workspace_id: The workspace ID to bind to all tools
-
-        Returns:
-            AgentExecutor configured for the specific workspace
-        """
-        # Dynamically bind workspace_id to all tools with modified schemas
-        tools_with_workspace = []
-
-        for tool in ALL_RCA_TOOLS:
-            # Create schema without workspace_id (since it's pre-bound)
-            modified_schema = self._create_schema_without_workspace_id(tool.args_schema)
-
-            # Create wrapped tool with partial application and modified schema
-            wrapped_tool = StructuredTool.from_function(
-                coroutine=partial(tool.coroutine, workspace_id=workspace_id),
-                name=tool.name,
-                description=tool.description,
-                args_schema=modified_schema,
-            )
-
-            tools_with_workspace.append(wrapped_tool)
-
-        # Create the tool-calling agent with workspace-specific tools
-        agent = create_tool_calling_agent(
-            llm=self.llm,
-            tools=tools_with_workspace,
-            prompt=self.prompt,
+        logger.info(
+            f"Resolved capabilities for workspace {workspace_id}: "
+            f"{[c.value for c in execution_context.capabilities]}"
+        )
+        logger.info(
+            f"Active integrations: {list(execution_context.integrations.keys())}"
         )
 
-        # Create and return executor for this workspace
-        executor = AgentExecutor(
-            agent=agent,
-            tools=tools_with_workspace,
-            verbose=True,
-            max_iterations=settings.RCA_AGENT_MAX_ITERATIONS,
-            max_execution_time=settings.RCA_AGENT_MAX_EXECUTION_TIME,
-            handle_parsing_errors=True,
-            return_intermediate_steps=True,
+        # Build agent executor with filtered tools
+        builder = AgentExecutorBuilder(self.llm, self.prompt)
+        executor = builder.with_context(execution_context).build()
+
+        logger.info(
+            f"Created Gemini agent executor for workspace {workspace_id} "
+            f"with {len(executor.tools)} tools (capability-filtered)"
         )
 
-        logger.info(f"Created Gemini agent executor for workspace: {workspace_id}")
         return executor
 
     async def _download_slack_images(
@@ -302,6 +242,7 @@ class GeminiRCAAgentService:
         user_query: str,
         context: Optional[Dict[str, Any]] = None,
         callbacks: Optional[list] = None,
+        db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
         Perform root cause analysis for the given user query (supports images)
@@ -310,6 +251,7 @@ class GeminiRCAAgentService:
             user_query: User's question or issue description (e.g., "Why is my xyz service slow?")
             context: Optional context from Slack (user_id, channel_id, workspace_id, files, etc.)
             callbacks: Optional list of callback handlers (e.g., for Slack progress updates)
+            db: Database session for querying integrations (required for capability resolution)
 
         Returns:
             Dictionary containing:
@@ -332,12 +274,19 @@ class GeminiRCAAgentService:
                     "error": error_msg,
                 }
 
+            if not db:
+                error_msg = "db session is required for capability-based tool resolution"
+                logger.error(error_msg)
+                return {
+                    "output": None,
+                    "intermediate_steps": [],
+                    "success": False,
+                    "error": error_msg,
+                }
+
             logger.info(
                 f"Starting Gemini RCA analysis for query: '{user_query}' (workspace: {workspace_id})"
             )
-
-            # Create workspace-specific agent executor
-            agent_executor = self._create_agent_executor_for_workspace(workspace_id)
 
             # Extract service→repo mapping from context
             service_repo_mapping = (context or {}).get("service_repo_mapping", {})
@@ -383,6 +332,14 @@ class GeminiRCAAgentService:
             else:
                 thread_history_text = ""
                 logger.info("No thread history to format")
+
+            # Create workspace-specific agent executor with capability-filtered tools
+            agent_executor = await self._create_agent_executor_for_workspace(
+                workspace_id=workspace_id,
+                db=db,
+                service_mapping=service_repo_mapping,
+                thread_history=thread_history_text,
+            )
 
             # Check if there are images in the context
             files = (context or {}).get("files", [])
@@ -535,6 +492,7 @@ class GeminiRCAAgentService:
         context: Optional[Dict[str, Any]] = None,
         max_retries: int = 2,
         callbacks: Optional[list] = None,
+        db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
         Perform RCA analysis with automatic retry on failure
@@ -544,13 +502,16 @@ class GeminiRCAAgentService:
             context: Optional context
             max_retries: Maximum number of retry attempts
             callbacks: Optional callback handlers
+            db: Database session for querying integrations (required)
 
         Returns:
             Analysis result dictionary
         """
         for attempt in range(max_retries + 1):
             try:
-                result = await self.analyze(user_query, context, callbacks=callbacks)
+                result = await self.analyze(
+                    user_query, context, callbacks=callbacks, db=db
+                )
 
                 if result["success"]:
                     return result
@@ -578,6 +539,7 @@ class GeminiRCAAgentService:
             "success": False,
             "error": "RCA analysis failed for unknown reasons",
         }
+
 
 # Singleton instance
 gemini_rca_agent_service = GeminiRCAAgentService()

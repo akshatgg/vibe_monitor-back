@@ -10,10 +10,11 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from dateutil import parser as date_parser
 
-from ...models import GitHubIntegration
+from ...models import GitHubIntegration, Integration
 from ...core.config import settings
 from ...utils.token_processor import token_processor
 from ...utils.retry_decorator import retry_external_api
+from ...integrations.health_checks import check_github_health
 
 logger = logging.getLogger(__name__)
 
@@ -130,22 +131,59 @@ class GitHubAppService:
             await db.delete(old_workspace_integration)
             await db.commit()
 
-        # Create new integration
-        integration_id = str(uuid.uuid4())
-        new_integration = GitHubIntegration(
-            id=integration_id,
+        # Create Integration control plane record first
+        control_plane_id = str(uuid.uuid4())
+        control_plane_integration = Integration(
+            id=control_plane_id,
             workspace_id=workspace_id,
+            provider='github',
+            status='active',
+            health_status='unknown',  # Will be updated after health check
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(control_plane_integration)
+        await db.flush()  # Get ID without committing
+
+        # Create provider-specific integration linked to control plane
+        provider_integration_id = str(uuid.uuid4())
+        new_integration = GitHubIntegration(
+            id=provider_integration_id,
+            workspace_id=workspace_id,
+            integration_id=control_plane_id,  # Link to control plane
             github_user_id=str(installation_info.get("account", {}).get("id", "")),
             github_username=installation_info.get("account", {}).get("login", ""),
             installation_id=installation_id,
             scopes="app_permissions",
-            is_active=True,  # New integrations are active by default
+            is_active=True,
             last_synced_at=datetime.now(timezone.utc),
         )
 
         db.add(new_integration)
         await db.commit()
         await db.refresh(new_integration)
+
+        # Run initial health check to populate health_status
+        try:
+            health_status, error_message = await check_github_health(new_integration)
+            control_plane_integration.health_status = health_status
+            control_plane_integration.last_verified_at = datetime.now(timezone.utc)
+            control_plane_integration.last_error = error_message
+            if health_status == 'healthy':
+                control_plane_integration.status = 'active'
+            elif health_status in ['failed', 'degraded']:
+                control_plane_integration.status = 'error'
+            await db.commit()
+            logger.info(
+                f"GitHub integration created with health_status={health_status}: "
+                f"workspace_id={workspace_id}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to run initial health check for GitHub integration: {e}. "
+                f"Setting health_status to 'unknown'"
+            )
+            # Keep health_status as 'unknown' if health check fails
 
         return new_integration
 

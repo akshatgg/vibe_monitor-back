@@ -100,6 +100,38 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class Integration(Base):
+    """
+    Unified integration control plane table.
+    Tracks all integrations (GitHub, Grafana, AWS, etc.) for a workspace
+    with their status and health information.
+
+    The 'provider' column serves as both the provider name and type identifier
+    (e.g., 'github', 'grafana', 'aws', 'datadog', 'newrelic', 'slack').
+    """
+    __tablename__ = "integrations"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+
+    # Provider serves as both provider name and type
+    provider = Column(String, nullable=False)  # 'github', 'grafana', 'aws', 'datadog', 'newrelic', 'slack'
+
+    # Lifecycle
+    status = Column(String, nullable=False, default='active')  # 'active', 'disabled', 'error'
+    health_status = Column(String, nullable=True)  # 'healthy', 'degraded', 'failed', 'unknown'
+
+    # Verification
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Indexes defined in migration file
+
+
 class GrafanaIntegration(Base):
     __tablename__ = "grafana_integrations"
 

@@ -11,9 +11,11 @@ from sqlalchemy import select
 from fastapi import HTTPException
 import httpx
 
-from app.models import GrafanaIntegration, Workspace
+from datetime import datetime, timezone
+from app.models import GrafanaIntegration, Workspace, Integration
 from app.utils.token_processor import token_processor
 from app.utils.retry_decorator import retry_external_api
+from app.integrations.health_checks import check_grafana_health
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +122,25 @@ class GrafanaService:
         # Encrypt the token
         encrypted_token = token_processor.encrypt(api_token)
 
-        # Create integration
+        # Create Integration control plane record first
+        control_plane_id = str(uuid.uuid4())
+        control_plane_integration = Integration(
+            id=control_plane_id,
+            workspace_id=workspace_id,
+            provider='grafana',
+            status='active',
+            health_status='unknown',  # Will be updated after health check
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(control_plane_integration)
+        await db.flush()
+
+        # Create provider-specific integration linked to control plane
         integration = GrafanaIntegration(
             id=str(uuid.uuid4()),
             vm_workspace_id=workspace_id,
+            integration_id=control_plane_id,  # Link to control plane
             grafana_url=grafana_url.rstrip("/"),
             api_token=encrypted_token,
         )
@@ -131,6 +148,27 @@ class GrafanaService:
         db.add(integration)
         await db.commit()
         await db.refresh(integration)
+
+        # Run initial health check to populate health_status
+        try:
+            health_status, error_message = await check_grafana_health(integration)
+            control_plane_integration.health_status = health_status
+            control_plane_integration.last_verified_at = datetime.now(timezone.utc)
+            control_plane_integration.last_error = error_message
+            if health_status == 'healthy':
+                control_plane_integration.status = 'active'
+            elif health_status in ['failed', 'degraded']:
+                control_plane_integration.status = 'error'
+            await db.commit()
+            logger.info(
+                f"Grafana integration created with health_status={health_status}: "
+                f"workspace_id={workspace_id}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to run initial health check for Grafana integration: {e}. "
+                f"Setting health_status to 'unknown'"
+            )
 
         logger.info(f"Created Grafana integration for workspace {workspace_id}")
         return integration
