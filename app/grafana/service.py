@@ -129,7 +129,6 @@ class GrafanaService:
             workspace_id=workspace_id,
             provider='grafana',
             status='active',
-            health_status='unknown',  # Will be updated after health check
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -157,7 +156,7 @@ class GrafanaService:
             control_plane_integration.last_error = error_message
             if health_status == 'healthy':
                 control_plane_integration.status = 'active'
-            elif health_status in ['failed', 'degraded']:
+            elif health_status == 'failed':
                 control_plane_integration.status = 'error'
             await db.commit()
             logger.info(
@@ -167,7 +166,7 @@ class GrafanaService:
         except Exception as e:
             logger.warning(
                 f"Failed to run initial health check for Grafana integration: {e}. "
-                f"Setting health_status to 'unknown'"
+                f"Health status remains unset."
             )
 
         logger.info(f"Created Grafana integration for workspace {workspace_id}")

@@ -202,12 +202,11 @@ async def check_workspace_integrations_health(
 
         # Log summary for Grafana queries
         healthy = sum(1 for i in integrations if i.health_status == 'healthy')
-        degraded = sum(1 for i in integrations if i.health_status == 'degraded')
         failed = sum(1 for i in integrations if i.health_status == 'failed')
 
         logger.info(
             f"API response: bulk health check completed - workspace_id={workspace_id}, "
-            f"total={len(integrations)}, healthy={healthy}, degraded={degraded}, failed={failed}"
+            f"total={len(integrations)}, healthy={healthy}, failed={failed}"
         )
 
         return [

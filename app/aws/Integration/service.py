@@ -407,7 +407,6 @@ class AWSIntegrationService:
             workspace_id=workspace_id,
             provider='aws',
             status='active',
-            health_status='unknown',  # Will be updated after health check
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -442,7 +441,7 @@ class AWSIntegrationService:
             control_plane_integration.last_error = error_message
             if health_status == 'healthy':
                 control_plane_integration.status = 'active'
-            elif health_status in ['failed', 'degraded']:
+            elif health_status == 'failed':
                 control_plane_integration.status = 'error'
             await db.commit()
             logger.info(
@@ -452,7 +451,7 @@ class AWSIntegrationService:
         except Exception as e:
             logger.warning(
                 f"Failed to run initial health check for AWS integration: {e}. "
-                f"Setting health_status to 'unknown'"
+                f"Health status remains unset."
             )
 
         return AWSIntegrationResponse(

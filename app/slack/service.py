@@ -648,6 +648,8 @@ class SlackEventService:
                 result = await db.execute(statement)
                 existing = result.scalar_one_or_none()
 
+                control_plane_integration = None
+
                 if existing:
                     # Update existing installation
                     existing.team_name = team_name
@@ -672,7 +674,6 @@ class SlackEventService:
 
                     # Create Integration control plane record first (if workspace_id is available)
                     control_plane_id = None
-                    control_plane_integration = None
                     if workspace_id:
                         control_plane_id = str(uuid.uuid4())
                         control_plane_integration = Integration(
@@ -680,7 +681,6 @@ class SlackEventService:
                             workspace_id=workspace_id,
                             provider='slack',
                             status='active',
-                            health_status='unknown',  # Will be updated after health check
                             created_at=datetime.now(timezone.utc),
                             updated_at=datetime.now(timezone.utc),
                         )
@@ -707,7 +707,7 @@ class SlackEventService:
                         control_plane_integration.last_error = error_message
                         if health_status == 'healthy':
                             control_plane_integration.status = 'active'
-                        elif health_status in ['failed', 'degraded']:
+                        elif health_status == 'failed':
                             control_plane_integration.status = 'error'
                         await db.commit()
                         logger.info(
@@ -717,7 +717,7 @@ class SlackEventService:
                     except Exception as e:
                         logger.warning(
                             f"Failed to run initial health check for Slack integration: {e}. "
-                            f"Setting health_status to 'unknown'"
+                            f"Health status remains unset."
                         )
 
                 return SlackInstallationResponse.model_validate(installation_db)

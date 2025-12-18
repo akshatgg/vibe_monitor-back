@@ -8,8 +8,12 @@ from typing import Set, Dict, List
 from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.integrations.service import get_workspace_integrations
+import logging
+
+from app.integrations.service import get_workspace_integrations, check_integration_health
 from app.models import Integration
+
+logger = logging.getLogger(__name__)
 
 
 class Capability(str, Enum):
@@ -143,10 +147,33 @@ class IntegrationCapabilityResolver:
 
         # Filter by health status if requested
         if self.only_healthy:
-            integrations = [
-                i for i in integrations
-                if i.health_status == 'healthy' or i.health_status is None
-            ]
+            healthy_integrations = []
+            for integration in integrations:
+                if integration.health_status == 'healthy':
+                    # Fast path: already healthy, use directly
+                    healthy_integrations.append(integration)
+                elif integration.health_status is None or integration.health_status == 'failed':
+                    # Run health check for NULL (not yet checked) or failed (might have recovered)
+                    logger.info(
+                        f"Running health check for {integration.provider} integration "
+                        f"(current status: {integration.health_status})"
+                    )
+                    try:
+                        updated_integration = await check_integration_health(integration.id, db)
+                        if updated_integration.health_status == 'healthy':
+                            logger.info(
+                                f"{integration.provider} integration is now healthy, including in capabilities"
+                            )
+                            healthy_integrations.append(updated_integration)
+                        else:
+                            logger.warning(
+                                f"{integration.provider} integration health check failed, skipping"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Error running health check for {integration.provider}: {e}"
+                        )
+            integrations = healthy_integrations
 
         # Map integrations by provider
         integrations_by_type = {

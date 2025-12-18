@@ -32,7 +32,7 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
 
     Returns:
         Tuple of (health_status, error_message)
-        health_status: 'healthy', 'degraded', 'failed', or 'unknown'
+        health_status: 'healthy' or 'failed'
         error_message: Error description if unhealthy, None if healthy
     """
     logger.debug(f"Starting GitHub health check: integration_id={integration.id}")
@@ -86,7 +86,7 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
                             logger.warning(
                                 f"GitHub health check: rate limited - integration_id={integration.id}"
                             )
-                            return ('degraded', 'GitHub API rate limit exceeded')
+                            return ('failed', 'GitHub API rate limit exceeded')
                         logger.warning(
                             f"GitHub health check: insufficient permissions - integration_id={integration.id}"
                         )
@@ -96,11 +96,11 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
                             f"GitHub health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('degraded', f'GitHub API returned status {response.status_code}')
+                        return ('failed', f'GitHub API returned status {response.status_code}')
 
     except httpx.TimeoutException:
         logger.warning(f"GitHub health check: timeout - integration_id={integration.id}")
-        return ('degraded', 'Timeout connecting to GitHub API')
+        return ('failed', 'Timeout connecting to GitHub API')
     except httpx.RequestError as e:
         logger.warning(
             f"GitHub health check: network error - integration_id={integration.id}, error={e}"
@@ -108,7 +108,7 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
         return ('failed', f'Network error: {str(e)}')
     except Exception as e:
         logger.exception(f"GitHub health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')
 
 
 async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None]:
@@ -177,7 +177,7 @@ async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None
 
     except Exception as e:
         logger.exception(f"AWS health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')
 
 
 async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, str | None]:
@@ -234,14 +234,14 @@ async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, st
                             f"Grafana health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('degraded', f'Grafana API returned status {response.status_code}')
+                        return ('failed', f'Grafana API returned status {response.status_code}')
 
     except httpx.TimeoutException:
         logger.warning(
             f"Grafana health check: timeout - integration_id={integration.id}, "
             f"url={integration.grafana_url}"
         )
-        return ('degraded', f'Timeout connecting to Grafana at {integration.grafana_url}')
+        return ('failed', f'Timeout connecting to Grafana at {integration.grafana_url}')
     except httpx.RequestError as e:
         logger.warning(
             f"Grafana health check: network error - integration_id={integration.id}, error={e}"
@@ -249,7 +249,7 @@ async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, st
         return ('failed', f'Network error: {str(e)}')
     except Exception as e:
         logger.exception(f"Grafana health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')
 
 
 async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, str | None]:
@@ -323,11 +323,11 @@ async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, st
                             f"Datadog health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('degraded', f'Datadog API returned status {response.status_code}')
+                        return ('failed', f'Datadog API returned status {response.status_code}')
 
     except httpx.TimeoutException:
         logger.warning(f"Datadog health check: timeout - integration_id={integration.id}")
-        return ('degraded', 'Timeout connecting to Datadog API')
+        return ('failed', 'Timeout connecting to Datadog API')
     except httpx.RequestError as e:
         logger.warning(
             f"Datadog health check: network error - integration_id={integration.id}, error={e}"
@@ -335,7 +335,7 @@ async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, st
         return ('failed', f'Network error: {str(e)}')
     except Exception as e:
         logger.exception(f"Datadog health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')
 
 
 async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, str | None]:
@@ -409,11 +409,11 @@ async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, 
                             f"NewRelic health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('degraded', f'New Relic API returned status {response.status_code}')
+                        return ('failed', f'New Relic API returned status {response.status_code}')
 
     except httpx.TimeoutException:
         logger.warning(f"NewRelic health check: timeout - integration_id={integration.id}")
-        return ('degraded', 'Timeout connecting to New Relic API')
+        return ('failed', 'Timeout connecting to New Relic API')
     except httpx.RequestError as e:
         logger.warning(
             f"NewRelic health check: network error - integration_id={integration.id}, error={e}"
@@ -421,7 +421,7 @@ async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, 
         return ('failed', f'Network error: {str(e)}')
     except Exception as e:
         logger.exception(f"NewRelic health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')
 
 
 async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str | None]:
@@ -498,11 +498,11 @@ async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str |
                             f"Slack health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('degraded', f'Slack API returned status {response.status_code}')
+                        return ('failed', f'Slack API returned status {response.status_code}')
 
     except httpx.TimeoutException:
         logger.warning(f"Slack health check: timeout - integration_id={integration.id}")
-        return ('degraded', 'Timeout connecting to Slack API')
+        return ('failed', 'Timeout connecting to Slack API')
     except httpx.RequestError as e:
         logger.warning(
             f"Slack health check: network error - integration_id={integration.id}, error={e}"
@@ -510,4 +510,4 @@ async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str |
         return ('failed', f'Network error: {str(e)}')
     except Exception as e:
         logger.exception(f"Slack health check: unexpected error - integration_id={integration.id}")
-        return ('unknown', f'Unexpected error: {str(e)}')
+        return ('failed', f'Unexpected error: {str(e)}')

@@ -63,7 +63,7 @@ async def check_integration_health(
         )
         raise ValueError(f"Integration {integration_id} not found")
 
-    health_status = 'unknown'
+    health_status = 'failed'
     error_message = None
 
     logger.debug(
@@ -87,7 +87,7 @@ async def check_integration_health(
                 health_status, error_message = await check_github_health(config)
             else:
                 logger.warning(f"GitHub config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'GitHub configuration not found'
 
         elif integration.provider == 'aws':
@@ -103,7 +103,7 @@ async def check_integration_health(
                 health_status, error_message = await check_aws_health(config)
             else:
                 logger.warning(f"AWS config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'AWS configuration not found'
 
         elif integration.provider == 'grafana':
@@ -119,7 +119,7 @@ async def check_integration_health(
                 health_status, error_message = await check_grafana_health(config)
             else:
                 logger.warning(f"Grafana config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'Grafana configuration not found'
 
         elif integration.provider == 'datadog':
@@ -135,7 +135,7 @@ async def check_integration_health(
                 health_status, error_message = await check_datadog_health(config)
             else:
                 logger.warning(f"Datadog config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'Datadog configuration not found'
 
         elif integration.provider == 'newrelic':
@@ -151,7 +151,7 @@ async def check_integration_health(
                 health_status, error_message = await check_newrelic_health(config)
             else:
                 logger.warning(f"NewRelic config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'NewRelic configuration not found'
 
         elif integration.provider == 'slack':
@@ -167,7 +167,7 @@ async def check_integration_health(
                 health_status, error_message = await check_slack_health(config)
             else:
                 logger.warning(f"Slack config not found for integration_id={integration_id}")
-                health_status = 'unknown'
+                health_status = 'failed'
                 error_message = 'Slack configuration not found'
 
         else:
@@ -175,7 +175,7 @@ async def check_integration_health(
                 f"Unknown integration provider: provider={integration.provider}, "
                 f"integration_id={integration_id}"
             )
-            health_status = 'unknown'
+            health_status = 'failed'
             error_message = f'Unknown integration provider: {integration.provider}'
 
     except Exception as e:
@@ -183,19 +183,17 @@ async def check_integration_health(
             f"Unexpected error during health check: integration_id={integration_id}, "
             f"provider={integration.provider}, workspace_id={integration.workspace_id}"
         )
-        health_status = 'unknown'
+        health_status = 'failed'
         error_message = f'Health check error: {str(e)}'
 
     # Sync integration status based on health_status
     # - healthy → active (integration is working)
-    # - failed/degraded → error (integration has issues)
-    # - unknown → keep previous status (health check inconclusive)
+    # - failed → error (integration has issues)
     previous_status = integration.status
     if health_status == 'healthy':
         integration.status = 'active'
-    elif health_status in ['failed', 'degraded']:
+    elif health_status == 'failed':
         integration.status = 'error'
-    # 'unknown' preserves current status - health check was inconclusive
 
     # Log status transition if changed
     if previous_status != integration.status:
@@ -273,14 +271,12 @@ async def check_all_workspace_integrations_health(
 
     # Log summary with health distribution
     healthy_count = sum(1 for i in updated_integrations if i.health_status == 'healthy')
-    degraded_count = sum(1 for i in updated_integrations if i.health_status == 'degraded')
     failed_health_count = sum(1 for i in updated_integrations if i.health_status == 'failed')
 
     logger.info(
         f"Bulk health check completed: workspace_id={workspace_id}, "
         f"total={len(integrations)}, checked={len(updated_integrations)}, "
-        f"healthy={healthy_count}, degraded={degraded_count}, "
-        f"failed={failed_health_count}, errors={failed_count}"
+        f"healthy={healthy_count}, failed={failed_health_count}, errors={failed_count}"
     )
 
     return updated_integrations

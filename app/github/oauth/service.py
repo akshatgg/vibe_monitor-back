@@ -138,7 +138,6 @@ class GitHubAppService:
             workspace_id=workspace_id,
             provider='github',
             status='active',
-            health_status='unknown',  # Will be updated after health check
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -171,7 +170,7 @@ class GitHubAppService:
             control_plane_integration.last_error = error_message
             if health_status == 'healthy':
                 control_plane_integration.status = 'active'
-            elif health_status in ['failed', 'degraded']:
+            elif health_status == 'failed':
                 control_plane_integration.status = 'error'
             await db.commit()
             logger.info(
@@ -181,9 +180,8 @@ class GitHubAppService:
         except Exception as e:
             logger.warning(
                 f"Failed to run initial health check for GitHub integration: {e}. "
-                f"Setting health_status to 'unknown'"
+                f"Health status remains unset."
             )
-            # Keep health_status as 'unknown' if health check fails
 
         return new_integration
 

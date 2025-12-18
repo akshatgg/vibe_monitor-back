@@ -119,7 +119,7 @@ class Integration(Base):
 
     # Lifecycle
     status = Column(String, nullable=False, default='active')  # 'active', 'disabled', 'error'
-    health_status = Column(String, nullable=True)  # 'healthy', 'degraded', 'failed', 'unknown'
+    health_status = Column(String, nullable=True)  # 'healthy' or 'failed', NULL means not yet checked
 
     # Verification
     last_verified_at = Column(DateTime(timezone=True), nullable=True)
