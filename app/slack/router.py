@@ -13,7 +13,7 @@ from app.slack.service import slack_event_service
 from app.core.config import settings
 from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
-from app.models import SlackInstallation, Workspace, Membership
+from app.models import SlackInstallation, Workspace, Membership, Integration
 from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
@@ -250,9 +250,22 @@ async def disconnect_slack_integration(
     team_name = slack_installation.team_name
     team_id = slack_installation.team_id
 
-    # Delete the Slack installation
+    # Delete the Slack installation and Integration control plane record
     try:
+        # Find and delete the Integration control plane record for this workspace
+        control_plane_result = await db.execute(
+            select(Integration).where(
+                Integration.workspace_id == workspace_id,
+                Integration.provider == 'slack'
+            )
+        )
+        control_plane_integration = control_plane_result.scalar_one_or_none()
+
         await db.delete(slack_installation)
+        if control_plane_integration:
+            await db.delete(control_plane_integration)
+            logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=slack")
+
         await db.commit()
         logger.info(
             f"✅ Slack integration disconnected for workspace {workspace_id} "

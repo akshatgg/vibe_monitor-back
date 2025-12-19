@@ -122,18 +122,36 @@ class GrafanaService:
         # Encrypt the token
         encrypted_token = token_processor.encrypt(api_token)
 
-        # Create Integration control plane record first
-        control_plane_id = str(uuid.uuid4())
-        control_plane_integration = Integration(
-            id=control_plane_id,
-            workspace_id=workspace_id,
-            provider='grafana',
-            status='active',
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+        # Check if an Integration control plane record already exists for this workspace + provider
+        existing_control_plane_result = await db.execute(
+            select(Integration).where(
+                Integration.workspace_id == workspace_id,
+                Integration.provider == 'grafana'
+            )
         )
-        db.add(control_plane_integration)
-        await db.flush()
+        existing_control_plane = existing_control_plane_result.scalar_one_or_none()
+
+        if existing_control_plane:
+            # Reuse existing control plane integration
+            control_plane_id = existing_control_plane.id
+            control_plane_integration = existing_control_plane
+            control_plane_integration.status = 'active'
+            control_plane_integration.updated_at = datetime.now(timezone.utc)
+            logger.info(f"Reusing existing Grafana integration {control_plane_id} for workspace {workspace_id}")
+        else:
+            # Create new Integration control plane record
+            control_plane_id = str(uuid.uuid4())
+            control_plane_integration = Integration(
+                id=control_plane_id,
+                workspace_id=workspace_id,
+                provider='grafana',
+                status='active',
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(control_plane_integration)
+            await db.flush()
+            logger.info(f"Created new Grafana integration {control_plane_id} for workspace {workspace_id}")
 
         # Create provider-specific integration linked to control plane
         integration = GrafanaIntegration(
@@ -210,7 +228,20 @@ class GrafanaService:
         if not integration:
             return False
 
+        # Also delete the Integration control plane record for this workspace
+        control_plane_result = await db.execute(
+            select(Integration).where(
+                Integration.workspace_id == workspace_id,
+                Integration.provider == 'grafana'
+            )
+        )
+        control_plane_integration = control_plane_result.scalar_one_or_none()
+
         await db.delete(integration)
+        if control_plane_integration:
+            await db.delete(control_plane_integration)
+            logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=grafana")
+
         await db.commit()
 
         logger.info(f"Deleted Grafana integration for workspace {workspace_id}")

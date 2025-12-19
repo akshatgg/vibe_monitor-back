@@ -182,7 +182,7 @@ class Settings(BaseSettings):
         8192  # Increased for detailed multi-service investigations
     )
     RCA_AGENT_MAX_ITERATIONS: int = (
-        25  # Increased for complex multi-service investigations
+        50  # Increased for complex multi-service investigations
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 

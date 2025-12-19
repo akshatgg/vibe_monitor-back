@@ -23,7 +23,7 @@ from dateutil import parser as date_parser
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import GitHubIntegration
+from app.models import GitHubIntegration, Integration
 from app.github.webhook.schema import InstallationWebhookPayload
 from app.github.oauth.service import GitHubAppService
 from app.utils.token_processor import token_processor
@@ -195,7 +195,20 @@ class GitHubWebhookService:
             workspace_id = integration.workspace_id
             github_username = integration.github_username
 
+            # Also delete the Integration control plane record for this workspace
+            control_plane_result = await db.execute(
+                select(Integration).where(
+                    Integration.workspace_id == workspace_id,
+                    Integration.provider == 'github'
+                )
+            )
+            control_plane_integration = control_plane_result.scalar_one_or_none()
+
             await db.delete(integration)
+            if control_plane_integration:
+                await db.delete(control_plane_integration)
+                logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=github")
+
             await db.commit()
 
             logger.info(
