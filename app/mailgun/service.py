@@ -3,6 +3,7 @@ Mailgun service for sending emails.
 """
 import uuid
 import logging
+import html
 import httpx
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,6 +62,8 @@ class MailgunService:
         subject: str,
         text: str,
         html: str = None,
+        from_email: str = None,
+        from_name: str = None,
     ) -> dict:
         """
         Send an email using Mailgun API.
@@ -70,6 +73,8 @@ class MailgunService:
             subject: Email subject
             text: Plain text content
             html: HTML content (optional)
+            from_email: Custom from email address (optional)
+            from_name: Custom from name (optional)
 
         Returns:
             dict: Response from Mailgun API
@@ -77,8 +82,17 @@ class MailgunService:
         if not self.api_key or not self.domain:
             raise ValueError("Mailgun API key and domain must be configured")
 
+        # Use custom from address if provided, otherwise use default
+        if from_email:
+            if from_name:
+                from_address = f"{from_name} <{from_email}>"
+            else:
+                from_address = from_email
+        else:
+            from_address = f"VibeMonitor <noreply@{self.domain}>"
+
         data = {
-            "from": f"VibeMonitor <noreply@{self.domain}>",
+            "from": from_address,
             "to": to_email,
             "subject": subject,
             "text": text,
@@ -123,17 +137,20 @@ class MailgunService:
     def _render_template(self, template: str, **kwargs) -> str:
         """
         Render a template with the given variables.
+        All values are HTML-escaped to prevent XSS attacks.
 
         Args:
             template: Template string
             **kwargs: Variables to replace in the template
 
         Returns:
-            str: Rendered template
+            str: Rendered template with HTML-escaped values
         """
         rendered = template
         for key, value in kwargs.items():
-            rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
+            # HTML-escape all values to prevent XSS attacks
+            escaped_value = html.escape(str(value))
+            rendered = rendered.replace(f"{{{{{key}}}}}", escaped_value)
         return rendered
 
     async def send_welcome_email(self, user_id: str, db: AsyncSession) -> dict:
@@ -162,6 +179,7 @@ class MailgunService:
             template,
             user_name=user.name,
             app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
+            api_base_url=settings.API_BASE_URL,
         )
 
         try:
@@ -236,6 +254,7 @@ class MailgunService:
             template,
             user_name=user.name,
             app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
+            api_base_url=settings.API_BASE_URL,
         )
 
         try:
@@ -282,6 +301,74 @@ class MailgunService:
             db.add(email_record)
             await db.commit()
 
+            raise
+
+    async def send_contact_form_email(
+        self,
+        name: str,
+        work_email: str,
+        interested_topics: str,
+    ) -> dict:
+        """
+        Send a contact form submission email to support@vibemonitor.ai.
+
+        Note: This function does NOT store any data in the database for privacy reasons.
+        It only sends the email to the configured recipient.
+
+        Args:
+            name: Name of the person submitting the form
+            work_email: Work email of the person
+            interested_topics: Topics they're interested in
+
+        Returns:
+            dict: Response containing email status and details
+        """
+        # Email content
+        subject = f"New Contact Form Submission from {name}"
+        support_email = settings.CONTACT_FORM_RECIPIENT_EMAIL
+
+        # Load and render HTML template
+        template = self._load_template("contact_form.html")
+        html = self._render_template(
+            template,
+            name=name,
+            work_email=work_email,
+            interested_topics=interested_topics,
+            timestamp=datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC"),
+            api_base_url=settings.API_BASE_URL,
+        )
+
+        # Plain text version
+        text = f"""
+New Contact Form Submission
+
+Contact Name: {name}
+Work Email: {work_email}
+Interested Topics: {interested_topics}
+
+Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
+        """
+
+        try:
+            # Send email via Mailgun from verified domain
+            response = await self.send_email(
+                to_email=support_email,
+                subject=subject,
+                text=text,
+                html=html,
+            )
+
+            logger.info(f"Contact form email sent from {work_email} to {support_email}")
+
+            return {
+                "success": True,
+                "message": "Contact form submitted successfully",
+                "email": support_email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to send contact form email from {work_email}: {str(e)}")
             raise
 
 

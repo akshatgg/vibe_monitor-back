@@ -9,54 +9,47 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #f3f4f6;
+            background-color: #F3F3F5;
         }
         .email-wrapper {
             width: 100%;
-            background-color: #f3f4f6;
+            background-color: #F3F3F5;
             padding: 40px 20px;
         }
         .email-container {
             max-width: 600px;
             margin: 0 auto;
-            background-color: #0f172a;
-            border-radius: 0;
+            background-color: #ffffff;
+            border-radius: 12px;
             overflow: hidden;
+            box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
         }
         .header {
             padding: 30px 40px 25px 40px;
+            background: linear-gradient(180deg, #ffffff 0%, #F8FAFC 100%);
         }
         .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
             margin-bottom: 30px;
         }
-        .logo-icon {
-            width: 24px;
-            height: 24px;
-            display: inline-block;
-        }
-        .logo-text {
-            color: #ffffff;
-            font-size: 18px;
-            font-weight: 600;
-            letter-spacing: -0.01em;
+        .logo img {
+            height: 32px;
+            width: auto;
+            display: block;
         }
         .greeting {
-            color: #ffffff;
+            color: #171717;
             font-size: 24px;
             font-weight: 600;
             margin: 0 0 20px 0;
         }
         .intro-text {
-            color: #ffffff;
+            color: #171717;
             font-size: 15px;
             line-height: 1.6;
             margin: 0 0 20px 0;
         }
         .description-text {
-            color: #94a3b8;
+            color: #454545;
             font-size: 14px;
             line-height: 1.7;
             margin: 0 0 30px 0;
@@ -64,14 +57,14 @@
         .steps-container {
             border-width: 1px 1px 1px 4px;
             border-style: solid;
-            border-color: rgba(98, 102, 250, 1);
+            border-color: #3B82F6;
             border-radius: 8px;
             padding: 25px 30px;
             margin: 0 40px 30px 40px;
-            background: rgba(98, 102, 250, 0.08);
+            background: #F9FAFB;
         }
         .steps-title {
-            color: #a5b4fc;
+            color: #3B82F6;
             font-size: 16px;
             font-weight: 600;
             margin: 0 0 20px 0;
@@ -94,7 +87,7 @@
         .step-number {
             width: 28px;
             height: 28px;
-            background-color: #6366f1;
+            background-color: #3B82F6;
             color: #ffffff;
             border-radius: 50%;
             display: flex;
@@ -109,19 +102,19 @@
             padding-top: 2px;
         }
         .step-title {
-            color: #ffffff;
+            color: #171717;
             font-size: 15px;
             font-weight: 600;
             margin: 0 0 4px 0;
         }
         .step-description {
-            color: #94a3b8;
+            color: #454545;
             font-size: 13px;
             line-height: 1.5;
             margin: 0;
         }
         .help-text {
-            color: #94a3b8;
+            color: #454545;
             font-size: 14px;
             line-height: 1.6;
             margin: 0 40px 30px 40px;
@@ -132,7 +125,7 @@
         }
         .cta-button {
             display: inline-block;
-            background-color: rgba(98, 102, 250, 1);
+            background-color: #171717;
             color: #ffffff;
             padding: 14px 0;
             width: 100%;
@@ -177,18 +170,18 @@
         .footer {
             padding: 25px 40px 35px 40px;
             text-align: center;
-            border-top: 1px solid #1e293b;
-            background-color: rgba(30, 41, 59, 1);
+            border-top: 1px solid #E5E7EB;
+            background-color: #F3F3F5;
         }
         .footer-links {
             margin: 0 0 12px 0;
         }
         .footer-links a {
-            color: #64748b;
+            color: #6B7280;
             text-decoration: none;
             font-size: 13px;
             padding: 0 8px;
-            border-right: 1px solid #334155;
+            border-right: 1px solid #D1D5DB;
             display: inline-block;
             line-height: 1;
         }
@@ -199,7 +192,7 @@
             padding-left: 0;
         }
         .footer-copyright {
-            color: #475569;
+            color: #6B7280;
             font-size: 12px;
             margin: 0;
         }
@@ -210,15 +203,7 @@
         <div class="email-container">
             <div class="header">
                 <div class="logo">
-                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="12" cy="12" r="10" stroke="#6366f1" stroke-width="1.5"/>
-                        <circle cx="12" cy="12" r="3" fill="#8b5cf6"/>
-                        <line x1="12" y1="2" x2="12" y2="7" stroke="#6366f1" stroke-width="1.5"/>
-                        <line x1="12" y1="17" x2="12" y2="22" stroke="#6366f1" stroke-width="1.5"/>
-                        <line x1="2" y1="12" x2="7" y2="12" stroke="#6366f1" stroke-width="1.5"/>
-                        <line x1="17" y1="12" x2="22" y2="12" stroke="#6366f1" stroke-width="1.5"/>
-                    </svg>
-                    <span class="logo-text">Vibemonitor</span>
+                    <img src="{{api_base_url}}/assets/Vibe1.svg" alt="VibeMonitor" style="height: 82px; width: auto; display: block;">
                 </div>
 
                 <h1 class="greeting">Hi there,</h1>

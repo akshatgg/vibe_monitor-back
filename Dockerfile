@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     POETRY_VERSION=2.1.4 \
-    POETRY_VIRTUALENVS_CREATE=true \
+    POETRY_VIRTUALENVS_CREATE=false \
     POETRY_VIRTUALENVS_IN_PROJECT=false \
     POETRY_CACHE_DIR=/tmp/.cache \
     POETRY_NO_INTERACTION=1
@@ -38,6 +38,8 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code
 COPY app/ ./app/
+# Copy static assets (logos, images for email templates)
+COPY assets/ ./assets/
 # Copy Alembic migration files
 COPY alembic/ ./alembic/
 COPY alembic.ini ./

@@ -11,7 +11,7 @@ from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
 from app.models import User, MailgunEmail, SlackInstallation, Membership
 from app.mailgun.service import mailgun_service, verify_scheduler_token
-from app.mailgun.schemas import EmailResponse
+from app.mailgun.schemas import EmailResponse, ContactFormRequest
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
@@ -170,4 +170,39 @@ async def send_slack_nudge_emails(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process slack nudge emails: {str(e)}",
+        )
+
+
+@router.post("/contact-form", response_model=EmailResponse)
+async def submit_contact_form(
+    request: ContactFormRequest,
+):
+    """
+    Submit a contact form to reach support@vibemonitor.ai.
+
+    This is a public endpoint (no authentication required) that allows
+    potential customers or users to contact the VibeMonitor team.
+
+    Note: This endpoint does NOT store contact form data in the database.
+    It only sends an email to the configured recipient.
+
+    Args:
+        request: Contact form data (name, work_email, interested_topics)
+
+    Returns:
+        EmailResponse with email submission status
+    """
+    try:
+        result = await mailgun_service.send_contact_form_email(
+            name=request.name,
+            work_email=request.work_email,
+            interested_topics=request.interested_topics,
+        )
+        return EmailResponse(**result)
+
+    except Exception as e:
+        logger.error(f"Failed to send contact form email: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to submit contact form. Please try again later.",
         )

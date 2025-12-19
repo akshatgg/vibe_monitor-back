@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     # MAILGUN
     MAILGUN_API_KEY: Optional[str] = None
     MAILGUN_DOMAIN_NAME: Optional[str] = None
+    CONTACT_FORM_RECIPIENT_EMAIL: str = "support@vibemonitor.ai"
 
     # Slack Integration
     SLACK_SIGNING_SECRET: Optional[str] = None

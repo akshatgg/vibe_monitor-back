@@ -4,6 +4,7 @@ import logging
 import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -144,6 +145,9 @@ if settings.OTEL_ENABLED:
 
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# Mount static files for assets (logos, images, etc.)
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 
 @app.get("/health")

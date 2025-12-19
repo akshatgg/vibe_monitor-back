@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Contact Form Submission - VibeMonitor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #F3F3F5;
+        }
+        .email-wrapper {
+            width: 100%;
+            background-color: #F3F3F5;
+            padding: 40px 20px;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            padding: 30px 40px 25px 40px;
+            background: linear-gradient(180deg, #ffffff 0%, #F8FAFC 100%);
+            border-bottom: 1px solid #E5E7EB;
+        }
+        .logo {
+            margin-bottom: 20px;
+        }
+        .logo img {
+            height: 32px;
+            width: auto;
+            display: block;
+        }
+        .header-title {
+            color: #171717;
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+        }
+        .header-subtitle {
+            color: #454545;
+            font-size: 14px;
+            margin: 0;
+        }
+        .content {
+            padding: 30px 40px;
+            background: linear-gradient(180deg, #F8FAFC 0%, #ffffff 100%);
+        }
+        .alert-badge {
+            background-color: #FED835;
+            color: #171717;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 25px;
+        }
+        .intro-text {
+            color: #454545;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 30px 0;
+        }
+        .info-section {
+            border-width: 1px 1px 1px 4px;
+            border-style: solid;
+            border-color: #3B82F6;
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+            background: #F9FAFB;
+        }
+        .info-label {
+            color: #3B82F6;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 8px 0;
+        }
+        .info-value {
+            color: #171717;
+            font-size: 15px;
+            font-weight: 500;
+            margin: 0;
+            word-wrap: break-word;
+        }
+        .info-value.email {
+            color: #3B82F6;
+            font-weight: 600;
+        }
+        .action-section {
+            border-width: 1px 1px 1px 4px;
+            border-style: solid;
+            border-color: #10b981;
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 25px;
+            background: rgba(16, 185, 129, 0.08);
+        }
+        .action-title {
+            color: #171717;
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+        }
+        .action-text {
+            color: #454545;
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 0;
+        }
+        .reply-link {
+            color: #10B981;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .reply-link:hover {
+            text-decoration: underline;
+        }
+        .timestamp {
+            color: #6B7280;
+            font-size: 12px;
+            margin-top: 15px;
+            text-align: center;
+        }
+        .footer {
+            background-color: #F3F3F5;
+            padding: 25px 40px;
+            border-top: 1px solid #E5E7EB;
+        }
+        .footer-text {
+            color: #6B7280;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+            text-align: center;
+        }
+        @media only screen and (max-width: 600px) {
+            .email-wrapper {
+                padding: 20px 10px;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .header {
+                padding: 25px 20px;
+            }
+            .footer {
+                padding: 20px;
+            }
+            .info-section {
+                padding: 15px;
+            }
+            .message-section {
+                padding: 15px;
+            }
+            .action-section {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <div class="header">
+                <div class="logo">
+                    <img src="{{api_base_url}}/assets/Vibe1.svg" alt="VibeMonitor" style="height: 82px; width: auto; display: block;">
+                </div>
+                <h1 class="header-title">New Contact Form Submission</h1>
+                <p class="header-subtitle">A potential customer has reached out via your website</p>
+            </div>
+
+            <div class="content">
+                <span class="alert-badge">New Inquiry</span>
+
+                <p class="intro-text">
+                    You have received a new contact form submission from your website. Please review the details below and respond promptly.
+                </p>
+
+                <div class="info-section">
+                    <p class="info-label">Contact Name</p>
+                    <p class="info-value">{{name}}</p>
+                </div>
+
+                <div class="info-section">
+                    <p class="info-label">Work Email</p>
+                    <p class="info-value email">{{work_email}}</p>
+                </div>
+
+                <div class="info-section">
+                    <p class="info-label">Interested Topics</p>
+                    <p class="info-value">{{interested_topics}}</p>
+                </div>
+
+                <div class="action-section">
+                    <p class="action-title">Next Steps</p>
+                    <p class="action-text">
+                        Reply directly to <a href="mailto:{{work_email}}" class="reply-link">{{work_email}}</a> to follow up with this inquiry.
+                    </p>
+                </div>
+
+                <p class="timestamp">Submitted on {{timestamp}}</p>
+            </div>
+
+            <div class="footer">
+                <p class="footer-text">
+                    This is an automated notification from your VibeMonitor contact form.<br>
+                    Do not reply to this email. Please respond directly to the contact email address provided above.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
