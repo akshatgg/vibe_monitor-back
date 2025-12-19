@@ -140,28 +140,34 @@ class LogsService:
         service_name: Optional[str] = None,
         filters: Optional[Dict[str, str]] = None,
         search_term: Optional[str] = None,
+        service_label_key: Optional[str] = None,
     ) -> str:
         """
         Build LogQL query with optional filters
 
         Args:
-            service_name: Filter by job label
+            service_name: Service name value to filter by
             filters: Additional label filters
             search_term: Text to search for in logs
+            service_label_key: The label key used for service identification in this Loki instance
+                              (e.g., 'job', 'service_name', 'app'). If not provided, defaults to 'job'.
 
         Returns:
             LogQL query string
         """
+        # Use provided label key or default to 'job' for backward compatibility
+        label_key = service_label_key or "job"
+
         # Build label selector
         labels = []
         if service_name:
             # Escape service_name to prevent LogQL injection
             escaped_service = self._escape_logql_value(service_name)
-            labels.append(f'job="{escaped_service}"')
+            labels.append(f'{label_key}="{escaped_service}"')
 
         if filters:
             for key, value in filters.items():
-                # Escape both   key and value to prevent LogQL injection
+                # Escape both key and value to prevent LogQL injection
                 escaped_key = self._escape_logql_value(key)
                 escaped_value = self._escape_logql_value(value)
                 labels.append(f'{escaped_key}="{escaped_value}"')
@@ -170,7 +176,7 @@ class LogsService:
         if labels:
             query = "{" + ",".join(labels) + "}"
         else:
-            query = '{job=~".+"}'  # Match all jobs if no filter
+            query = '{' + label_key + '=~".+"}'  # Match all services if no filter
 
         # Add line filter for search term
         if search_term:
@@ -264,9 +270,13 @@ class LogsService:
         time_range: TimeRange,
         limit: int = 100,
         direction: str = "BACKWARD",
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get logs for a specific service"""
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
 
         params = LogQueryParams(
             query=logql_query,
@@ -284,13 +294,17 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get error logs (filtered by error/ERROR keywords)"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         # Build query with case-insensitive error filter
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
         logql_query += ' |~ "(?i)error"'
 
         params = LogQueryParams(
@@ -310,13 +324,16 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Search logs containing specific text"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         logql_query = self._build_logql_query(
-            service_name=service_name, search_term=search_term
+            service_name=service_name,
+            search_term=search_term,
+            service_label_key=service_label_key,
         )
 
         params = LogQueryParams(
@@ -405,13 +422,17 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get warning logs (filtered by warn/WARNING keywords)"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         # Build query with warning filter (case-insensitive)
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
         logql_query += ' |~ "(?i)(warn|warning)"'
 
         params = LogQueryParams(
@@ -430,13 +451,17 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get info logs (filtered by info/INFO keywords)"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         # Build query with info filter (case-insensitive)
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
         logql_query += ' |~ "(?i)info"'
 
         params = LogQueryParams(
@@ -455,13 +480,17 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get debug logs (filtered by debug/DEBUG keywords)"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         # Build query with debug filter (case-insensitive)
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
         logql_query += ' |~ "(?i)debug"'
 
         params = LogQueryParams(
@@ -481,13 +510,17 @@ class LogsService:
         service_name: str = None,
         time_range: TimeRange = None,
         limit: int = 100,
+        service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get logs filtered by custom log level"""
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
         # Build query with custom log level filter (case-insensitive)
-        logql_query = self._build_logql_query(service_name=service_name)
+        logql_query = self._build_logql_query(
+            service_name=service_name,
+            service_label_key=service_label_key,
+        )
         # Escape log_level to prevent regex injection and ReDoS attacks
         escaped_level = self._escape_regex(log_level)
         logql_query += f' |~ "(?i){escaped_level}"'

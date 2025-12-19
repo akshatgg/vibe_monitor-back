@@ -103,6 +103,7 @@ def _format_metrics_response(response) -> str:
 async def fetch_logs_tool(
     service_name: str,
     workspace_id: str,
+    service_label_key: str,
     search_term: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
@@ -111,15 +112,16 @@ async def fetch_logs_tool(
     """
     Fetch logs from a specific service with optional text search.
 
-    ⚠️ IMPORTANT: You must provide an ACTUAL service name you discovered from logs.
-    NEVER assume or guess service names. If you don't have a service name yet,
-    use fetch_error_logs_tool WITHOUT service_name to discover services first.
-
-    Use this tool to investigate log patterns, search for specific errors, or examine service behavior.
+    ⚠️ CRITICAL - MUST DISCOVER LABELS FIRST:
+    Before using this tool, you MUST use get_labels_tool to discover available labels in the customer's Loki.
+    Different customers use different label names for services (e.g., 'job', 'service_name', 'app', 'service').
+    Use the label that identifies services in their setup.
 
     Args:
-        service_name: ACTUAL service name from logs (NOT "xyz" or any placeholder)
+        service_name: ACTUAL service name value from logs (NOT "xyz" or any placeholder)
         workspace_id: Workspace identifier (automatically provided from job context)
+        service_label_key: The label key used for service identification in this Loki instance.
+                          MUST be discovered first using get_labels_tool (e.g., 'job', 'service_name', 'app')
         search_term: Optional text to search for in logs (e.g., 'timeout', 'error', 'failed')
         start: Start time - use relative format like 'now-30m', 'now-1h', 'now-6h' (default: 'now-30m')
         end: End time - typically 'now' (default: 'now')
@@ -128,10 +130,12 @@ async def fetch_logs_tool(
     Returns:
         Formatted log entries with timestamps and messages
 
-    Example usage pattern (NOT real service names):
-        # First discover service name from error logs
-        # Then use that ACTUAL service name here
-        fetch_logs_tool(service_name="<ACTUAL_SERVICE_FROM_LOGS>", search_term="connection timeout", start="now-1h")
+    Example workflow:
+        1. First call get_labels_tool to discover available labels (e.g., returns ['service_name', 'pod', 'namespace'])
+        2. Identify which label represents services (e.g., 'service_name')
+        3. Call get_label_values_tool to find service names (e.g., returns ['vm-api', 'auth-service'])
+        4. Then use this tool with the correct label:
+           fetch_logs_tool(service_name="vm-api", service_label_key="service_name", start="now-1h")
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
@@ -144,6 +148,7 @@ async def fetch_logs_tool(
                 service_name=service_name,
                 time_range=time_range,
                 limit=limit,
+                service_label_key=service_label_key,
             )
         else:
             # Use service logs method
@@ -152,6 +157,7 @@ async def fetch_logs_tool(
                 service_name=service_name,
                 time_range=time_range,
                 limit=limit,
+                service_label_key=service_label_key,
             )
 
         return _format_logs_response(response, limit=50)
@@ -166,6 +172,7 @@ async def fetch_logs_tool(
 @tool
 async def fetch_error_logs_tool(
     workspace_id: str,
+    service_label_key: str,
     service_name: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
@@ -174,28 +181,31 @@ async def fetch_error_logs_tool(
     """
     Fetch ERROR-level logs to quickly identify failures and issues.
 
-    ⚠️ CRITICAL: This is typically the FIRST tool to use when investigating problems.
-    Call this WITHOUT service_name parameter to discover ALL services experiencing errors.
-    The output will show you ACTUAL service names which you can use in subsequent queries.
+    ⚠️ CRITICAL - MUST DISCOVER LABELS FIRST:
+    Before using this tool, you MUST use get_labels_tool to discover available labels in the customer's Loki.
+    Different customers use different label names for services (e.g., 'job', 'service_name', 'app', 'service').
 
     Filters logs containing error keywords (case-insensitive).
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        service_name: Optional ACTUAL service name from previous log output (if None, searches ALL services - RECOMMENDED for discovery)
+        service_label_key: The label key used for service identification in this Loki instance.
+                          MUST be discovered first using get_labels_tool (e.g., 'job', 'service_name', 'app')
+        service_name: Optional service name value to filter by (if None, searches ALL services)
         start: Start time in relative format (default: 'now-30m')
         end: End time (default: 'now')
         limit: Maximum number of entries (default: 100)
 
     Returns:
-        Error logs with timestamps, ACTUAL service names, and error messages
+        Error logs with timestamps, service names, and error messages
 
-    Example usage patterns (NOT real service names):
-        # First call - discover services (NO service_name parameter):
-        fetch_error_logs_tool(start="now-1h")
-
-        # After discovering service "serviceDesk" from above output:
-        fetch_error_logs_tool(service_name="serviceDesk", start="now-1h")
+    Example workflow:
+        1. First call get_labels_tool to discover available labels
+        2. Identify which label represents services (look for 'job', 'service_name', 'service', 'app')
+        3. Call this tool with the correct label:
+           fetch_error_logs_tool(service_label_key="service_name", start="now-1h")
+        4. Or filter by specific service:
+           fetch_error_logs_tool(service_label_key="service_name", service_name="vm-api", start="now-1h")
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
@@ -205,6 +215,7 @@ async def fetch_error_logs_tool(
             service_name=service_name,
             time_range=time_range,
             limit=limit,
+            service_label_key=service_label_key,
         )
 
         return _format_logs_response(response, limit=50)
