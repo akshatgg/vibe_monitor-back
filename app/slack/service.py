@@ -77,7 +77,8 @@ class EventDeduplicationCache:
         """Remove expired entries"""
         current_time = time.time()
         expired = [
-            eid for eid, ts in self._cache.items()
+            eid
+            for eid, ts in self._cache.items()
             if current_time - ts > self.ttl_seconds
         ]
         for eid in expired:
@@ -131,7 +132,7 @@ class SlackEventService:
                 logger.info(f"Skipping duplicate event: {payload.event_id}")
                 return {
                     "status": "ignored",
-                    "message": "Duplicate event (already processed)"
+                    "message": "Duplicate event (already processed)",
                 }
 
             # Mark event as being processed
@@ -206,9 +207,11 @@ class SlackEventService:
                 bot_response = await SlackEventService.process_user_message(
                     user_message=user_message_ex,
                     event_context=event_context,
-                    is_explicit_mention=True
+                    is_explicit_mention=True,
                 )
-                clean_message = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", user_message_ex).strip()
+                clean_message = re.sub(
+                    settings.SLACK_USER_MENTION_PATTERN, "", user_message_ex
+                ).strip()
 
                 if clean_message.lower() in ["help", "status", "health"]:
                     thread_ts = event_context.get("thread_ts")
@@ -241,21 +244,27 @@ class SlackEventService:
                 )
 
                 if should_respond:
-                    logger.info(f"Auto-responding to alert in channel {channel_id}: {reason}")
+                    logger.info(
+                        f"Auto-responding to alert in channel {channel_id}: {reason}"
+                    )
 
                     # Extract alert information
-                    alert_info = alert_detector.extract_alert_info(message_text, event=payload.event)
+                    alert_info = alert_detector.extract_alert_info(
+                        message_text, event=payload.event
+                    )
 
                     # Process as RCA request
                     bot_response = await SlackEventService.process_user_message(
                         user_message=message_text,
                         event_context=event_context,
                         is_explicit_mention=False,
-                        alert_info=alert_info
+                        alert_info=alert_info,
                     )
 
                     # Reply in thread to keep channel clean
-                    thread_ts = event_context.get("thread_ts") or event_context.get("timestamp")
+                    thread_ts = event_context.get("thread_ts") or event_context.get(
+                        "timestamp"
+                    )
 
                     await SlackEventService.send_message(
                         team_id=team_id,
@@ -294,7 +303,7 @@ class SlackEventService:
         user_message: str,
         event_context: dict,
         is_explicit_mention: bool = True,
-        alert_info: dict = None
+        alert_info: dict = None,
     ) -> str:
         """
         Process user's message and generate a response
@@ -319,7 +328,9 @@ class SlackEventService:
         thread_ts = event_context.get("thread_ts") or event_context.get("timestamp")
 
         # Remove bot mention from message to get clean text
-        clean_message = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", user_message).strip()
+        clean_message = re.sub(
+            settings.SLACK_USER_MENTION_PATTERN, "", user_message
+        ).strip()
 
         # Check if this is an image-only message
         files = event_context.get("files", [])
@@ -327,7 +338,9 @@ class SlackEventService:
 
         # If no text but has images, set default message
         if not clean_message and has_images:
-            clean_message = "Please analyze this image/screenshot for any errors or issues."
+            clean_message = (
+                "Please analyze this image/screenshot for any errors or issues."
+            )
             logger.info("Image-only message detected, using default query text")
 
         # For automatic alert detection, provide different initial response
@@ -338,7 +351,7 @@ class SlackEventService:
                 "critical": "🔴",
                 "high": "🟠",
                 "medium": "🟡",
-                "low": "🟢"
+                "low": "🟢",
             }.get(severity, "🔵")
 
             logger.info(
@@ -346,7 +359,9 @@ class SlackEventService:
                 f"(severity: {severity or 'unknown'}) in channel {channel_id}"
             )
         else:
-            logger.info(f"Processing explicit mention from user {user_id}: '{clean_message}'")
+            logger.info(
+                f"Processing explicit mention from user {user_id}: '{clean_message}'"
+            )
 
         # Simple command handling (only for explicit mentions)
         if is_explicit_mention:
@@ -390,7 +405,9 @@ class SlackEventService:
         slack_integration_id = slack_integration.id if slack_integration else None
         workspace_id = slack_integration.workspace_id if slack_integration else None
 
-        logger.info(f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'")
+        logger.info(
+            f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'"
+        )
         guard_result = await llm_guard.validate_message(
             user_message=clean_message,
             context=f"Slack message from user {user_id} in channel {channel_id}",
@@ -427,20 +444,28 @@ class SlackEventService:
             original_thread_ts = event_context.get("thread_ts")
 
             if original_thread_ts:
-                logger.info(f"Detected thread reply with thread_ts: {original_thread_ts}. Fetching conversation history...")
+                logger.info(
+                    f"Detected thread reply with thread_ts: {original_thread_ts}. Fetching conversation history..."
+                )
                 thread_history = await SlackEventService.get_thread_history(
                     team_id=team_id,
                     channel=channel_id,
                     thread_ts=original_thread_ts,
-                    exclude_ts=timestamp  # Exclude current message to avoid duplicate context
+                    exclude_ts=timestamp,  # Exclude current message to avoid duplicate context
                 )
 
                 if thread_history:
-                    logger.info(f"Successfully retrieved {len(thread_history)} messages from thread history")
+                    logger.info(
+                        f"Successfully retrieved {len(thread_history)} messages from thread history"
+                    )
                 else:
-                    logger.warning(f"Failed to retrieve thread history for thread_ts: {original_thread_ts}")
+                    logger.warning(
+                        f"Failed to retrieve thread history for thread_ts: {original_thread_ts}"
+                    )
             else:
-                logger.info("No thread_ts detected - this is a new conversation (not a thread reply)")
+                logger.info(
+                    "No thread_ts detected - this is a new conversation (not a thread reply)"
+                )
 
             # Generate job ID
             job_id = str(uuid.uuid4())
@@ -522,7 +547,9 @@ class SlackEventService:
                     # Add thread history to context if available
                     if thread_history:
                         job_context["thread_history"] = thread_history
-                        logger.info(f"Added {len(thread_history)} thread messages to job context")
+                        logger.info(
+                            f"Added {len(thread_history)} thread messages to job context"
+                        )
 
                     # Add files (images) to context if present
                     files = event_context.get("files", [])
@@ -546,9 +573,13 @@ class SlackEventService:
                         if image_files:
                             job_context["files"] = image_files
                             job_context["has_images"] = True
-                            logger.info(f"Added {len(image_files)} validated image(s) to job context - will use Gemini for processing")
+                            logger.info(
+                                f"Added {len(image_files)} validated image(s) to job context - will use Gemini for processing"
+                            )
                         elif files:
-                            logger.warning(f"Found {len(files)} file(s) but none were valid images with required fields")
+                            logger.warning(
+                                f"Found {len(files)} file(s) but none were valid images with required fields"
+                            )
 
                     job = Job(
                         id=job_id,
@@ -578,7 +609,7 @@ class SlackEventService:
                             "critical": "🔴",
                             "high": "🟠",
                             "medium": "🟡",
-                            "low": "🟢"
+                            "low": "🟢",
                         }.get(severity, "🔵")
 
                         return (
@@ -590,9 +621,8 @@ class SlackEventService:
                         )
                     else:
                         return (
-                            f"🔍 Got it! I'm analyzing: *\"{clean_message[:100]}...\"*\n\n"
-                            f"This may take a moment while I investigate logs and metrics. "
-                            f"I'll reply here once I have the analysis ready."
+                            f'🔍 Got it! I\'m analyzing: *"{clean_message[:100]}..."*\n\n'
+                            f"This may take a moment while I investigate."
                         )
                 else:
                     logger.error(f"❌ Failed to enqueue job {job_id} to SQS")
@@ -679,8 +709,8 @@ class SlackEventService:
                         control_plane_integration = Integration(
                             id=control_plane_id,
                             workspace_id=workspace_id,
-                            provider='slack',
-                            status='active',
+                            provider="slack",
+                            status="active",
                             created_at=datetime.now(timezone.utc),
                             updated_at=datetime.now(timezone.utc),
                         )
@@ -690,7 +720,7 @@ class SlackEventService:
                     installation_db = SlackInstallation(
                         id=str(uuid.uuid4()),
                         integration_id=control_plane_id,  # Link to control plane (may be None)
-                        **installation_data.model_dump()
+                        **installation_data.model_dump(),
                     )
                     db.add(installation_db)
                     logger.info(f"Created new installation for {team_id} ({team_name})")
@@ -701,14 +731,18 @@ class SlackEventService:
                 # Run initial health check if control plane integration was created
                 if control_plane_integration:
                     try:
-                        health_status, error_message = await check_slack_health(installation_db)
+                        health_status, error_message = await check_slack_health(
+                            installation_db
+                        )
                         control_plane_integration.health_status = health_status
-                        control_plane_integration.last_verified_at = datetime.now(timezone.utc)
+                        control_plane_integration.last_verified_at = datetime.now(
+                            timezone.utc
+                        )
                         control_plane_integration.last_error = error_message
-                        if health_status == 'healthy':
-                            control_plane_integration.status = 'active'
-                        elif health_status == 'failed':
-                            control_plane_integration.status = 'error'
+                        if health_status == "healthy":
+                            control_plane_integration.status = "active"
+                        elif health_status == "failed":
+                            control_plane_integration.status = "error"
                         await db.commit()
                         logger.info(
                             f"Slack integration created with health_status={health_status}: "
@@ -782,7 +816,9 @@ class SlackEventService:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for slack message")
         except Exception as err:
-            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            logger.error(
+                f"Failed to decrypt Slack access token for team {team_id}: {err}"
+            )
             raise Exception("Failed to decrypt Slack credentials")
 
         try:
@@ -856,17 +892,18 @@ class SlackEventService:
 
         try:
             access_token = token_processor.decrypt(installation.access_token)
-            logger.info("Access token decrypted successfully for fetching thread history")
+            logger.info(
+                "Access token decrypted successfully for fetching thread history"
+            )
         except Exception as err:
-            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            logger.error(
+                f"Failed to decrypt Slack access token for team {team_id}: {err}"
+            )
             raise Exception("Failed to decrypt Slack credentials")
 
         try:
             async with httpx.AsyncClient() as client:
-                params = {
-                    "channel": channel,
-                    "ts": thread_ts
-                }
+                params = {"channel": channel, "ts": thread_ts}
 
                 async for attempt in retry_external_api("Slack"):
                     with attempt:
@@ -888,12 +925,20 @@ class SlackEventService:
 
                             # Filter out the current triggering message to avoid duplicate context
                             if exclude_ts:
-                                messages = [msg for msg in messages if msg.get("ts") != exclude_ts]
+                                messages = [
+                                    msg
+                                    for msg in messages
+                                    if msg.get("ts") != exclude_ts
+                                ]
 
-                            logger.info(f"Successfully fetched {len(messages)} messages from thread {thread_ts}")
+                            logger.info(
+                                f"Successfully fetched {len(messages)} messages from thread {thread_ts}"
+                            )
                             return messages
                         else:
-                            logger.error(f"Failed to fetch thread history: {data.get('error')}")
+                            logger.error(
+                                f"Failed to fetch thread history: {data.get('error')}"
+                            )
                             return None
 
         except Exception as e:
@@ -901,9 +946,7 @@ class SlackEventService:
             return None
 
     @staticmethod
-    async def update_message(
-        team_id: str, channel: str, ts: str, text: str
-    ) -> bool:
+    async def update_message(team_id: str, channel: str, ts: str, text: str) -> bool:
         """
         Update an existing Slack message
 
@@ -930,7 +973,9 @@ class SlackEventService:
             access_token = token_processor.decrypt(installation.access_token)
             logger.info("Access token decrypted successfully for slack message update")
         except Exception as err:
-            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {err}")
+            logger.error(
+                f"Failed to decrypt Slack access token for team {team_id}: {err}"
+            )
             raise Exception("Failed to decrypt Slack credentials")
 
         try:

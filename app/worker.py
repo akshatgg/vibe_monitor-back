@@ -172,7 +172,11 @@ class RCAOrchestratorWorker(BaseWorker):
         """Send the daily engagement report to Slack."""
         try:
             async with AsyncSessionLocal() as db:
-                report, slack_sent, error_msg = await engagement_service.send_daily_report(db)
+                (
+                    report,
+                    slack_sent,
+                    error_msg,
+                ) = await engagement_service.send_daily_report(db)
 
                 if slack_sent:
                     logger.info(
@@ -274,19 +278,12 @@ class RCAOrchestratorWorker(BaseWorker):
                     else:
                         logger.info("📝 No thread history - this is a new conversation")
 
-                    # Send initial "thinking" message to Slack
-                    if team_id and channel_id:
-                        await slack_event_service.send_message(
-                            team_id=team_id,
-                            channel=channel_id,
-                            text=f"🤔 Analyzing: *{query}*\n\n_Step 1: Discovering services..._",
-                            thread_ts=thread_ts,
-                        )
-
                     # PRE-CHECK: Verify GitHub integration exists and is healthy (required)
-                    all_integrations = await get_workspace_integrations(workspace_id, db)
+                    all_integrations = await get_workspace_integrations(
+                        workspace_id, db
+                    )
                     github_integration = next(
-                        (i for i in all_integrations if i.provider == 'github'), None
+                        (i for i in all_integrations if i.provider == "github"), None
                     )
 
                     if not github_integration:
@@ -305,12 +302,14 @@ class RCAOrchestratorWorker(BaseWorker):
                                 thread_ts=thread_ts,
                                 send_tool_output=False,
                             )
-                            await slack_callback.send_missing_integration_message("github")
+                            await slack_callback.send_missing_integration_message(
+                                "github"
+                            )
                         return
 
                     # Log warning if health_status is not healthy, but proceed anyway
                     # The actual API call will determine real health status
-                    if github_integration.health_status not in ('healthy', None):
+                    if github_integration.health_status not in ("healthy", None):
                         logger.info(
                             f"GitHub integration has health_status={github_integration.health_status}, "
                             f"will verify with actual API call for workspace {workspace_id}"
@@ -334,11 +333,13 @@ class RCAOrchestratorWorker(BaseWorker):
 
                         if repos_response.get("success"):
                             # GitHub API succeeded - mark integration as healthy
-                            if github_integration.health_status != 'healthy':
-                                github_integration.health_status = 'healthy'
-                                github_integration.status = 'active'
+                            if github_integration.health_status != "healthy":
+                                github_integration.health_status = "healthy"
+                                github_integration.status = "active"
                                 github_integration.last_error = None
-                                github_integration.last_verified_at = datetime.now(timezone.utc)
+                                github_integration.last_verified_at = datetime.now(
+                                    timezone.utc
+                                )
                                 await db.commit()
                                 logger.info(
                                     f"✅ GitHub integration marked healthy after successful API call: "
@@ -349,14 +350,6 @@ class RCAOrchestratorWorker(BaseWorker):
                             total_repos = len(repositories)
                             logger.info(f"Found {total_repos} repositories to scan")
 
-                            if team_id and channel_id:
-                                await slack_event_service.send_message(
-                                    team_id=team_id,
-                                    channel=channel_id,
-                                    text=f"📦 Found {total_repos} repositories. Extracting service names...",
-                                    thread_ts=thread_ts,
-                                )
-
                             # Extract service names from repositories in parallel batches
                             service_repo_mapping = await scan_repositories_in_batches(
                                 repositories=repositories, workspace_id=workspace_id
@@ -365,31 +358,16 @@ class RCAOrchestratorWorker(BaseWorker):
                             logger.info(
                                 f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped"
                             )
-
-                            if team_id and channel_id:
-                                services_list = ", ".join(
-                                    [
-                                        f"`{s}`"
-                                        for s in list(service_repo_mapping.keys())[:10]
-                                    ]
-                                )
-                                more_text = (
-                                    f" and {len(service_repo_mapping) - 10} more"
-                                    if len(service_repo_mapping) > 10
-                                    else ""
-                                )
-                                await slack_event_service.send_message(
-                                    team_id=team_id,
-                                    channel=channel_id,
-                                    text=f"✅ Discovered services: {services_list}{more_text}\n\nAnalyzing logs and metrics...",
-                                    thread_ts=thread_ts,
-                                )
                         else:
                             # GitHub API call failed - mark integration as unhealthy
-                            github_integration.health_status = 'failed'
-                            github_integration.status = 'error'
-                            github_integration.last_error = 'Failed to fetch repositories'
-                            github_integration.last_verified_at = datetime.now(timezone.utc)
+                            github_integration.health_status = "failed"
+                            github_integration.status = "error"
+                            github_integration.last_error = (
+                                "Failed to fetch repositories"
+                            )
+                            github_integration.last_verified_at = datetime.now(
+                                timezone.utc
+                            )
                             await db.commit()
                             logger.warning(
                                 f"Failed to fetch repositories for service discovery, "
@@ -398,8 +376,8 @@ class RCAOrchestratorWorker(BaseWorker):
 
                     except Exception as e:
                         # GitHub API call threw exception - mark integration as unhealthy
-                        github_integration.health_status = 'failed'
-                        github_integration.status = 'error'
+                        github_integration.health_status = "failed"
+                        github_integration.status = "error"
                         github_integration.last_error = str(e)
                         github_integration.last_verified_at = datetime.now(timezone.utc)
 
@@ -421,9 +399,10 @@ class RCAOrchestratorWorker(BaseWorker):
                     # GitHub is already checked before service discovery
                     # Other integrations are optional - warn but proceed with RCA
                     unhealthy_optional = [
-                        i.provider for i in all_integrations
-                        if i.provider not in ('slack', 'github')
-                        and i.health_status not in ('healthy', None)
+                        i.provider
+                        for i in all_integrations
+                        if i.provider not in ("slack", "github")
+                        and i.health_status not in ("healthy", None)
                     ]
 
                     if unhealthy_optional:
