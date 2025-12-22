@@ -28,7 +28,12 @@ def upgrade() -> None:
         sa.Column("app_key", sa.String(), nullable=False),
         sa.Column("region", sa.String(), nullable=False),
         sa.Column("last_verified_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -42,5 +47,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop Datadog integrations table."""
-    op.drop_index("idx_datadog_integration_workspace", table_name="datadog_integrations")
+    op.drop_index(
+        "idx_datadog_integration_workspace", table_name="datadog_integrations"
+    )
     op.drop_table("datadog_integrations")

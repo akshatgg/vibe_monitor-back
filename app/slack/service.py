@@ -708,32 +708,42 @@ class SlackEventService:
                         # Check if an integration already exists for this workspace + provider
                         existing_integration_stmt = select(Integration).where(
                             Integration.workspace_id == workspace_id,
-                            Integration.provider == 'slack'
+                            Integration.provider == "slack",
                         )
-                        existing_integration_result = await db.execute(existing_integration_stmt)
-                        existing_integration = existing_integration_result.scalar_one_or_none()
+                        existing_integration_result = await db.execute(
+                            existing_integration_stmt
+                        )
+                        existing_integration = (
+                            existing_integration_result.scalar_one_or_none()
+                        )
 
                         if existing_integration:
                             # Use existing integration and update it
                             control_plane_id = existing_integration.id
                             control_plane_integration = existing_integration
-                            control_plane_integration.status = 'active'
-                            control_plane_integration.updated_at = datetime.now(timezone.utc)
-                            logger.info(f"Reusing existing Slack integration {control_plane_id} for workspace {workspace_id}")
+                            control_plane_integration.status = "active"
+                            control_plane_integration.updated_at = datetime.now(
+                                timezone.utc
+                            )
+                            logger.info(
+                                f"Reusing existing Slack integration {control_plane_id} for workspace {workspace_id}"
+                            )
                         else:
                             # Create new integration
                             control_plane_id = str(uuid.uuid4())
                             control_plane_integration = Integration(
                                 id=control_plane_id,
                                 workspace_id=workspace_id,
-                                provider='slack',
-                                status='active',
+                                provider="slack",
+                                status="active",
                                 created_at=datetime.now(timezone.utc),
                                 updated_at=datetime.now(timezone.utc),
                             )
                             db.add(control_plane_integration)
                             await db.flush()  # Get ID without committing
-                            logger.info(f"Created new Slack integration {control_plane_id} for workspace {workspace_id}")
+                            logger.info(
+                                f"Created new Slack integration {control_plane_id} for workspace {workspace_id}"
+                            )
 
                     installation_db = SlackInstallation(
                         id=str(uuid.uuid4()),

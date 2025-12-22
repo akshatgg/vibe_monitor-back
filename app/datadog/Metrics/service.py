@@ -2,6 +2,7 @@
 Datadog Metrics Service - Standalone functions for Datadog Metrics operations
 Uses Datadog Integration credentials (API key and App key)
 """
+
 import logging
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +30,7 @@ class DatadogMetricsService:
 
     @staticmethod
     async def query_timeseries(
-        db: AsyncSession,
-        workspace_id: str,
-        request: QueryTimeseriesRequest
+        db: AsyncSession, workspace_id: str, request: QueryTimeseriesRequest
     ) -> QueryTimeseriesResponse:
         """
         Query Datadog timeseries metrics data (standalone function)
@@ -52,7 +51,9 @@ class DatadogMetricsService:
             credentials = await get_datadog_credentials(db, workspace_id)
 
             if not credentials:
-                raise Exception(f"No Datadog integration found for workspace: {workspace_id}")
+                raise Exception(
+                    f"No Datadog integration found for workspace: {workspace_id}"
+                )
 
             # Get Datadog domain for region
             domain = get_datadog_domain(credentials["region"])
@@ -62,7 +63,7 @@ class DatadogMetricsService:
             headers = {
                 "DD-API-KEY": credentials["api_key"],
                 "DD-APPLICATION-KEY": credentials["app_key"],
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             # Handle both simple and complex formats
@@ -71,13 +72,11 @@ class DatadogMetricsService:
                 # Convert to complex format internally
                 formula = "a"
                 queries_list = [
-                    {
-                        "data_source": "metrics",
-                        "query": request.query,
-                        "name": "a"
-                    }
+                    {"data_source": "metrics", "query": request.query, "name": "a"}
                 ]
-                logger.info(f"Datadog Timeseries Query (Simple) - Query: {request.query}")
+                logger.info(
+                    f"Datadog Timeseries Query (Simple) - Query: {request.query}"
+                )
             else:
                 # Complex format: multiple queries with formula
                 formula = request.data.formula
@@ -85,11 +84,13 @@ class DatadogMetricsService:
                     {
                         "data_source": q.data_source,
                         "query": q.query,
-                        "name": q.name or f"query_{i}"
+                        "name": q.name or f"query_{i}",
                     }
                     for i, q in enumerate(request.data.queries)
                 ]
-                logger.info(f"Datadog Timeseries Query (Complex) - Queries: {[q.query for q in request.data.queries]}")
+                logger.info(
+                    f"Datadog Timeseries Query (Complex) - Queries: {[q.query for q in request.data.queries]}"
+                )
 
             # Prepare request body
             body = {
@@ -99,8 +100,8 @@ class DatadogMetricsService:
                         "formulas": [{"formula": formula}],
                         "queries": queries_list,
                         "from": request.from_timestamp,
-                        "to": request.to_timestamp
-                    }
+                        "to": request.to_timestamp,
+                    },
                 }
             }
 
@@ -109,10 +110,7 @@ class DatadogMetricsService:
             # Make API request
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url,
-                    headers=headers,
-                    json=body,
-                    timeout=30.0
+                    url, headers=headers, json=body, timeout=30.0
                 )
 
                 logger.info(f"Datadog API Response - Status: {response.status_code}")
@@ -128,15 +126,16 @@ class DatadogMetricsService:
                     raise Exception(f"Bad request: {error_detail}")
 
                 if response.status_code != 200:
-                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                    raise Exception(
+                        f"API request failed with status {response.status_code}: {response.text}"
+                    )
 
                 data = response.json()
 
                 # Parse response
                 if "errors" in data:
                     return QueryTimeseriesResponse(
-                        data=None,
-                        errors=str(data["errors"])
+                        data=None, errors=str(data["errors"])
                     )
 
                 # Extract timeseries data
@@ -148,25 +147,22 @@ class DatadogMetricsService:
                     series = TimeseriesSeries(
                         group_tags=series_data.get("group_tags"),
                         query_index=series_data.get("query_index"),
-                        unit=series_data.get("unit")
+                        unit=series_data.get("unit"),
                     )
                     series_list.append(series)
 
                 timeseries_attributes = TimeseriesAttributes(
                     series=series_list,
                     times=attributes.get("times"),
-                    values=attributes.get("values")
+                    values=attributes.get("values"),
                 )
 
                 timeseries_data = TimeseriesData(
                     type=response_data.get("type", "timeseries"),
-                    attributes=timeseries_attributes
+                    attributes=timeseries_attributes,
                 )
 
-                return QueryTimeseriesResponse(
-                    data=timeseries_data,
-                    errors=None
-                )
+                return QueryTimeseriesResponse(data=timeseries_data, errors=None)
 
         except httpx.TimeoutException:
             logger.error("Datadog API request timeout")
@@ -177,9 +173,7 @@ class DatadogMetricsService:
 
     @staticmethod
     async def query_simple(
-        db: AsyncSession,
-        workspace_id: str,
-        request: SimpleQueryRequest
+        db: AsyncSession, workspace_id: str, request: SimpleQueryRequest
     ) -> SimpleQueryResponse:
         """
         Simplified metrics query (standalone function)
@@ -199,27 +193,27 @@ class DatadogMetricsService:
         """
         try:
             # Create timeseries request
-            from .schemas import TimeseriesQuery, TimeseriesFormulaAndFunction, QueryTimeseriesRequest
+            from .schemas import (
+                TimeseriesQuery,
+                TimeseriesFormulaAndFunction,
+                QueryTimeseriesRequest,
+            )
 
             timeseries_request = QueryTimeseriesRequest(
                 data=TimeseriesFormulaAndFunction(
                     formula="a",
                     queries=[
                         TimeseriesQuery(
-                            data_source="metrics",
-                            query=request.query,
-                            name="a"
+                            data_source="metrics", query=request.query, name="a"
                         )
-                    ]
+                    ],
                 ),
-                **{"from": request.from_timestamp, "to": request.to_timestamp}
+                **{"from": request.from_timestamp, "to": request.to_timestamp},
             )
 
             # Query timeseries
             timeseries_response = await DatadogMetricsService.query_timeseries(
-                db=db,
-                workspace_id=workspace_id,
-                request=timeseries_request
+                db=db, workspace_id=workspace_id, request=timeseries_request
             )
 
             if timeseries_response.errors:
@@ -233,22 +227,19 @@ class DatadogMetricsService:
                 values = timeseries_response.data.attributes.values or []
 
                 # Iterate through each series and combine times with values
-                for series_index, _ in enumerate(timeseries_response.data.attributes.series):
+                for series_index, _ in enumerate(
+                    timeseries_response.data.attributes.series
+                ):
                     if series_index < len(values):
                         series_values = values[series_index]
                         # Combine timestamps with values for this series
                         for time, value in zip(times, series_values):
                             points.append(
-                                SimpleMetricPoint(
-                                    timestamp=time,
-                                    value=value
-                                )
+                                SimpleMetricPoint(timestamp=time, value=value)
                             )
 
             return SimpleQueryResponse(
-                query=request.query,
-                points=points,
-                totalPoints=len(points)
+                query=request.query, points=points, totalPoints=len(points)
             )
 
         except Exception as e:
@@ -257,9 +248,7 @@ class DatadogMetricsService:
 
     @staticmethod
     async def search_events(
-        db: AsyncSession,
-        workspace_id: str,
-        request: "EventsSearchRequest"
+        db: AsyncSession, workspace_id: str, request: "EventsSearchRequest"
     ) -> "EventsSearchResponse":
         """
         Search Datadog events (standalone function)
@@ -280,7 +269,9 @@ class DatadogMetricsService:
             credentials = await get_datadog_credentials(db, workspace_id)
 
             if not credentials:
-                raise Exception(f"No Datadog integration found for workspace: {workspace_id}")
+                raise Exception(
+                    f"No Datadog integration found for workspace: {workspace_id}"
+                )
 
             # Get Datadog domain for region
             domain = get_datadog_domain(credentials["region"])
@@ -289,31 +280,32 @@ class DatadogMetricsService:
             # Prepare headers
             headers = {
                 "DD-API-KEY": credentials["api_key"],
-                "DD-APPLICATION-KEY": credentials["app_key"]
+                "DD-APPLICATION-KEY": credentials["app_key"],
             }
 
             # Prepare query parameters
             params = {
                 "start": request.start,
                 "end": request.end,
-                "unaggregated": "true"  # Always get detailed events for RCA
+                "unaggregated": "true",  # Always get detailed events for RCA
             }
 
             if request.tags:
                 params["tags"] = request.tags
 
-            logger.info(f"Datadog Events Search - Start: {request.start}, End: {request.end}")
+            logger.info(
+                f"Datadog Events Search - Start: {request.start}, End: {request.end}"
+            )
 
             # Make API request
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    url,
-                    headers=headers,
-                    params=params,
-                    timeout=30.0
+                    url, headers=headers, params=params, timeout=30.0
                 )
 
-                logger.info(f"Datadog Events API Response - Status: {response.status_code}")
+                logger.info(
+                    f"Datadog Events API Response - Status: {response.status_code}"
+                )
 
                 if response.status_code == 403:
                     raise Exception("Invalid API key or Application key")
@@ -326,7 +318,9 @@ class DatadogMetricsService:
                     raise Exception(f"Bad request: {error_detail}")
 
                 if response.status_code != 200:
-                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                    raise Exception(
+                        f"API request failed with status {response.status_code}: {response.text}"
+                    )
 
                 data = response.json()
 
@@ -346,13 +340,12 @@ class DatadogMetricsService:
                         tags=event_data.get("tags"),
                         host=event_data.get("host"),
                         device_name=event_data.get("device_name"),
-                        url=event_data.get("url")
+                        url=event_data.get("url"),
                     )
                     events_list.append(event)
 
                 return EventsSearchResponse(
-                    events=events_list,
-                    totalCount=len(events_list)
+                    events=events_list, totalCount=len(events_list)
                 )
 
         except httpx.TimeoutException:
@@ -363,10 +356,7 @@ class DatadogMetricsService:
             raise
 
     @staticmethod
-    async def list_tags(
-        db: AsyncSession,
-        workspace_id: str
-    ) -> "TagsListResponse":
+    async def list_tags(db: AsyncSession, workspace_id: str) -> "TagsListResponse":
         """
         List all available Datadog tags by sampling recent events (standalone function)
 
@@ -385,7 +375,9 @@ class DatadogMetricsService:
             credentials = await get_datadog_credentials(db, workspace_id)
 
             if not credentials:
-                raise Exception(f"No Datadog integration found for workspace: {workspace_id}")
+                raise Exception(
+                    f"No Datadog integration found for workspace: {workspace_id}"
+                )
 
             # Get Datadog domain for region
             domain = get_datadog_domain(credentials["region"])
@@ -394,18 +386,19 @@ class DatadogMetricsService:
             # Prepare headers
             headers = {
                 "DD-API-KEY": credentials["api_key"],
-                "DD-APPLICATION-KEY": credentials["app_key"]
+                "DD-APPLICATION-KEY": credentials["app_key"],
             }
 
             # Query last 7 days of events to extract tags
             import time
+
             current_time = int(time.time())
             seven_days_ago = current_time - (7 * 24 * 60 * 60)
 
             params = {
                 "start": seven_days_ago,
                 "end": current_time,
-                "unaggregated": "true"
+                "unaggregated": "true",
             }
 
             logger.info("Datadog Tags List - Extracting tags from recent events")
@@ -413,13 +406,12 @@ class DatadogMetricsService:
             # Make API request
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    url,
-                    headers=headers,
-                    params=params,
-                    timeout=30.0
+                    url, headers=headers, params=params, timeout=30.0
                 )
 
-                logger.info(f"Datadog Events API Response - Status: {response.status_code}")
+                logger.info(
+                    f"Datadog Events API Response - Status: {response.status_code}"
+                )
 
                 if response.status_code == 403:
                     raise Exception("Invalid API key or Application key")
@@ -428,7 +420,9 @@ class DatadogMetricsService:
                     raise Exception("Authentication failed - check your credentials")
 
                 if response.status_code != 200:
-                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                    raise Exception(
+                        f"API request failed with status {response.status_code}: {response.text}"
+                    )
 
                 data = response.json()
 
@@ -462,7 +456,7 @@ class DatadogMetricsService:
                 return TagsListResponse(
                     tags=sorted_tags,
                     tagsByCategory=sorted_categories,
-                    totalTags=len(sorted_tags)
+                    totalTags=len(sorted_tags),
                 )
 
         except httpx.TimeoutException:

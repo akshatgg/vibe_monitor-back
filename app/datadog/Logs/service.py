@@ -2,6 +2,7 @@
 Datadog Logs Service - Standalone functions for Datadog Logs operations
 Uses Datadog Integration credentials (API key and App key)
 """
+
 import logging
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -30,9 +31,7 @@ class DatadogLogsService:
 
     @staticmethod
     async def search_logs(
-        db: AsyncSession,
-        workspace_id: str,
-        request: SearchLogsRequest
+        db: AsyncSession, workspace_id: str, request: SearchLogsRequest
     ) -> SearchLogsResponse:
         """
         Search Datadog logs using the Logs Search API (standalone function)
@@ -55,7 +54,9 @@ class DatadogLogsService:
             credentials = await get_datadog_credentials(db, workspace_id)
 
             if not credentials:
-                raise Exception(f"No Datadog integration found for workspace: {workspace_id}")
+                raise Exception(
+                    f"No Datadog integration found for workspace: {workspace_id}"
+                )
 
             # Get Datadog domain for region
             domain = get_datadog_domain(credentials["region"])
@@ -65,39 +66,38 @@ class DatadogLogsService:
             headers = {
                 "DD-API-KEY": credentials["api_key"],
                 "DD-APPLICATION-KEY": credentials["app_key"],
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             # Set default time range if not provided (last 2 hours)
             if request.from_time is None or request.to_time is None:
                 end_time = datetime.now(timezone.utc)
                 start_time = end_time - timedelta(hours=2)
-                from_time = request.from_time if request.from_time is not None else int(start_time.timestamp() * 1000)
-                to_time = request.to_time if request.to_time is not None else int(end_time.timestamp() * 1000)
+                from_time = (
+                    request.from_time
+                    if request.from_time is not None
+                    else int(start_time.timestamp() * 1000)
+                )
+                to_time = (
+                    request.to_time
+                    if request.to_time is not None
+                    else int(end_time.timestamp() * 1000)
+                )
             else:
                 from_time = request.from_time
                 to_time = request.to_time
 
             # Prepare request body
             body = {
-                "filter": {
-                    "query": request.query,
-                    "from": from_time,
-                    "to": to_time
-                },
+                "filter": {"query": request.query, "from": from_time, "to": to_time},
                 "sort": request.sort,
-                "page": {
-                    "limit": request.limit
-                }
+                "page": {"limit": request.limit},
             }
 
             # Make API request
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url,
-                    headers=headers,
-                    json=body,
-                    timeout=30.0
+                    url, headers=headers, json=body, timeout=30.0
                 )
 
                 if response.status_code == 403:
@@ -111,7 +111,9 @@ class DatadogLogsService:
                     raise Exception(f"Bad request: {error_detail}")
 
                 if response.status_code != 200:
-                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                    raise Exception(
+                        f"API request failed with status {response.status_code}: {response.text}"
+                    )
 
                 data = response.json()
 
@@ -128,13 +130,13 @@ class DatadogLogsService:
                         status=log_attributes_data.get("status"),
                         message=log_attributes_data.get("message"),
                         tags=log_attributes_data.get("tags"),
-                        attributes=log_attributes_data.get("attributes")
+                        attributes=log_attributes_data.get("attributes"),
                     )
 
                     log_entry = LogData(
                         id=log.get("id", ""),
                         type=log.get("type", "log"),
-                        attributes=attributes
+                        attributes=attributes,
                     )
                     logs_data.append(log_entry)
 
@@ -152,14 +154,11 @@ class DatadogLogsService:
                         page=meta_data.get("page"),
                         request_id=meta_data.get("request_id"),
                         status=meta_data.get("status"),
-                        warnings=meta_data.get("warnings")
+                        warnings=meta_data.get("warnings"),
                     )
 
                 return SearchLogsResponse(
-                    data=logs_data,
-                    links=links,
-                    meta=meta,
-                    totalCount=len(logs_data)
+                    data=logs_data, links=links, meta=meta, totalCount=len(logs_data)
                 )
 
         except httpx.TimeoutException:
@@ -171,9 +170,7 @@ class DatadogLogsService:
 
     @staticmethod
     async def list_logs(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListLogsRequest
+        db: AsyncSession, workspace_id: str, request: ListLogsRequest
     ) -> ListLogsResponse:
         """
         List Datadog logs with simplified response (standalone function)
@@ -197,13 +194,11 @@ class DatadogLogsService:
             search_request = SearchLogsRequest(
                 query=request.query,
                 **{"from": request.from_time, "to": request.to_time},
-                limit=request.limit
+                limit=request.limit,
             )
 
             search_response = await DatadogLogsService.search_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=search_request
+                db=db, workspace_id=workspace_id, request=search_request
             )
 
             # Convert to simplified format
@@ -216,13 +211,12 @@ class DatadogLogsService:
                     service=attrs.service,
                     host=attrs.host,
                     status=attrs.status,
-                    tags=attrs.tags
+                    tags=attrs.tags,
                 )
                 simplified_logs.append(simplified_log)
 
             return ListLogsResponse(
-                logs=simplified_logs,
-                totalCount=len(simplified_logs)
+                logs=simplified_logs, totalCount=len(simplified_logs)
             )
 
         except Exception as e:
@@ -231,9 +225,7 @@ class DatadogLogsService:
 
     @staticmethod
     async def list_services(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListServicesRequest
+        db: AsyncSession, workspace_id: str, request: ListServicesRequest
     ) -> ListServicesResponse:
         """
         List all unique service names from Datadog logs (standalone function)
@@ -257,13 +249,11 @@ class DatadogLogsService:
             search_request = SearchLogsRequest(
                 query="*",
                 **{"from": request.from_time, "to": request.to_time},
-                limit=request.limit
+                limit=request.limit,
             )
 
             search_response = await DatadogLogsService.search_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=search_request
+                db=db, workspace_id=workspace_id, request=search_request
             )
 
             # Extract unique service names
@@ -277,8 +267,7 @@ class DatadogLogsService:
             services_list = sorted(list(services_set))
 
             return ListServicesResponse(
-                services=services_list,
-                totalCount=len(services_list)
+                services=services_list, totalCount=len(services_list)
             )
 
         except Exception as e:

@@ -1,6 +1,7 @@
 """
 Enums for RCA service
 """
+
 from enum import Enum
 
 

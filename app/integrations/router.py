@@ -76,8 +76,7 @@ async def list_workspace_integrations(
             f"user_id={current_user.id}"
         )
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch integrations: {str(e)}"
+            status_code=500, detail=f"Failed to fetch integrations: {str(e)}"
         )
 
 
@@ -119,8 +118,7 @@ async def get_integration(
             f"user_id={current_user.id}"
         )
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch integration: {str(e)}"
+            status_code=500, detail=f"Failed to fetch integration: {str(e)}"
         )
 
 
@@ -172,13 +170,12 @@ async def check_single_integration_health(
             f"API error: health check failed - integration_id={integration_id}, "
             f"user_id={current_user.id}"
         )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Health check failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
-@router.post("/workspace/{workspace_id}/health-check", response_model=List[HealthCheckResponse])
+@router.post(
+    "/workspace/{workspace_id}/health-check", response_model=List[HealthCheckResponse]
+)
 async def check_workspace_integrations_health(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
@@ -201,8 +198,8 @@ async def check_workspace_integrations_health(
         integrations = await check_all_workspace_integrations_health(workspace_id, db)
 
         # Log summary for Grafana queries
-        healthy = sum(1 for i in integrations if i.health_status == 'healthy')
-        failed = sum(1 for i in integrations if i.health_status == 'failed')
+        healthy = sum(1 for i in integrations if i.health_status == "healthy")
+        failed = sum(1 for i in integrations if i.health_status == "failed")
 
         logger.info(
             f"API response: bulk health check completed - workspace_id={workspace_id}, "
@@ -226,7 +223,4 @@ async def check_workspace_integrations_health(
             f"API error: bulk health check failed - workspace_id={workspace_id}, "
             f"user_id={current_user.id}"
         )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Health check failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")

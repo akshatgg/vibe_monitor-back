@@ -83,9 +83,7 @@ async def get_github_app_install_url(workspace_id: str, user_id: str):
     # Build callback URL with workspace_id as a query parameter
     # callback_url = f"{settings.API_BASE_URL}/api/v1/github/callback?workspace_id={workspace_id}"
 
-    github_install_url = (
-        f"{settings.GITHUB_APP_INSTALL_URL}/{settings.GITHUB_APP_NAME}/installations/new"
-    )
+    github_install_url = f"{settings.GITHUB_APP_INSTALL_URL}/{settings.GITHUB_APP_NAME}/installations/new"
     full_url = f"{github_install_url}?state={state}"
     return {
         "install_url": full_url,
@@ -144,118 +142,118 @@ async def disconnect_github_app(workspace_id: str, user_id: str, db: AsyncSessio
     }
 
 
-
 async def github_app_installation_callback(
-      installation_id: str,
-      setup_action: str,
-      state: Optional[str],
-      workspace_id: Optional[str],
-      jwt_token: Optional[str],
-      db: AsyncSession,
-  ):
-      """
-      GitHub redirects here after installation
+    installation_id: str,
+    setup_action: str,
+    state: Optional[str],
+    workspace_id: Optional[str],
+    jwt_token: Optional[str],
+    db: AsyncSession,
+):
+    """
+    GitHub redirects here after installation
 
-      Supports two auth methods:
-      1. State parameter (used by GitHub callback)
-      2. JWT token (for testing in Swagger - requires workspace_id query param)
-      """
-      user_id = None
-      state_workspace_id = None
+    Supports two auth methods:
+    1. State parameter (used by GitHub callback)
+    2. JWT token (for testing in Swagger - requires workspace_id query param)
+    """
+    user_id = None
+    state_workspace_id = None
 
-      # Try to get user_id from JWT token first (for Swagger testing)
-      if jwt_token:
-          try:
-              payload = auth_service.verify_token(jwt_token, "access")
-              user_id = payload.get("sub")
-          except Exception:
-              pass
+    # Try to get user_id from JWT token first (for Swagger testing)
+    if jwt_token:
+        try:
+            payload = auth_service.verify_token(jwt_token, "access")
+            user_id = payload.get("sub")
+        except Exception:
+            pass
 
-      # Parse state parameter to get user_id and workspace_id (if available)
-      if state:
-          try:
-              # Parse simple state format: "user_id|workspace_id|token"
-              parts = state.split("|")
-              if len(parts) >= 2:
-                  # Only use state user_id if no JWT token
-                  if not user_id:
-                      user_id = parts[0]
-                  # Always extract workspace_id from state
-                  state_workspace_id = parts[1]
-          except Exception:
-              pass
+    # Parse state parameter to get user_id and workspace_id (if available)
+    if state:
+        try:
+            # Parse simple state format: "user_id|workspace_id|token"
+            parts = state.split("|")
+            if len(parts) >= 2:
+                # Only use state user_id if no JWT token
+                if not user_id:
+                    user_id = parts[0]
+                # Always extract workspace_id from state
+                state_workspace_id = parts[1]
+        except Exception:
+            pass
 
-      if not user_id:
-          raise HTTPException(status_code=401, detail="Authentication required")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
 
-      # Use query param workspace_id if provided, otherwise use state workspace_id
-      final_workspace_id = workspace_id or state_workspace_id
+    # Use query param workspace_id if provided, otherwise use state workspace_id
+    final_workspace_id = workspace_id or state_workspace_id
 
-      if not final_workspace_id:
-          raise HTTPException(status_code=400, detail="workspace_id is required")
+    if not final_workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
 
-      # Validate that workspace exists and user has access
-      from ...models import Workspace, Membership
+    # Validate that workspace exists and user has access
+    from ...models import Workspace, Membership
 
-      workspace_result = await db.execute(
-          select(Workspace).where(Workspace.id == final_workspace_id)
-      )
-      workspace = workspace_result.scalar_one_or_none()
+    workspace_result = await db.execute(
+        select(Workspace).where(Workspace.id == final_workspace_id)
+    )
+    workspace = workspace_result.scalar_one_or_none()
 
-      if not workspace:
-          raise HTTPException(status_code=404, detail="Workspace not found")
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
 
-      # Check if user is a member of the workspace
-      membership_result = await db.execute(
-          select(Membership).where(
-              Membership.user_id == user_id, Membership.workspace_id == final_workspace_id
-          )
-      )
-      membership = membership_result.scalar_one_or_none()
+    # Check if user is a member of the workspace
+    membership_result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id, Membership.workspace_id == final_workspace_id
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
 
-      if not membership:
-          raise HTTPException(
-              status_code=403, detail="User does not have access to this workspace"
-          )
+    if not membership:
+        raise HTTPException(
+            status_code=403, detail="User does not have access to this workspace"
+        )
 
-      installation_info = await github_app_service.get_installation_info_by_id(
-          installation_id
-      )
+    installation_info = await github_app_service.get_installation_info_by_id(
+        installation_id
+    )
 
-      integration = (
-          await github_app_service.create_or_update_app_integration_with_installation(
-              workspace_id=final_workspace_id,
-              installation_id=installation_id,
-              installation_info=installation_info,
-              db=db,
-          )
-      )
+    integration = (
+        await github_app_service.create_or_update_app_integration_with_installation(
+            workspace_id=final_workspace_id,
+            installation_id=installation_id,
+            installation_info=installation_info,
+            db=db,
+        )
+    )
 
-      # Get and store access token immediately after installation
-      try:
-          token_data = await github_app_service.get_installation_access_token(
-              installation_id
-          )
-          from dateutil import parser as date_parser
+    # Get and store access token immediately after installation
+    try:
+        token_data = await github_app_service.get_installation_access_token(
+            installation_id
+        )
+        from dateutil import parser as date_parser
 
-          integration.access_token = token_processor.encrypt(token_data["token"])
-          integration.token_expires_at = date_parser.isoparse(token_data["expires_at"])
+        integration.access_token = token_processor.encrypt(token_data["token"])
+        integration.token_expires_at = date_parser.isoparse(token_data["expires_at"])
 
-          await db.commit()
-          await db.refresh(integration)
-      except Exception as e:
-          # Log error but don't fail the installation
-          logger.warning(f"Failed to get access token during installation: {str(e)}")
+        await db.commit()
+        await db.refresh(integration)
+    except Exception as e:
+        # Log error but don't fail the installation
+        logger.warning(f"Failed to get access token during installation: {str(e)}")
 
-      return {
-          "success": True,
-          "message": f"GitHub App {setup_action}ed successfully!",
-          "integration": {
-              "id": integration.id,
-              "github_username": integration.github_username,
-              "installation_id": integration.installation_id,
-          },
-      }
+    return {
+        "success": True,
+        "message": f"GitHub App {setup_action}ed successfully!",
+        "integration": {
+            "id": integration.id,
+            "github_username": integration.github_username,
+            "installation_id": integration.installation_id,
+        },
+    }
+
 
 # ==================== FASTAPI ROUTER WRAPPER FUNCTIONS ====================
 # These wrap the standalone functions with FastAPI dependencies

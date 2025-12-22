@@ -31,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 async def check_integration_health(
-    integration_id: str,
-    db: AsyncSession
+    integration_id: str, db: AsyncSession
 ) -> Integration:
     """
     Check health of a single integration and update database.
@@ -47,9 +46,7 @@ async def check_integration_health(
     Raises:
         ValueError: If integration not found
     """
-    logger.debug(
-        f"Starting health check for integration_id={integration_id}"
-    )
+    logger.debug(f"Starting health check for integration_id={integration_id}")
 
     # Fetch integration with provider config
     result = await db.execute(
@@ -58,12 +55,10 @@ async def check_integration_health(
     integration = result.scalar_one_or_none()
 
     if not integration:
-        logger.warning(
-            f"Integration not found: integration_id={integration_id}"
-        )
+        logger.warning(f"Integration not found: integration_id={integration_id}")
         raise ValueError(f"Integration {integration_id} not found")
 
-    health_status = 'failed'
+    health_status = "failed"
     error_message = None
 
     logger.debug(
@@ -74,7 +69,7 @@ async def check_integration_health(
 
     try:
         # Route to appropriate health check based on integration type
-        if integration.provider == 'github':
+        if integration.provider == "github":
             logger.debug(f"Checking GitHub config for integration_id={integration_id}")
             result = await db.execute(
                 select(GitHubIntegration).where(
@@ -83,14 +78,18 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found GitHub config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found GitHub config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_github_health(config)
             else:
-                logger.warning(f"GitHub config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'GitHub configuration not found'
+                logger.warning(
+                    f"GitHub config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "GitHub configuration not found"
 
-        elif integration.provider == 'aws':
+        elif integration.provider == "aws":
             logger.debug(f"Checking AWS config for integration_id={integration_id}")
             result = await db.execute(
                 select(AWSIntegration).where(
@@ -99,14 +98,18 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found AWS config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found AWS config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_aws_health(config)
             else:
-                logger.warning(f"AWS config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'AWS configuration not found'
+                logger.warning(
+                    f"AWS config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "AWS configuration not found"
 
-        elif integration.provider == 'grafana':
+        elif integration.provider == "grafana":
             logger.debug(f"Checking Grafana config for integration_id={integration_id}")
             result = await db.execute(
                 select(GrafanaIntegration).where(
@@ -115,14 +118,18 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found Grafana config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found Grafana config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_grafana_health(config)
             else:
-                logger.warning(f"Grafana config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'Grafana configuration not found'
+                logger.warning(
+                    f"Grafana config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "Grafana configuration not found"
 
-        elif integration.provider == 'datadog':
+        elif integration.provider == "datadog":
             logger.debug(f"Checking Datadog config for integration_id={integration_id}")
             result = await db.execute(
                 select(DatadogIntegration).where(
@@ -131,15 +138,21 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found Datadog config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found Datadog config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_datadog_health(config)
             else:
-                logger.warning(f"Datadog config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'Datadog configuration not found'
+                logger.warning(
+                    f"Datadog config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "Datadog configuration not found"
 
-        elif integration.provider == 'newrelic':
-            logger.debug(f"Checking NewRelic config for integration_id={integration_id}")
+        elif integration.provider == "newrelic":
+            logger.debug(
+                f"Checking NewRelic config for integration_id={integration_id}"
+            )
             result = await db.execute(
                 select(NewRelicIntegration).where(
                     NewRelicIntegration.integration_id == integration_id
@@ -147,14 +160,18 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found NewRelic config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found NewRelic config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_newrelic_health(config)
             else:
-                logger.warning(f"NewRelic config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'NewRelic configuration not found'
+                logger.warning(
+                    f"NewRelic config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "NewRelic configuration not found"
 
-        elif integration.provider == 'slack':
+        elif integration.provider == "slack":
             logger.debug(f"Checking Slack config for integration_id={integration_id}")
             result = await db.execute(
                 select(SlackInstallation).where(
@@ -163,37 +180,41 @@ async def check_integration_health(
             )
             config = result.scalar_one_or_none()
             if config:
-                logger.debug(f"Found Slack config, running health check: integration_id={integration_id}")
+                logger.debug(
+                    f"Found Slack config, running health check: integration_id={integration_id}"
+                )
                 health_status, error_message = await check_slack_health(config)
             else:
-                logger.warning(f"Slack config not found for integration_id={integration_id}")
-                health_status = 'failed'
-                error_message = 'Slack configuration not found'
+                logger.warning(
+                    f"Slack config not found for integration_id={integration_id}"
+                )
+                health_status = "failed"
+                error_message = "Slack configuration not found"
 
         else:
             logger.warning(
                 f"Unknown integration provider: provider={integration.provider}, "
                 f"integration_id={integration_id}"
             )
-            health_status = 'failed'
-            error_message = f'Unknown integration provider: {integration.provider}'
+            health_status = "failed"
+            error_message = f"Unknown integration provider: {integration.provider}"
 
     except Exception as e:
         logger.exception(
             f"Unexpected error during health check: integration_id={integration_id}, "
             f"provider={integration.provider}, workspace_id={integration.workspace_id}"
         )
-        health_status = 'failed'
-        error_message = f'Health check error: {str(e)}'
+        health_status = "failed"
+        error_message = f"Health check error: {str(e)}"
 
     # Sync integration status based on health_status
     # - healthy → active (integration is working)
     # - failed → error (integration has issues)
     previous_status = integration.status
-    if health_status == 'healthy':
-        integration.status = 'active'
-    elif health_status == 'failed':
-        integration.status = 'error'
+    if health_status == "healthy":
+        integration.status = "active"
+    elif health_status == "failed":
+        integration.status = "error"
 
     # Log status transition if changed
     if previous_status != integration.status:
@@ -222,8 +243,7 @@ async def check_integration_health(
 
 
 async def check_all_workspace_integrations_health(
-    workspace_id: str,
-    db: AsyncSession
+    workspace_id: str, db: AsyncSession
 ) -> List[Integration]:
     """
     Check health of all integrations for a workspace.
@@ -270,8 +290,10 @@ async def check_all_workspace_integrations_health(
             # Continue checking other integrations
 
     # Log summary with health distribution
-    healthy_count = sum(1 for i in updated_integrations if i.health_status == 'healthy')
-    failed_health_count = sum(1 for i in updated_integrations if i.health_status == 'failed')
+    healthy_count = sum(1 for i in updated_integrations if i.health_status == "healthy")
+    failed_health_count = sum(
+        1 for i in updated_integrations if i.health_status == "failed"
+    )
 
     logger.info(
         f"Bulk health check completed: workspace_id={workspace_id}, "
@@ -286,7 +308,7 @@ async def get_workspace_integrations(
     workspace_id: str,
     db: AsyncSession,
     integration_type: str | None = None,
-    status: str | None = None
+    status: str | None = None,
 ) -> List[Integration]:
     """
     Get all integrations for a workspace with optional filters.
@@ -327,8 +349,7 @@ async def get_workspace_integrations(
 
 
 async def get_integration_by_id(
-    integration_id: str,
-    db: AsyncSession
+    integration_id: str, db: AsyncSession
 ) -> Integration | None:
     """
     Get an integration by ID.

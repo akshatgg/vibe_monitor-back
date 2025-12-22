@@ -105,7 +105,6 @@ class Settings(BaseSettings):
         "vibe-monitor-owner-session"  # Session name for owner role
     )
     OWNER_ROLE_DURATION_SECONDS: int = 3600  # Owner role session duration (1 hour)
-    
 
     # AWS SQS
     AWS_REGION: Optional[str] = None
@@ -189,17 +188,29 @@ class Settings(BaseSettings):
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 
     # RCA Image Processing Settings
-    RCA_SLACK_IMAGE_DOWNLOAD_TIMEOUT: float = 30.0  # Timeout for downloading Slack images (seconds)
-    RCA_SLACK_IMAGE_MAX_REDIRECTS: int = 5  # Maximum redirects to follow when downloading Slack images
+    RCA_SLACK_IMAGE_DOWNLOAD_TIMEOUT: float = (
+        30.0  # Timeout for downloading Slack images (seconds)
+    )
+    RCA_SLACK_IMAGE_MAX_REDIRECTS: int = (
+        5  # Maximum redirects to follow when downloading Slack images
+    )
 
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
 
     # Engagement Reporting
-    ENGAGEMENT_SLACK_WEBHOOK_URL: Optional[str] = None  # Slack webhook URL for #engagement channel
-    ENGAGEMENT_REPORT_HOUR_UTC: int = 0  # Hour in UTC to send daily report (0 = midnight UTC)
-    ENGAGEMENT_REPORT_MINUTE_UTC: int = 30  # Minute in UTC to send daily report (30 = 6:00 AM IST)
-    ENGAGEMENT_SLACK_TIMEOUT: float = 10.0  # Timeout for Slack webhook requests in seconds
+    ENGAGEMENT_SLACK_WEBHOOK_URL: Optional[str] = (
+        None  # Slack webhook URL for #engagement channel
+    )
+    ENGAGEMENT_REPORT_HOUR_UTC: int = (
+        0  # Hour in UTC to send daily report (0 = midnight UTC)
+    )
+    ENGAGEMENT_REPORT_MINUTE_UTC: int = (
+        30  # Minute in UTC to send daily report (30 = 6:00 AM IST)
+    )
+    ENGAGEMENT_SLACK_TIMEOUT: float = (
+        10.0  # Timeout for Slack webhook requests in seconds
+    )
 
     # Logging Configuration
     LOGGING_FRAME_DEPTH: int = (

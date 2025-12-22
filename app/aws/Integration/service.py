@@ -405,8 +405,8 @@ class AWSIntegrationService:
         control_plane_integration = Integration(
             id=control_plane_id,
             workspace_id=workspace_id,
-            provider='aws',
-            status='active',
+            provider="aws",
+            status="active",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -439,10 +439,10 @@ class AWSIntegrationService:
             control_plane_integration.health_status = health_status
             control_plane_integration.last_verified_at = datetime.now(timezone.utc)
             control_plane_integration.last_error = error_message
-            if health_status == 'healthy':
-                control_plane_integration.status = 'active'
-            elif health_status == 'failed':
-                control_plane_integration.status = 'error'
+            if health_status == "healthy":
+                control_plane_integration.status = "active"
+            elif health_status == "failed":
+                control_plane_integration.status = "error"
             await db.commit()
             logger.info(
                 f"AWS integration created with health_status={health_status}: "
@@ -660,7 +660,9 @@ class AWSIntegrationService:
         try:
             return {
                 "access_key_id": token_processor.decrypt(integration.access_key_id),
-                "secret_access_key": token_processor.decrypt(integration.secret_access_key),
+                "secret_access_key": token_processor.decrypt(
+                    integration.secret_access_key
+                ),
                 "session_token": token_processor.decrypt(integration.session_token),
                 "region": integration.aws_region,
             }

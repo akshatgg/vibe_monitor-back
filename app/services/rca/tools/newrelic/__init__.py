@@ -1,6 +1,7 @@
 """
 New Relic tools for RCA agent
 """
+
 from .tools import (
     query_newrelic_logs_tool,
     search_newrelic_logs_tool,

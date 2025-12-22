@@ -39,14 +39,19 @@ def _format_logs_response(response, limit: int = 50) -> str:
             # Convert timestamp from milliseconds to datetime if available
             timestamp_str = "N/A"
             if log.timestamp:
-                timestamp = datetime.fromtimestamp(log.timestamp / 1000, tz=timezone.utc)
+                timestamp = datetime.fromtimestamp(
+                    log.timestamp / 1000, tz=timezone.utc
+                )
                 timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
 
             message = log.message or "No message"
             logs.append(f"[{timestamp_str}] {message}")
 
         count = len(logs)
-        summary = f"Found {response.totalCount} log entries (showing {count}):\n\n" + "\n".join(logs)
+        summary = (
+            f"Found {response.totalCount} log entries (showing {count}):\n\n"
+            + "\n".join(logs)
+        )
 
         if response.totalCount > limit:
             summary += f"\n\n(Showing first {limit} entries. {response.totalCount - limit} more logs available.)"
@@ -70,11 +75,15 @@ def _format_query_logs_response(response, limit: int = 50) -> str:
             row_str = " | ".join([f"{k}: {v}" for k, v in row.items()])
             formatted_rows.append(row_str)
 
-        summary = f"Query completed successfully. Found {response.totalCount} results:\n\n"
+        summary = (
+            f"Query completed successfully. Found {response.totalCount} results:\n\n"
+        )
         summary += "\n".join(formatted_rows)
 
         if response.totalCount > limit:
-            summary += f"\n\n(Showing first {limit} results. Total: {response.totalCount})"
+            summary += (
+                f"\n\n(Showing first {limit} results. Total: {response.totalCount})"
+            )
 
         if response.metadata:
             event_types = response.metadata.get("eventTypes", [])
@@ -104,7 +113,9 @@ def _format_metrics_response(response, limit: int = 50) -> str:
         summary += "\n".join(formatted_rows)
 
         if response.totalCount > limit:
-            summary += f"\n\n(Showing first {limit} results. Total: {response.totalCount})"
+            summary += (
+                f"\n\n(Showing first {limit} results. Total: {response.totalCount})"
+            )
 
         return summary
 
@@ -131,8 +142,12 @@ def _format_time_series_response(response) -> str:
         min_val = min(values) if values else 0
 
         # Format timestamps for first and last datapoint
-        first_time = datetime.fromtimestamp(response.dataPoints[0].timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        last_time = datetime.fromtimestamp(response.dataPoints[-1].timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        first_time = datetime.fromtimestamp(
+            response.dataPoints[0].timestamp, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
+        last_time = datetime.fromtimestamp(
+            response.dataPoints[-1].timestamp, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         formatted = (
             f"📊 Metrics for **{response.metricName}** (from {first_time} to {last_time}):\n\n"
@@ -147,7 +162,9 @@ def _format_time_series_response(response) -> str:
         # Add individual datapoints for detailed analysis
         formatted += "\nRecent data points:\n"
         for dp in response.dataPoints[-10:]:  # Last 10 datapoints
-            ts = datetime.fromtimestamp(dp.timestamp, tz=timezone.utc).strftime("%H:%M:%S")
+            ts = datetime.fromtimestamp(dp.timestamp, tz=timezone.utc).strftime(
+                "%H:%M:%S"
+            )
             val = dp.value if dp.value is not None else 0
             formatted += f"  {ts}: {val:.2f}\n"
 
@@ -203,9 +220,7 @@ async def query_newrelic_logs_tool(
             request = QueryLogsRequest(nrql_query=nrql_query)
 
             response = await newrelic_logs_service.query_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_query_logs_response(response)
@@ -259,13 +274,11 @@ async def search_newrelic_logs_tool(
                 query=search_query,
                 startTime=int(start_time.timestamp() * 1000),
                 endTime=int(end_time.timestamp() * 1000),
-                limit=limit
+                limit=limit,
             )
 
             response = await newrelic_logs_service.filter_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_logs_response(response, limit=limit)
@@ -321,9 +334,7 @@ async def query_newrelic_metrics_tool(
             request = QueryMetricsRequest(nrql_query=nrql_query)
 
             response = await newrelic_metrics_service.query_metrics(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_metrics_response(response)
@@ -392,13 +403,11 @@ async def get_newrelic_time_series_tool(
                 endTime=int(end_time.timestamp()),
                 aggregation=aggregation,
                 timeseries=True,
-                where_clause=where_clause
+                where_clause=where_clause,
             )
 
             response = await newrelic_metrics_service.get_time_series(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_time_series_response(response)
@@ -467,13 +476,11 @@ async def get_newrelic_infra_metrics_tool(
                 hostname=hostname,
                 startTime=int(start_time.timestamp()),
                 endTime=int(end_time.timestamp()),
-                aggregation=aggregation
+                aggregation=aggregation,
             )
 
             response = await newrelic_metrics_service.get_infra_metrics(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_time_series_response(response)

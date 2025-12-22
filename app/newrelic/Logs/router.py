@@ -3,6 +3,7 @@ New Relic Logs API Router
 Provides OPEN endpoints for New Relic Logs operations (no authentication)
 Designed for RCA bot integration and testing
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,16 +54,13 @@ async def query_logs(
     """
     try:
         response = await newrelic_logs_service.query_logs(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to query New Relic logs: {str(e)}"
+            status_code=500, detail=f"Failed to query New Relic logs: {str(e)}"
         )
 
 
@@ -102,14 +100,11 @@ async def filter_logs(
     """
     try:
         response = await newrelic_logs_service.filter_logs(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to filter New Relic logs: {str(e)}"
+            status_code=500, detail=f"Failed to filter New Relic logs: {str(e)}"
         )

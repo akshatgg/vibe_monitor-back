@@ -40,7 +40,9 @@ def _format_logs_search_response(response, limit: int = 50) -> str:
             # Extract timestamp and message
             timestamp_str = "N/A"
             if log.attributes and log.attributes.timestamp:
-                timestamp = datetime.fromisoformat(log.attributes.timestamp.replace('Z', '+00:00'))
+                timestamp = datetime.fromisoformat(
+                    log.attributes.timestamp.replace("Z", "+00:00")
+                )
                 timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
 
             message = "No message"
@@ -48,13 +50,24 @@ def _format_logs_search_response(response, limit: int = 50) -> str:
                 message = log.attributes.message
 
             # Include service and status if available
-            service = log.attributes.service if log.attributes and log.attributes.service else "unknown"
-            status = log.attributes.status if log.attributes and log.attributes.status else "info"
+            service = (
+                log.attributes.service
+                if log.attributes and log.attributes.service
+                else "unknown"
+            )
+            status = (
+                log.attributes.status
+                if log.attributes and log.attributes.status
+                else "info"
+            )
 
             logs.append(f"[{timestamp_str}] [{status.upper()}] [{service}] {message}")
 
         count = len(logs)
-        summary = f"Found {response.totalCount} log entries (showing {count}):\n\n" + "\n".join(logs)
+        summary = (
+            f"Found {response.totalCount} log entries (showing {count}):\n\n"
+            + "\n".join(logs)
+        )
 
         if response.totalCount > limit:
             summary += f"\n\n(Showing first {limit} entries. {response.totalCount - limit} more logs available.)"
@@ -79,7 +92,7 @@ def _format_logs_list_response(response, limit: int = 50) -> str:
         for log in response.logs[:limit]:
             timestamp_str = "N/A"
             if log.timestamp:
-                timestamp = datetime.fromisoformat(log.timestamp.replace('Z', '+00:00'))
+                timestamp = datetime.fromisoformat(log.timestamp.replace("Z", "+00:00"))
                 timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
 
             message = log.message or "No message"
@@ -89,7 +102,10 @@ def _format_logs_list_response(response, limit: int = 50) -> str:
             logs.append(f"[{timestamp_str}] [{status.upper()}] [{service}] {message}")
 
         count = len(logs)
-        summary = f"Found {response.totalCount} log entries (showing {count}):\n\n" + "\n".join(logs)
+        summary = (
+            f"Found {response.totalCount} log entries (showing {count}):\n\n"
+            + "\n".join(logs)
+        )
 
         if response.totalCount > limit:
             summary += f"\n\n(Showing first {limit} entries. {response.totalCount - limit} more logs available.)"
@@ -135,8 +151,12 @@ def _format_simple_metrics_response(response) -> str:
         min_val = min(values) if values else 0
 
         # Format timestamps for first and last datapoint
-        first_time = datetime.fromtimestamp(response.points[0].timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        last_time = datetime.fromtimestamp(response.points[-1].timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        first_time = datetime.fromtimestamp(
+            response.points[0].timestamp / 1000, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
+        last_time = datetime.fromtimestamp(
+            response.points[-1].timestamp / 1000, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         formatted = (
             f"📊 Metrics for query **{response.query}** (from {first_time} to {last_time}):\n\n"
@@ -150,7 +170,9 @@ def _format_simple_metrics_response(response) -> str:
         # Add recent datapoints
         formatted += "\nRecent data points:\n"
         for dp in response.points[-10:]:  # Last 10 datapoints
-            ts = datetime.fromtimestamp(dp.timestamp / 1000, tz=timezone.utc).strftime("%H:%M:%S")
+            ts = datetime.fromtimestamp(dp.timestamp / 1000, tz=timezone.utc).strftime(
+                "%H:%M:%S"
+            )
             val = dp.value if dp.value is not None else 0
             formatted += f"  {ts}: {val:.2f}\n"
 
@@ -164,7 +186,11 @@ def _format_simple_metrics_response(response) -> str:
 def _format_timeseries_response(response) -> str:
     """Format Datadog timeseries response for LLM consumption"""
     try:
-        if not response.data or not response.data.attributes or not response.data.attributes.series:
+        if (
+            not response.data
+            or not response.data.attributes
+            or not response.data.attributes.series
+        ):
             return "No timeseries data found."
 
         attrs = response.data.attributes
@@ -186,8 +212,12 @@ def _format_timeseries_response(response) -> str:
             max_val = max(series_values)
             min_val = min(series_values)
 
-            first_time = datetime.fromtimestamp(times[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-            last_time = datetime.fromtimestamp(times[-1] / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            first_time = datetime.fromtimestamp(
+                times[0] / 1000, tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S UTC")
+            last_time = datetime.fromtimestamp(
+                times[-1] / 1000, tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S UTC")
 
             formatted = (
                 f"📊 Timeseries Data (from {first_time} to {last_time}):\n\n"
@@ -203,7 +233,9 @@ def _format_timeseries_response(response) -> str:
             formatted += "\nRecent data points:\n"
             recent_count = min(10, len(times))
             for i in range(len(times) - recent_count, len(times)):
-                ts = datetime.fromtimestamp(times[i] / 1000, tz=timezone.utc).strftime("%H:%M:%S")
+                ts = datetime.fromtimestamp(times[i] / 1000, tz=timezone.utc).strftime(
+                    "%H:%M:%S"
+                )
                 val = values[0][i] if values[0][i] is not None else 0
                 formatted += f"  {ts}: {val:.2f}\n"
 
@@ -238,10 +270,15 @@ def _format_events_response(response, limit: int = 20) -> str:
             if len(text) > 200:
                 text = text[:200] + "..."
 
-            events.append(f"[{timestamp_str}] [{alert_type.upper()}] {title}\n  Source: {source}\n  {text}")
+            events.append(
+                f"[{timestamp_str}] [{alert_type.upper()}] {title}\n  Source: {source}\n  {text}"
+            )
 
         count = len(events)
-        summary = f"Found {response.totalCount} events (showing {count}):\n\n" + "\n\n".join(events)
+        summary = (
+            f"Found {response.totalCount} events (showing {count}):\n\n"
+            + "\n\n".join(events)
+        )
 
         if response.totalCount > limit:
             summary += f"\n\n(Showing first {limit} events. {response.totalCount - limit} more events available.)"
@@ -341,16 +378,14 @@ async def search_datadog_logs_tool(
                 query=query,
                 **{
                     "from": int(start_time.timestamp() * 1000),
-                    "to": int(end_time.timestamp() * 1000)
+                    "to": int(end_time.timestamp() * 1000),
                 },
                 sort="desc",
-                page_limit=limit
+                page_limit=limit,
             )
 
             response = await datadog_logs_service.search_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_logs_search_response(response, limit=limit)
@@ -408,17 +443,15 @@ async def list_datadog_logs_tool(
             request = ListLogsRequest(
                 **{
                     "from": int(start_time.timestamp() * 1000),
-                    "to": int(end_time.timestamp() * 1000)
+                    "to": int(end_time.timestamp() * 1000),
                 },
                 service=service_name,
                 status=status,
-                limit=limit
+                limit=limit,
             )
 
             response = await datadog_logs_service.list_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_logs_list_response(response, limit=limit)
@@ -467,14 +500,12 @@ async def list_datadog_log_services_tool(
             request = ListServicesRequest(
                 **{
                     "from": int(start_time.timestamp() * 1000),
-                    "to": int(end_time.timestamp() * 1000)
+                    "to": int(end_time.timestamp() * 1000),
                 }
             )
 
             response = await datadog_logs_service.list_services(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_services_response(response)
@@ -545,13 +576,11 @@ async def query_datadog_metrics_tool(
             request = SimpleQueryRequest(
                 query=metric_query,
                 from_timestamp=int(start_time.timestamp() * 1000),
-                to_timestamp=int(end_time.timestamp() * 1000)
+                to_timestamp=int(end_time.timestamp() * 1000),
             )
 
             response = await datadog_metrics_service.query_simple(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_simple_metrics_response(response)
@@ -603,14 +632,12 @@ async def query_datadog_timeseries_tool(
                 query=metric_query,
                 **{
                     "from": int(start_time.timestamp() * 1000),
-                    "to": int(end_time.timestamp() * 1000)
-                }
+                    "to": int(end_time.timestamp() * 1000),
+                },
             )
 
             response = await datadog_metrics_service.query_timeseries(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_timeseries_response(response)
@@ -670,13 +697,11 @@ async def search_datadog_events_tool(
             request = EventsSearchRequest(
                 start=int(start_time.timestamp()),
                 end=int(end_time.timestamp()),
-                tags=tags
+                tags=tags,
             )
 
             response = await datadog_metrics_service.search_events(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_events_response(response)
@@ -722,8 +747,7 @@ async def list_datadog_tags_tool(
     try:
         async with AsyncSessionLocal() as db:
             response = await datadog_metrics_service.list_tags(
-                db=db,
-                workspace_id=workspace_id
+                db=db, workspace_id=workspace_id
             )
 
         return _format_tags_response(response)

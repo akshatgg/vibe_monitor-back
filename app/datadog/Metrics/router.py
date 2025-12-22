@@ -3,6 +3,7 @@ Datadog Metrics API Router
 Provides OPEN endpoints for Datadog Metrics operations (no authentication)
 Designed for RCA bot integration
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,16 +80,13 @@ async def query_timeseries(
     """
     try:
         response = await datadog_metrics_service.query_timeseries(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to query timeseries: {str(e)}"
+            status_code=500, detail=f"Failed to query timeseries: {str(e)}"
         )
 
 
@@ -121,16 +119,13 @@ async def query_simple(
     """
     try:
         response = await datadog_metrics_service.query_simple(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to query metrics: {str(e)}"
+            status_code=500, detail=f"Failed to query metrics: {str(e)}"
         )
 
 
@@ -182,16 +177,13 @@ async def search_events(
     """
     try:
         response = await datadog_metrics_service.search_events(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to search events: {str(e)}"
+            status_code=500, detail=f"Failed to search events: {str(e)}"
         )
 
 
@@ -236,13 +228,9 @@ async def list_tags(
     """
     try:
         response = await datadog_metrics_service.list_tags(
-            db=db,
-            workspace_id=workspace_id
+            db=db, workspace_id=workspace_id
         )
         return response
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list tags: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to list tags: {str(e)}")

@@ -12,9 +12,7 @@ class DatasourceDiscovery:
     """Discovers and manages Grafana datasource UIDs"""
 
     @staticmethod
-    async def get_prometheus_uid(
-        grafana_url: str, api_token: str
-    ) -> str:
+    async def get_prometheus_uid(grafana_url: str, api_token: str) -> str:
         """
         Auto-discover Prometheus datasource UID from Grafana by type
 

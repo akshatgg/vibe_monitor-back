@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from urllib.parse import urlencode
-    
+
 from app.models import User, RefreshToken
 from ..schemas.schemas import UserResponse
 from ...core.database import get_db
@@ -121,7 +121,9 @@ class AuthService:
         async with httpx.AsyncClient() as client:
             async for attempt in retry_external_api("Google"):
                 with attempt:
-                    response = await client.get(self.GOOGLE_USERINFO_URL, headers=headers)
+                    response = await client.get(
+                        self.GOOGLE_USERINFO_URL, headers=headers
+                    )
                     response.raise_for_status()
 
                     user_data = response.json()

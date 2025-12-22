@@ -2,6 +2,7 @@
 Datadog Integration Service
 Handles CRUD operations for Datadog integrations
 """
+
 import uuid
 import logging
 import httpx
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 # REGION MAPPING
 # =============================================================================
 
+
 def get_datadog_domain(region: str) -> str:
     """
     Map Datadog region code to full domain.
@@ -37,23 +39,23 @@ def get_datadog_domain(region: str) -> str:
         Full domain (e.g., datadoghq.com, us5.datadoghq.com)
     """
     region_map = {
-        'us1': 'datadoghq.com',
-        'us3': 'us3.datadoghq.com',
-        'us5': 'us5.datadoghq.com',
-        'eu1': 'datadoghq.eu',
-        'ap1': 'ap1.datadoghq.com',
-        'us1-fed': 'ddog-gov.com',
+        "us1": "datadoghq.com",
+        "us3": "us3.datadoghq.com",
+        "us5": "us5.datadoghq.com",
+        "eu1": "datadoghq.eu",
+        "ap1": "ap1.datadoghq.com",
+        "us1-fed": "ddog-gov.com",
     }
-    return region_map.get(region.lower(), 'datadoghq.com')
+    return region_map.get(region.lower(), "datadoghq.com")
 
 
 # =============================================================================
 # STANDALONE UTILITY FUNCTIONS (Can be used by router and RCA bot)
 # =============================================================================
 
+
 async def get_datadog_credentials(
-    db: AsyncSession,
-    workspace_id: str
+    db: AsyncSession, workspace_id: str
 ) -> Optional[dict]:
     """
     Get decrypted Datadog credentials for a workspace.
@@ -84,11 +86,7 @@ async def get_datadog_credentials(
         logger.error(f"Failed to decrypt Datadog credentials: {e}")
         raise Exception("Failed to decrypt Datadog credentials")
 
-    return {
-        "api_key": api_key,
-        "app_key": app_key,
-        "region": integration.region
-    }
+    return {"api_key": api_key, "app_key": app_key, "region": integration.region}
 
 
 async def verify_datadog_credentials(
@@ -113,16 +111,12 @@ async def verify_datadog_credentials(
     headers = {
         "DD-API-KEY": api_key,
         "DD-APPLICATION-KEY": app_key,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
-                headers=headers,
-                timeout=10.0
-            )
+            response = await client.get(url, headers=headers, timeout=10.0)
 
             if response.status_code == 403:
                 return False, "Invalid API key or Application key"
@@ -137,7 +131,9 @@ async def verify_datadog_credentials(
 
             # Check if validation was successful
             if data.get("valid"):
-                logger.info(f"Successfully verified Datadog credentials for region: {region}")
+                logger.info(
+                    f"Successfully verified Datadog credentials for region: {region}"
+                )
                 return True, ""
 
             return False, "Credentials validation failed"
@@ -215,15 +211,11 @@ async def create_datadog_integration(
     existing_integration = result.scalar_one_or_none()
 
     if existing_integration:
-        raise ValueError(
-            "A Datadog integration already exists for this workspace"
-        )
+        raise ValueError("A Datadog integration already exists for this workspace")
 
     # Verify Datadog credentials before storing
     is_valid, error_message = await verify_datadog_credentials(
-        integration_data.api_key,
-        integration_data.app_key,
-        integration_data.region
+        integration_data.api_key, integration_data.app_key, integration_data.region
     )
 
     if not is_valid:
@@ -238,8 +230,8 @@ async def create_datadog_integration(
     control_plane_integration = Integration(
         id=control_plane_id,
         workspace_id=workspace_id,
-        provider='datadog',
-        status='active',
+        provider="datadog",
+        status="active",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -267,10 +259,10 @@ async def create_datadog_integration(
         control_plane_integration.health_status = health_status
         control_plane_integration.last_verified_at = datetime.now(timezone.utc)
         control_plane_integration.last_error = error_message
-        if health_status == 'healthy':
-            control_plane_integration.status = 'active'
-        elif health_status == 'failed':
-            control_plane_integration.status = 'error'
+        if health_status == "healthy":
+            control_plane_integration.status = "active"
+        elif health_status == "failed":
+            control_plane_integration.status = "error"
         await db.commit()
         logger.info(
             f"Datadog integration created with health_status={health_status}: "
@@ -293,8 +285,7 @@ async def create_datadog_integration(
 
 
 async def get_datadog_integration_status(
-    db: AsyncSession,
-    workspace_id: str
+    db: AsyncSession, workspace_id: str
 ) -> DatadogIntegrationStatusResponse:
     """
     Get Datadog integration status for a workspace.
@@ -310,15 +301,12 @@ async def get_datadog_integration_status(
     integration = await get_datadog_integration(db, workspace_id)
 
     return DatadogIntegrationStatusResponse(
-        is_connected=integration is not None,
-        integration=integration
+        is_connected=integration is not None, integration=integration
     )
 
 
 async def delete_datadog_integration(
-    db: AsyncSession,
-    user_id: str,
-    workspace_id: str
+    db: AsyncSession, user_id: str, workspace_id: str
 ) -> bool:
     """
     Delete (hard delete) a Datadog integration.
@@ -345,4 +333,3 @@ async def delete_datadog_integration(
     await db.delete(integration)
     await db.commit()
     return True
-

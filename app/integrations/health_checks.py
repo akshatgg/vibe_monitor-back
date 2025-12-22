@@ -39,16 +39,20 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
 
     try:
         if not integration.access_token:
-            logger.warning(f"GitHub health check: no access token - integration_id={integration.id}")
-            return ('failed', 'No access token available')
+            logger.warning(
+                f"GitHub health check: no access token - integration_id={integration.id}"
+            )
+            return ("failed", "No access token available")
 
         # Check if token is expired
-        if integration.token_expires_at and integration.token_expires_at < datetime.now(timezone.utc):
+        if integration.token_expires_at and integration.token_expires_at < datetime.now(
+            timezone.utc
+        ):
             logger.warning(
                 f"GitHub health check: token expired - integration_id={integration.id}, "
                 f"expired_at={integration.token_expires_at}"
             )
-            return ('failed', 'Access token has expired')
+            return ("failed", "Access token has expired")
 
         # Decrypt token
         logger.debug(f"Decrypting GitHub token: integration_id={integration.id}")
@@ -59,7 +63,7 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
         headers = {
             "Authorization": f"Bearer {decrypted_token}",
             "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
+            "X-GitHub-Api-Version": "2022-11-28",
         }
 
         logger.debug(f"Testing GitHub API access: integration_id={integration.id}")
@@ -73,42 +77,49 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
                             f"GitHub health check: healthy - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('healthy', None)
+                        return ("healthy", None)
                     elif response.status_code == 401:
                         logger.warning(
                             f"GitHub health check: auth failed - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', 'Invalid or expired access token')
+                        return ("failed", "Invalid or expired access token")
                     elif response.status_code == 403:
                         # Check if it's a rate limit or permissions issue
-                        if 'rate limit' in response.text.lower():
+                        if "rate limit" in response.text.lower():
                             logger.warning(
                                 f"GitHub health check: rate limited - integration_id={integration.id}"
                             )
-                            return ('failed', 'GitHub API rate limit exceeded')
+                            return ("failed", "GitHub API rate limit exceeded")
                         logger.warning(
                             f"GitHub health check: insufficient permissions - integration_id={integration.id}"
                         )
-                        return ('failed', 'Insufficient permissions')
+                        return ("failed", "Insufficient permissions")
                     else:
                         logger.warning(
                             f"GitHub health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', f'GitHub API returned status {response.status_code}')
+                        return (
+                            "failed",
+                            f"GitHub API returned status {response.status_code}",
+                        )
 
     except httpx.TimeoutException:
-        logger.warning(f"GitHub health check: timeout - integration_id={integration.id}")
-        return ('failed', 'Timeout connecting to GitHub API')
+        logger.warning(
+            f"GitHub health check: timeout - integration_id={integration.id}"
+        )
+        return ("failed", "Timeout connecting to GitHub API")
     except httpx.RequestError as e:
         logger.warning(
             f"GitHub health check: network error - integration_id={integration.id}, error={e}"
         )
-        return ('failed', f'Network error: {str(e)}')
+        return ("failed", f"Network error: {str(e)}")
     except Exception as e:
-        logger.exception(f"GitHub health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"GitHub health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")
 
 
 async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None]:
@@ -133,7 +144,7 @@ async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None
                 f"AWS health check: credentials expired - integration_id={integration.id}, "
                 f"expired_at={integration.credentials_expiration}"
             )
-            return ('failed', 'AWS credentials have expired')
+            return ("failed", "AWS credentials have expired")
 
         # Decrypt credentials
         logger.debug(f"Decrypting AWS credentials: integration_id={integration.id}")
@@ -143,13 +154,15 @@ async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None
 
         # Test AWS credentials by calling STS GetCallerIdentity
         try:
-            logger.debug(f"Testing AWS STS GetCallerIdentity: integration_id={integration.id}")
+            logger.debug(
+                f"Testing AWS STS GetCallerIdentity: integration_id={integration.id}"
+            )
             sts_client = boto3.client(
-                'sts',
+                "sts",
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 aws_session_token=session_token,
-                region_name=integration.aws_region or 'us-west-1'
+                region_name=integration.aws_region or "us-west-1",
             )
 
             response = sts_client.get_caller_identity()
@@ -157,30 +170,34 @@ async def check_aws_health(integration: AWSIntegration) -> Tuple[str, str | None
                 f"AWS health check: healthy - integration_id={integration.id}, "
                 f"account={response['Account']}, arn={response['Arn']}"
             )
-            return ('healthy', None)
+            return ("healthy", None)
 
         except sts_client.exceptions.ExpiredTokenException:
             logger.warning(
                 f"AWS health check: session token expired - integration_id={integration.id}"
             )
-            return ('failed', 'AWS session token has expired')
+            return ("failed", "AWS session token has expired")
         except sts_client.exceptions.InvalidClientTokenIdException:
             logger.warning(
                 f"AWS health check: invalid credentials - integration_id={integration.id}"
             )
-            return ('failed', 'Invalid AWS credentials')
+            return ("failed", "Invalid AWS credentials")
         except Exception as e:
             logger.warning(
                 f"AWS health check: API error - integration_id={integration.id}, error={e}"
             )
-            return ('failed', f'AWS API error: {str(e)}')
+            return ("failed", f"AWS API error: {str(e)}")
 
     except Exception as e:
-        logger.exception(f"AWS health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"AWS health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")
 
 
-async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, str | None]:
+async def check_grafana_health(
+    integration: GrafanaIntegration,
+) -> Tuple[str, str | None]:
     """
     Check Grafana integration health by testing API access.
 
@@ -204,10 +221,12 @@ async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, st
         url = f"{integration.grafana_url.rstrip('/')}/api/user"
         headers = {
             "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
-        logger.debug(f"Testing Grafana API access: integration_id={integration.id}, url={url}")
+        logger.debug(
+            f"Testing Grafana API access: integration_id={integration.id}, url={url}"
+        )
         async with httpx.AsyncClient(timeout=10.0) as client:
             async for attempt in retry_external_api("Grafana"):
                 with attempt:
@@ -218,41 +237,48 @@ async def check_grafana_health(integration: GrafanaIntegration) -> Tuple[str, st
                             f"Grafana health check: healthy - integration_id={integration.id}, "
                             f"url={integration.grafana_url}"
                         )
-                        return ('healthy', None)
+                        return ("healthy", None)
                     elif response.status_code == 401:
                         logger.warning(
                             f"Grafana health check: invalid token - integration_id={integration.id}"
                         )
-                        return ('failed', 'Invalid Grafana API token')
+                        return ("failed", "Invalid Grafana API token")
                     elif response.status_code == 403:
                         logger.warning(
                             f"Grafana health check: insufficient permissions - integration_id={integration.id}"
                         )
-                        return ('failed', 'Insufficient Grafana permissions')
+                        return ("failed", "Insufficient Grafana permissions")
                     else:
                         logger.warning(
                             f"Grafana health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', f'Grafana API returned status {response.status_code}')
+                        return (
+                            "failed",
+                            f"Grafana API returned status {response.status_code}",
+                        )
 
     except httpx.TimeoutException:
         logger.warning(
             f"Grafana health check: timeout - integration_id={integration.id}, "
             f"url={integration.grafana_url}"
         )
-        return ('failed', f'Timeout connecting to Grafana at {integration.grafana_url}')
+        return ("failed", f"Timeout connecting to Grafana at {integration.grafana_url}")
     except httpx.RequestError as e:
         logger.warning(
             f"Grafana health check: network error - integration_id={integration.id}, error={e}"
         )
-        return ('failed', f'Network error: {str(e)}')
+        return ("failed", f"Network error: {str(e)}")
     except Exception as e:
-        logger.exception(f"Grafana health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"Grafana health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")
 
 
-async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, str | None]:
+async def check_datadog_health(
+    integration: DatadogIntegration,
+) -> Tuple[str, str | None]:
     """
     Check Datadog integration health by testing API access.
 
@@ -275,20 +301,17 @@ async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, st
 
         # Build Datadog API URL based on region
         region_map = {
-            'us1': 'https://api.datadoghq.com',
-            'us3': 'https://api.us3.datadoghq.com',
-            'us5': 'https://api.us5.datadoghq.com',
-            'eu1': 'https://api.datadoghq.eu',
-            'ap1': 'https://api.ap1.datadoghq.com',
+            "us1": "https://api.datadoghq.com",
+            "us3": "https://api.us3.datadoghq.com",
+            "us5": "https://api.us5.datadoghq.com",
+            "eu1": "https://api.datadoghq.eu",
+            "ap1": "https://api.ap1.datadoghq.com",
         }
-        base_url = region_map.get(integration.region, 'https://api.datadoghq.com')
+        base_url = region_map.get(integration.region, "https://api.datadoghq.com")
 
         # Test Datadog API by validating API keys
         url = f"{base_url}/api/v1/validate"
-        headers = {
-            "DD-API-KEY": api_key,
-            "DD-APPLICATION-KEY": app_key
-        }
+        headers = {"DD-API-KEY": api_key, "DD-APPLICATION-KEY": app_key}
 
         logger.debug(
             f"Testing Datadog API access: integration_id={integration.id}, "
@@ -301,44 +324,53 @@ async def check_datadog_health(integration: DatadogIntegration) -> Tuple[str, st
 
                     if response.status_code == 200:
                         data = response.json()
-                        if data.get('valid'):
+                        if data.get("valid"):
                             logger.info(
                                 f"Datadog health check: healthy - integration_id={integration.id}, "
                                 f"region={integration.region}"
                             )
-                            return ('healthy', None)
+                            return ("healthy", None)
                         else:
                             logger.warning(
                                 f"Datadog health check: invalid keys - integration_id={integration.id}"
                             )
-                            return ('failed', 'Invalid Datadog API keys')
+                            return ("failed", "Invalid Datadog API keys")
                     elif response.status_code == 401 or response.status_code == 403:
                         logger.warning(
                             f"Datadog health check: auth failed - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', 'Invalid Datadog API or App key')
+                        return ("failed", "Invalid Datadog API or App key")
                     else:
                         logger.warning(
                             f"Datadog health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', f'Datadog API returned status {response.status_code}')
+                        return (
+                            "failed",
+                            f"Datadog API returned status {response.status_code}",
+                        )
 
     except httpx.TimeoutException:
-        logger.warning(f"Datadog health check: timeout - integration_id={integration.id}")
-        return ('failed', 'Timeout connecting to Datadog API')
+        logger.warning(
+            f"Datadog health check: timeout - integration_id={integration.id}"
+        )
+        return ("failed", "Timeout connecting to Datadog API")
     except httpx.RequestError as e:
         logger.warning(
             f"Datadog health check: network error - integration_id={integration.id}, error={e}"
         )
-        return ('failed', f'Network error: {str(e)}')
+        return ("failed", f"Network error: {str(e)}")
     except Exception as e:
-        logger.exception(f"Datadog health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"Datadog health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")
 
 
-async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, str | None]:
+async def check_newrelic_health(
+    integration: NewRelicIntegration,
+) -> Tuple[str, str | None]:
     """
     Check New Relic integration health by testing API access.
 
@@ -357,10 +389,7 @@ async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, 
 
         # Test New Relic API by querying account info
         url = "https://api.newrelic.com/graphql"
-        headers = {
-            "API-Key": api_key,
-            "Content-Type": "application/json"
-        }
+        headers = {"API-Key": api_key, "Content-Type": "application/json"}
 
         # Simple GraphQL query to validate API key
         query = {
@@ -384,44 +413,55 @@ async def check_newrelic_health(integration: NewRelicIntegration) -> Tuple[str, 
 
                     if response.status_code == 200:
                         data = response.json()
-                        if 'errors' not in data:
-                            user_info = data.get('data', {}).get('actor', {}).get('user', {})
+                        if "errors" not in data:
+                            user_info = (
+                                data.get("data", {}).get("actor", {}).get("user", {})
+                            )
                             logger.info(
                                 f"NewRelic health check: healthy - integration_id={integration.id}, "
                                 f"user={user_info.get('email', 'unknown')}"
                             )
-                            return ('healthy', None)
+                            return ("healthy", None)
                         else:
-                            error_msg = data['errors'][0].get('message', 'Unknown error')
+                            error_msg = data["errors"][0].get(
+                                "message", "Unknown error"
+                            )
                             logger.warning(
                                 f"NewRelic health check: API error - integration_id={integration.id}, "
                                 f"error={error_msg}"
                             )
-                            return ('failed', f'New Relic API error: {error_msg}')
+                            return ("failed", f"New Relic API error: {error_msg}")
                     elif response.status_code == 401 or response.status_code == 403:
                         logger.warning(
                             f"NewRelic health check: auth failed - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', 'Invalid New Relic API key')
+                        return ("failed", "Invalid New Relic API key")
                     else:
                         logger.warning(
                             f"NewRelic health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', f'New Relic API returned status {response.status_code}')
+                        return (
+                            "failed",
+                            f"New Relic API returned status {response.status_code}",
+                        )
 
     except httpx.TimeoutException:
-        logger.warning(f"NewRelic health check: timeout - integration_id={integration.id}")
-        return ('failed', 'Timeout connecting to New Relic API')
+        logger.warning(
+            f"NewRelic health check: timeout - integration_id={integration.id}"
+        )
+        return ("failed", "Timeout connecting to New Relic API")
     except httpx.RequestError as e:
         logger.warning(
             f"NewRelic health check: network error - integration_id={integration.id}, error={e}"
         )
-        return ('failed', f'Network error: {str(e)}')
+        return ("failed", f"Network error: {str(e)}")
     except Exception as e:
-        logger.exception(f"NewRelic health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"NewRelic health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")
 
 
 async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str | None]:
@@ -444,14 +484,16 @@ async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str |
         access_token = integration.access_token
 
         if not access_token:
-            logger.warning(f"Slack health check: no access token - integration_id={integration.id}")
-            return ('failed', 'No access token available')
+            logger.warning(
+                f"Slack health check: no access token - integration_id={integration.id}"
+            )
+            return ("failed", "No access token available")
 
         # Test Slack API by calling auth.test endpoint
         url = "https://slack.com/api/auth.test"
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         logger.debug(f"Testing Slack API access: integration_id={integration.id}")
@@ -462,52 +504,57 @@ async def check_slack_health(integration: SlackInstallation) -> Tuple[str, str |
 
                     if response.status_code == 200:
                         data = response.json()
-                        if data.get('ok'):
+                        if data.get("ok"):
                             logger.info(
                                 f"Slack health check: healthy - integration_id={integration.id}, "
                                 f"team_id={integration.team_id}, team={data.get('team', 'unknown')}, "
                                 f"bot_id={data.get('bot_id', 'unknown')}"
                             )
-                            return ('healthy', None)
+                            return ("healthy", None)
                         else:
-                            error = data.get('error', 'unknown_error')
-                            if error == 'token_revoked':
+                            error = data.get("error", "unknown_error")
+                            if error == "token_revoked":
                                 logger.warning(
                                     f"Slack health check: token revoked - integration_id={integration.id}"
                                 )
-                                return ('failed', 'Slack bot token has been revoked')
-                            elif error == 'invalid_auth':
+                                return ("failed", "Slack bot token has been revoked")
+                            elif error == "invalid_auth":
                                 logger.warning(
                                     f"Slack health check: invalid auth - integration_id={integration.id}"
                                 )
-                                return ('failed', 'Invalid Slack bot token')
+                                return ("failed", "Invalid Slack bot token")
                             else:
                                 logger.warning(
                                     f"Slack health check: API error - integration_id={integration.id}, "
                                     f"error={error}"
                                 )
-                                return ('failed', f'Slack API error: {error}')
+                                return ("failed", f"Slack API error: {error}")
                     elif response.status_code == 401:
                         logger.warning(
                             f"Slack health check: auth failed - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', 'Invalid Slack bot token')
+                        return ("failed", "Invalid Slack bot token")
                     else:
                         logger.warning(
                             f"Slack health check: unexpected status - integration_id={integration.id}, "
                             f"status_code={response.status_code}"
                         )
-                        return ('failed', f'Slack API returned status {response.status_code}')
+                        return (
+                            "failed",
+                            f"Slack API returned status {response.status_code}",
+                        )
 
     except httpx.TimeoutException:
         logger.warning(f"Slack health check: timeout - integration_id={integration.id}")
-        return ('failed', 'Timeout connecting to Slack API')
+        return ("failed", "Timeout connecting to Slack API")
     except httpx.RequestError as e:
         logger.warning(
             f"Slack health check: network error - integration_id={integration.id}, error={e}"
         )
-        return ('failed', f'Network error: {str(e)}')
+        return ("failed", f"Network error: {str(e)}")
     except Exception as e:
-        logger.exception(f"Slack health check: unexpected error - integration_id={integration.id}")
-        return ('failed', f'Unexpected error: {str(e)}')
+        logger.exception(
+            f"Slack health check: unexpected error - integration_id={integration.id}"
+        )
+        return ("failed", f"Unexpected error: {str(e)}")

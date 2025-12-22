@@ -3,6 +3,7 @@ Datadog Logs API Router
 Provides OPEN endpoints for Datadog Logs operations (no authentication)
 Designed for RCA bot integration
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,17 +61,12 @@ async def search_logs(
     """
     try:
         response = await datadog_logs_service.search_logs(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to search logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to search logs: {str(e)}")
 
 
 @router.post("/list", response_model=ListLogsResponse)
@@ -109,17 +105,12 @@ async def list_logs(
     """
     try:
         response = await datadog_logs_service.list_logs(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to list logs: {str(e)}")
 
 
 @router.post("/services", response_model=ListServicesResponse)
@@ -159,14 +150,11 @@ async def list_services(
     """
     try:
         response = await datadog_logs_service.list_services(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list services: {str(e)}"
+            status_code=500, detail=f"Failed to list services: {str(e)}"
         )

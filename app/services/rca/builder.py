@@ -149,7 +149,7 @@ class AgentExecutorBuilder:
         self._max_iterations: int = settings.RCA_AGENT_MAX_ITERATIONS
         self._max_execution_time: int = settings.RCA_AGENT_MAX_EXECUTION_TIME
 
-    def with_context(self, context: ExecutionContext) -> 'AgentExecutorBuilder':
+    def with_context(self, context: ExecutionContext) -> "AgentExecutorBuilder":
         """
         Set execution context.
 
@@ -162,7 +162,7 @@ class AgentExecutorBuilder:
         self._context = context
         return self
 
-    def with_callbacks(self, callbacks: List) -> 'AgentExecutorBuilder':
+    def with_callbacks(self, callbacks: List) -> "AgentExecutorBuilder":
         """
         Set callbacks for agent execution.
 
@@ -179,7 +179,7 @@ class AgentExecutorBuilder:
         self,
         max_iterations: Optional[int] = None,
         max_execution_time: Optional[int] = None,
-    ) -> 'AgentExecutorBuilder':
+    ) -> "AgentExecutorBuilder":
         """
         Set execution limits.
 
@@ -224,8 +224,7 @@ class AgentExecutorBuilder:
 
         # Bind workspace_id to each tool
         tools_with_workspace = self._bind_workspace_to_tools(
-            available_tools,
-            workspace_id
+            available_tools, workspace_id
         )
 
         # Create agent
@@ -248,7 +247,9 @@ class AgentExecutorBuilder:
 
         return executor
 
-    def _bind_workspace_to_tools(self, tools: List, workspace_id: str) -> List[StructuredTool]:
+    def _bind_workspace_to_tools(
+        self, tools: List, workspace_id: str
+    ) -> List[StructuredTool]:
         """
         Bind workspace_id to tools using functools.partial.
 
@@ -299,9 +300,9 @@ class AgentExecutorBuilder:
 
         # Create new schema class
         from pydantic import create_model
+
         modified_schema = create_model(
-            f"{schema_class.__name__}WithoutWorkspace",
-            **fields
+            f"{schema_class.__name__}WithoutWorkspace", **fields
         )
 
         return modified_schema
@@ -334,12 +335,7 @@ class AgentExecutorFactory:
         """
         builder = AgentExecutorBuilder(llm, prompt)
 
-        executor = (
-            builder
-            .with_context(context)
-            .with_callbacks(callbacks or [])
-            .build()
-        )
+        executor = builder.with_context(context).with_callbacks(callbacks or []).build()
 
         return executor
 
@@ -371,8 +367,7 @@ class AgentExecutorFactory:
         # readonly_capabilities = filter_readonly_capabilities(context.capabilities)
 
         executor = (
-            builder
-            .with_context(context)
+            builder.with_context(context)
             .with_limits(
                 max_iterations=10,  # Reduced for free tier
                 max_execution_time=120,  # 2 minutes max

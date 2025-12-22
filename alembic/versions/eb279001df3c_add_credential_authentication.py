@@ -26,15 +26,17 @@ def upgrade() -> None:
 
     conn = context.get_bind()
     inspector = inspect(conn)
-    columns = [c['name'] for c in inspector.get_columns('users')]
+    columns = [c["name"] for c in inspector.get_columns("users")]
 
-    if 'password_hash' not in columns:
+    if "password_hash" not in columns:
         op.add_column("users", sa.Column("password_hash", sa.String(), nullable=True))
 
-    if 'is_verified' not in columns:
+    if "is_verified" not in columns:
         op.add_column(
             "users",
-            sa.Column("is_verified", sa.Boolean(), nullable=False, server_default="false"),
+            sa.Column(
+                "is_verified", sa.Boolean(), nullable=False, server_default="false"
+            ),
         )
         # Update all existing users to be verified
         # All current users signed up via Google OAuth, so they should be auto-verified
@@ -43,7 +45,7 @@ def upgrade() -> None:
     # Create email_verifications table (if it doesn't exist)
     tables = inspector.get_table_names()
 
-    if 'email_verifications' not in tables:
+    if "email_verifications" not in tables:
         op.create_table(
             "email_verifications",
             sa.Column("id", sa.String(), nullable=False),

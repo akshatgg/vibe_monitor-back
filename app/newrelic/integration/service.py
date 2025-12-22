@@ -2,6 +2,7 @@
 New Relic Integration Service
 Handles CRUD operations for New Relic integrations
 """
+
 import uuid
 import logging
 import httpx
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 # STANDALONE UTILITY FUNCTIONS (Can be used by router and RCA bot)
 # =============================================================================
 
+
 async def verify_newrelic_credentials(
     account_id: str, api_key: str
 ) -> Tuple[bool, str]:
@@ -43,10 +45,7 @@ async def verify_newrelic_credentials(
         - error_message: Empty string if valid, error description if invalid
     """
     url = "https://api.newrelic.com/graphql"
-    headers = {
-        "Content-Type": "application/json",
-        "API-Key": api_key
-    }
+    headers = {"Content-Type": "application/json", "API-Key": api_key}
 
     # Query to verify both account access and credentials
     query = f"""
@@ -63,10 +62,7 @@ async def verify_newrelic_credentials(
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                url,
-                json={"query": query},
-                headers=headers,
-                timeout=10.0
+                url, json={"query": query}, headers=headers, timeout=10.0
             )
 
             if response.status_code == 401:
@@ -88,7 +84,9 @@ async def verify_newrelic_credentials(
             # Successful verification
             if data.get("data", {}).get("actor", {}).get("account"):
                 account_name = data["data"]["actor"]["account"].get("name", "")
-                logger.info(f"Successfully verified New Relic account: {account_name} (ID: {account_id})")
+                logger.info(
+                    f"Successfully verified New Relic account: {account_name} (ID: {account_id})"
+                )
                 return True, ""
 
             return False, "Could not access account with provided credentials"
@@ -166,14 +164,11 @@ async def create_newrelic_integration(
     existing_integration = result.scalar_one_or_none()
 
     if existing_integration:
-        raise ValueError(
-            "A New Relic integration already exists for this workspace"
-        )
+        raise ValueError("A New Relic integration already exists for this workspace")
 
     # Verify New Relic credentials before storing
     is_valid, error_message = await verify_newrelic_credentials(
-        integration_data.account_id,
-        integration_data.api_key
+        integration_data.account_id, integration_data.api_key
     )
 
     if not is_valid:
@@ -187,8 +182,8 @@ async def create_newrelic_integration(
     control_plane_integration = Integration(
         id=control_plane_id,
         workspace_id=workspace_id,
-        provider='newrelic',
-        status='active',
+        provider="newrelic",
+        status="active",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -215,10 +210,10 @@ async def create_newrelic_integration(
         control_plane_integration.health_status = health_status
         control_plane_integration.last_verified_at = datetime.now(timezone.utc)
         control_plane_integration.last_error = error_message
-        if health_status == 'healthy':
-            control_plane_integration.status = 'active'
-        elif health_status == 'failed':
-            control_plane_integration.status = 'error'
+        if health_status == "healthy":
+            control_plane_integration.status = "active"
+        elif health_status == "failed":
+            control_plane_integration.status = "error"
         await db.commit()
         logger.info(
             f"NewRelic integration created with health_status={health_status}: "
@@ -241,8 +236,7 @@ async def create_newrelic_integration(
 
 
 async def get_newrelic_integration_status(
-    db: AsyncSession,
-    workspace_id: str
+    db: AsyncSession, workspace_id: str
 ) -> NewRelicIntegrationStatusResponse:
     """
     Get New Relic integration status for a workspace.
@@ -258,15 +252,12 @@ async def get_newrelic_integration_status(
     integration = await get_newrelic_integration(db, workspace_id)
 
     return NewRelicIntegrationStatusResponse(
-        is_connected=integration is not None,
-        integration=integration
+        is_connected=integration is not None, integration=integration
     )
 
 
 async def delete_newrelic_integration(
-    db: AsyncSession,
-    user_id: str,
-    workspace_id: str
+    db: AsyncSession, user_id: str, workspace_id: str
 ) -> bool:
     """
     Delete (hard delete) a New Relic integration.

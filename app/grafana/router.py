@@ -44,14 +44,13 @@ async def connect_grafana(
     try:
         # Validate credentials before storing
         is_valid = await grafana_service.validate_credentials(
-            grafana_url=request.grafana_url,
-            api_token=request.api_token
+            grafana_url=request.grafana_url, api_token=request.api_token
         )
 
         if not is_valid:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid Grafana credentials. Please check your URL and API token."
+                detail="Invalid Grafana credentials. Please check your URL and API token.",
             )
 
         # Store integration after validation passes

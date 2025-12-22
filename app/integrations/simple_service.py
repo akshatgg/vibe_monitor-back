@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 async def get_workspace_integration_summary(
-    workspace_id: str,
-    db: AsyncSession
+    workspace_id: str, db: AsyncSession
 ) -> List[Dict[str, Any]]:
     """
     Get all integrations for a workspace in ONE query.
@@ -38,7 +37,7 @@ async def get_workspace_integration_summary(
             Integration.health_status,
             Integration.last_verified_at,
             Integration.last_error,
-            Integration.created_at
+            Integration.created_at,
         )
         .where(Integration.workspace_id == workspace_id)
         .order_by(Integration.created_at.desc())
@@ -46,22 +45,24 @@ async def get_workspace_integration_summary(
 
     integrations = []
     for row in result:
-        integrations.append({
-            'id': row[0],
-            'provider': row[1],
-            'type': row[1],  # provider serves as type
-            'status': row[2],
-            'health_status': row[3],
-            'last_verified_at': row[4],
-            'last_error': row[5],
-            'created_at': row[6],
-        })
+        integrations.append(
+            {
+                "id": row[0],
+                "provider": row[1],
+                "type": row[1],  # provider serves as type
+                "status": row[2],
+                "health_status": row[3],
+                "last_verified_at": row[4],
+                "last_error": row[5],
+                "created_at": row[6],
+            }
+        )
 
     # Log with useful aggregates for Grafana queries
-    types = list(set(i['type'] for i in integrations))
+    types = list(set(i["type"] for i in integrations))
     status_counts = {}
     for i in integrations:
-        status_counts[i['status']] = status_counts.get(i['status'], 0) + 1
+        status_counts[i["status"]] = status_counts.get(i["status"], 0) + 1
 
     logger.info(
         f"Fetched integration summary: workspace_id={workspace_id}, "
@@ -70,10 +71,7 @@ async def get_workspace_integration_summary(
     return integrations
 
 
-async def get_integration_types(
-    workspace_id: str,
-    db: AsyncSession
-) -> List[str]:
+async def get_integration_types(workspace_id: str, db: AsyncSession) -> List[str]:
     """
     Get list of integration types for a workspace in ONE query.
 
@@ -104,10 +102,7 @@ async def get_integration_types(
     return types
 
 
-async def get_integration_stats(
-    workspace_id: str,
-    db: AsyncSession
-) -> Dict[str, Any]:
+async def get_integration_stats(workspace_id: str, db: AsyncSession) -> Dict[str, Any]:
     """
     Get integration statistics in ONE query.
 
@@ -142,19 +137,19 @@ async def get_integration_stats(
             ) subquery
             LIMIT 1
         """),
-        {'workspace_id': workspace_id}
+        {"workspace_id": workspace_id},
     )
 
     row = result.first()
     if not row:
         logger.debug(f"No integrations found for stats: workspace_id={workspace_id}")
-        return {'total': 0, 'by_type': {}, 'by_status': {}, 'by_health': {}}
+        return {"total": 0, "by_type": {}, "by_status": {}, "by_health": {}}
 
     stats = {
-        'total': row[0],
-        'by_type': row[1] or {},
-        'by_status': row[2] or {},
-        'by_health': row[3] or {},
+        "total": row[0],
+        "by_type": row[1] or {},
+        "by_status": row[2] or {},
+        "by_health": row[3] or {},
     }
 
     logger.info(
@@ -166,9 +161,7 @@ async def get_integration_stats(
 
 
 async def has_integration_type(
-    workspace_id: str,
-    integration_type: str,
-    db: AsyncSession
+    workspace_id: str, integration_type: str, db: AsyncSession
 ) -> bool:
     """
     Check if workspace has a specific integration type in ONE query.
@@ -182,10 +175,9 @@ async def has_integration_type(
     )
 
     result = await db.execute(
-        select(func.count(Integration.id))
-        .where(
+        select(func.count(Integration.id)).where(
             Integration.workspace_id == workspace_id,
-            Integration.provider == integration_type
+            Integration.provider == integration_type,
         )
     )
 

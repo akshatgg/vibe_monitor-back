@@ -116,7 +116,9 @@ class AuthService:
                     if response.status_code != 200:
                         error_detail = response.text
                         logger.error(f"Google token exchange failed: {error_detail}")
-                        logger.error(f"Request data: client_id={data['client_id'][:10]}..., redirect_uri={data['redirect_uri']}")
+                        logger.error(
+                            f"Request data: client_id={data['client_id'][:10]}..., redirect_uri={data['redirect_uri']}"
+                        )
 
                     response.raise_for_status()
                     return response.json()
@@ -128,7 +130,9 @@ class AuthService:
         async with httpx.AsyncClient() as client:
             async for attempt in retry_external_api("Google"):
                 with attempt:
-                    response = await client.get(self.GOOGLE_USERINFO_URL, headers=headers)
+                    response = await client.get(
+                        self.GOOGLE_USERINFO_URL, headers=headers
+                    )
                     response.raise_for_status()
 
                     user_data = response.json()
@@ -149,7 +153,9 @@ class AuthService:
             async with httpx.AsyncClient() as client:
                 async for attempt in retry_external_api("Google"):
                     with attempt:
-                        response = await client.get("https://www.googleapis.com/oauth2/v3/certs")
+                        response = await client.get(
+                            "https://www.googleapis.com/oauth2/v3/certs"
+                        )
                         response.raise_for_status()
                         jwks = response.json()
 
@@ -169,7 +175,7 @@ class AuthService:
                     "verify_exp": True,
                     "verify_iss": True,
                     "verify_at_hash": False,  # Skip at_hash validation (we verify access token separately)
-                }
+                },
             )
 
             return payload
@@ -196,9 +202,13 @@ class AuthService:
                 existing_user.is_verified = True
                 await db.commit()
                 await db.refresh(existing_user)
-                logger.info(f"Existing unverified user now verified via Google OAuth: {email}")
+                logger.info(
+                    f"Existing unverified user now verified via Google OAuth: {email}"
+                )
             else:
-                logger.info(f"Existing verified user logging in via Google OAuth: {email}")
+                logger.info(
+                    f"Existing verified user logging in via Google OAuth: {email}"
+                )
             return UserResponse.model_validate(existing_user)
 
         # Create new user via Google OAuth

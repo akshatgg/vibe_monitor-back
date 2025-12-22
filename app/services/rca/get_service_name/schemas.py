@@ -9,11 +9,13 @@ from datetime import datetime
 
 class ScanRepositoryRequest(BaseModel):
     """Request to scan a repository"""
+
     repo: str = Field(..., description="Repository name")
 
 
 class RepositoryServiceResponse(BaseModel):
     """Response with repository services"""
+
     id: str
     workspace_id: str
     repo_name: str

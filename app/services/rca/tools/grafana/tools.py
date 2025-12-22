@@ -484,9 +484,7 @@ async def get_datasources_tool(
             is_default = " (default)" if ds.get("isDefault") else ""
 
             formatted.append(
-                f"- Name: {ds_name}\n"
-                f"  Type: {ds_type}\n"
-                f"  UID: {ds_uid}{is_default}"
+                f"- Name: {ds_name}\n  Type: {ds_type}\n  UID: {ds_uid}{is_default}"
             )
 
         return "\n\n".join(formatted)
@@ -535,7 +533,11 @@ async def get_labels_tool(
         formatted = [f"Available labels for datasource {datasource_uid}:\n"]
 
         # Group labels for better readability
-        common_labels = [label for label in labels if label in ["job", "instance", "namespace", "pod", "service", "container"]]
+        common_labels = [
+            label
+            for label in labels
+            if label in ["job", "instance", "namespace", "pod", "service", "container"]
+        ]
         other_labels = [label for label in labels if label not in common_labels]
 
         if common_labels:
@@ -547,7 +549,9 @@ async def get_labels_tool(
             formatted.append(", ".join(other_labels))
 
         formatted.append(f"\n\nTotal: {len(labels)} labels available")
-        formatted.append("\nUse get_label_values_tool to see possible values for any label.")
+        formatted.append(
+            "\nUse get_label_values_tool to see possible values for any label."
+        )
 
         return "\n".join(formatted)
 
@@ -598,7 +602,9 @@ async def get_label_values_tool(
             return f"No values found for label '{label_name}' in datasource {datasource_uid}. Status: {response.status}"
 
         values = response.data
-        formatted = [f"Values for label '{label_name}' in datasource {datasource_uid}:\n"]
+        formatted = [
+            f"Values for label '{label_name}' in datasource {datasource_uid}:\n"
+        ]
 
         # If there are many values, show first 50 and indicate there are more
         if len(values) > 50:

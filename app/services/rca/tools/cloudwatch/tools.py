@@ -38,7 +38,11 @@ def _format_log_groups_response(response) -> str:
         formatted = []
         for log_group in response.logGroups[:30]:  # Limit to first 30
             log_group_name = log_group.logGroupName
-            retention = log_group.retentionInDays if log_group.retentionInDays else "Never expires"
+            retention = (
+                log_group.retentionInDays
+                if log_group.retentionInDays
+                else "Never expires"
+            )
             stored_bytes = log_group.storedBytes
 
             formatted.append(
@@ -48,10 +52,14 @@ def _format_log_groups_response(response) -> str:
                 f"   Class: {log_group.logGroupClass}"
             )
 
-        summary = f"Found {response.totalCount} log groups:\n\n" + "\n\n".join(formatted)
+        summary = f"Found {response.totalCount} log groups:\n\n" + "\n\n".join(
+            formatted
+        )
 
         if response.totalCount > 30:
-            summary += f"\n\n(Showing first 30 log groups. Total: {response.totalCount})"
+            summary += (
+                f"\n\n(Showing first 30 log groups. Total: {response.totalCount})"
+            )
 
         return summary
 
@@ -76,7 +84,10 @@ def _format_log_events_response(response, limit: int = 50) -> str:
             logs.append(f"[{timestamp_str}] {message}")
 
         count = len(logs)
-        summary = f"Found {response.totalCount} log entries (showing {count}):\n\n" + "\n".join(logs)
+        summary = (
+            f"Found {response.totalCount} log entries (showing {count}):\n\n"
+            + "\n".join(logs)
+        )
 
         if response.totalCount > limit:
             summary += f"\n\n(Showing first {limit} entries. {response.totalCount - limit} more logs available.)"
@@ -108,7 +119,9 @@ def _format_insights_query_response(response) -> str:
             row_str = " | ".join([f"{k}: {v}" for k, v in fields.items()])
             formatted_rows.append(row_str)
 
-        summary = f"Query completed successfully. Found {len(response.results)} results:\n\n"
+        summary = (
+            f"Query completed successfully. Found {len(response.results)} results:\n\n"
+        )
         summary += "\n".join(formatted_rows)
 
         if response.statistics:
@@ -144,8 +157,7 @@ def _format_metrics_response(response) -> str:
                 dimensions_str = f"\n   Dimensions: {', '.join(dims)}"
 
             formatted.append(
-                f"📊 **{metric_name}**\n"
-                f"   Namespace: {namespace}{dimensions_str}"
+                f"📊 **{metric_name}**\n   Namespace: {namespace}{dimensions_str}"
             )
 
         summary = f"Found {response.TotalCount} metrics:\n\n" + "\n\n".join(formatted)
@@ -219,7 +231,9 @@ def _format_namespaces_response(response) -> str:
         for namespace in response.Namespaces:
             formatted.append(f"  • {namespace}")
 
-        summary = f"Found {len(response.Namespaces)} namespaces:\n\n" + "\n".join(formatted)
+        summary = f"Found {len(response.Namespaces)} namespaces:\n\n" + "\n".join(
+            formatted
+        )
         return summary
 
     except Exception as e:
@@ -266,14 +280,11 @@ async def list_cloudwatch_log_groups_tool(
     try:
         async with AsyncSessionLocal() as db:
             request = ListLogGroupsRequest(
-                logGroupNamePrefix=name_prefix,
-                limit=min(limit, 100)
+                logGroupNamePrefix=name_prefix, limit=min(limit, 100)
             )
 
             response = await cloudwatch_logs_service.list_log_groups(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_log_groups_response(response)
@@ -332,13 +343,11 @@ async def filter_cloudwatch_log_events_tool(
                 filterPattern=filter_pattern,
                 startTime=int(start_time.timestamp() * 1000),
                 endTime=int(end_time.timestamp() * 1000),
-                limit=min(limit, 1000)
+                limit=min(limit, 1000),
             )
 
             response = await cloudwatch_logs_service.filter_log_events(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_log_events_response(response, limit=limit)
@@ -396,13 +405,11 @@ async def search_cloudwatch_logs_tool(
                 filterPattern=f'"{search_term}"',  # CloudWatch exact match pattern
                 startTime=int(start_time.timestamp() * 1000),
                 endTime=int(end_time.timestamp() * 1000),
-                limit=min(limit, 1000)
+                limit=min(limit, 1000),
             )
 
             response = await cloudwatch_logs_service.filter_log_events(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_log_events_response(response, limit=limit)
@@ -467,14 +474,14 @@ async def execute_cloudwatch_insights_query_tool(
                 queryString=query_string,
                 startTime=int(start_time.timestamp()),
                 endTime=int(end_time.timestamp()),
-                limit=min(limit, 10000)
+                limit=min(limit, 10000),
             )
 
             response = await cloudwatch_logs_service.execute_query(
                 db=db,
                 workspace_id=workspace_id,
                 request=request,
-                max_wait_seconds=max_wait_seconds
+                max_wait_seconds=max_wait_seconds,
             )
 
         return _format_insights_query_response(response)
@@ -532,15 +539,11 @@ async def list_cloudwatch_metrics_tool(
     try:
         async with AsyncSessionLocal() as db:
             request = ListMetricsRequest(
-                Namespace=namespace,
-                MetricName=metric_name,
-                Limit=limit
+                Namespace=namespace, MetricName=metric_name, Limit=limit
             )
 
             response = await cloudwatch_metrics_service.list_metrics(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         return _format_metrics_response(response)
@@ -625,13 +628,11 @@ async def get_cloudwatch_metric_statistics_tool(
                 EndTime=int(end_time.timestamp()),
                 Period=period_seconds,
                 Statistics=[statistic],
-                MaxDatapoints=50
+                MaxDatapoints=50,
             )
 
             response = await cloudwatch_metrics_service.get_metric_statistics(
-                db=db,
-                workspace_id=workspace_id,
-                request=request
+                db=db, workspace_id=workspace_id, request=request
             )
 
         metric_label = f"{namespace}/{metric_name}"
@@ -672,8 +673,7 @@ async def list_cloudwatch_namespaces_tool(
     try:
         async with AsyncSessionLocal() as db:
             response = await cloudwatch_metrics_service.list_namespaces(
-                db=db,
-                workspace_id=workspace_id
+                db=db, workspace_id=workspace_id
             )
 
         return _format_namespaces_response(response)

@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
 
-from app.integrations.service import get_workspace_integrations, check_integration_health
+from app.integrations.service import (
+    get_workspace_integrations,
+    check_integration_health,
+)
 from app.models import Integration
 
 logger = logging.getLogger(__name__)
@@ -21,19 +24,20 @@ class Capability(str, Enum):
     Agent capabilities mapped to integration types.
     Each capability represents a group of tools.
     """
+
     # Observability capabilities (Grafana/Datadog/NewRelic)
-    LOGS = "logs"                    # Fetch and search logs
-    METRICS = "metrics"              # Fetch system metrics (CPU, memory, etc.)
-    DATASOURCES = "datasources"      # List available datasources
+    LOGS = "logs"  # Fetch and search logs
+    METRICS = "metrics"  # Fetch system metrics (CPU, memory, etc.)
+    DATASOURCES = "datasources"  # List available datasources
 
     # Code capabilities (GitHub)
-    CODE_SEARCH = "code_search"      # Search code across repositories
-    CODE_READ = "code_read"          # Read files from repositories
+    CODE_SEARCH = "code_search"  # Search code across repositories
+    CODE_READ = "code_read"  # Read files from repositories
     REPOSITORY_INFO = "repository_info"  # Get repo metadata, commits, PRs
 
     # AWS capabilities (future)
-    AWS_LOGS = "aws_logs"            # CloudWatch logs
-    AWS_METRICS = "aws_metrics"      # CloudWatch metrics
+    AWS_LOGS = "aws_logs"  # CloudWatch logs
+    AWS_METRICS = "aws_metrics"  # CloudWatch metrics
 
     # Datadog capabilities (future)
     DATADOG_LOGS = "datadog_logs"
@@ -50,6 +54,7 @@ class ExecutionContext:
     Complete execution context for the RCA agent.
     Contains workspace info, capabilities, and integrations.
     """
+
     workspace_id: str
     capabilities: Set[Capability]
     integrations: Dict[str, Integration]  # type -> Integration
@@ -73,7 +78,7 @@ class ExecutionContext:
         return {
             itype: integration
             for itype, integration in self.integrations.items()
-            if integration.health_status == 'healthy'
+            if integration.health_status == "healthy"
         }
 
 
@@ -90,25 +95,25 @@ class IntegrationCapabilityResolver:
 
     # Map integration types to capabilities they provide
     INTEGRATION_CAPABILITY_MAP = {
-        'grafana': {
+        "grafana": {
             Capability.LOGS,
             Capability.METRICS,
             Capability.DATASOURCES,
         },
-        'github': {
+        "github": {
             Capability.CODE_SEARCH,
             Capability.CODE_READ,
             Capability.REPOSITORY_INFO,
         },
-        'aws': {
+        "aws": {
             Capability.AWS_LOGS,
             Capability.AWS_METRICS,
         },
-        'datadog': {
+        "datadog": {
             Capability.DATADOG_LOGS,
             Capability.DATADOG_METRICS,
         },
-        'newrelic': {
+        "newrelic": {
             Capability.NEWRELIC_LOGS,
             Capability.NEWRELIC_METRICS,
         },
@@ -149,18 +154,23 @@ class IntegrationCapabilityResolver:
         if self.only_healthy:
             healthy_integrations = []
             for integration in integrations:
-                if integration.health_status == 'healthy':
+                if integration.health_status == "healthy":
                     # Fast path: already healthy, use directly
                     healthy_integrations.append(integration)
-                elif integration.health_status is None or integration.health_status == 'failed':
+                elif (
+                    integration.health_status is None
+                    or integration.health_status == "failed"
+                ):
                     # Run health check for NULL (not yet checked) or failed (might have recovered)
                     logger.info(
                         f"Running health check for {integration.provider} integration "
                         f"(current status: {integration.health_status})"
                     )
                     try:
-                        updated_integration = await check_integration_health(integration.id, db)
-                        if updated_integration.health_status == 'healthy':
+                        updated_integration = await check_integration_health(
+                            integration.id, db
+                        )
+                        if updated_integration.health_status == "healthy":
                             logger.info(
                                 f"{integration.provider} integration is now healthy, including in capabilities"
                             )
@@ -177,8 +187,7 @@ class IntegrationCapabilityResolver:
 
         # Map integrations by provider
         integrations_by_type = {
-            integration.provider: integration
-            for integration in integrations
+            integration.provider: integration for integration in integrations
         }
 
         # Resolve capabilities from integrations

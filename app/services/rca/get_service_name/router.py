@@ -24,7 +24,7 @@ async def scan_repository(
     workspace_id: str = Query(..., description="Workspace ID"),
     request: ScanRepositoryRequest = None,
     user=Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Scan a repository to extract service names
@@ -37,27 +37,20 @@ async def scan_repository(
     try:
         # Get owner from database
         from app.github.tools.service import get_github_integration_with_token
+
         integration, _ = await get_github_integration_with_token(workspace_id, db)
         owner = integration.github_username
 
         # Extract service names
         services = await extract_service_names_from_repo(
-            workspace_id=workspace_id,
-            repo=request.repo,
-            user_id=user.id,
-            db=db
+            workspace_id=workspace_id, repo=request.repo, user_id=user.id, db=db
         )
 
         # Build full repo name
         repo_name = f"{owner}/{request.repo}"
 
-        return {
-            "success": True,
-            "repo_name": repo_name,
-            "services": services
-        }
+        return {"success": True, "repo_name": repo_name, "services": services}
 
     except Exception as e:
         logger.error(f"Error scanning repository: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

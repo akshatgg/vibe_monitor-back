@@ -1,6 +1,7 @@
 """
 Mailgun service for sending emails.
 """
+
 import uuid
 import logging
 import html
@@ -55,7 +56,9 @@ class MailgunService:
         self.api_key = settings.MAILGUN_API_KEY
         self.domain = settings.MAILGUN_DOMAIN_NAME
         self.base_url = f"https://api.mailgun.net/v3/{self.domain}/messages"
-        logger.info(f"MailgunService initialized - Domain: {self.domain}, From: {settings.MAILGUN_FROM_EMAIL}")
+        logger.info(
+            f"MailgunService initialized - Domain: {self.domain}, From: {settings.MAILGUN_FROM_EMAIL}"
+        )
 
     async def send_email(
         self,
@@ -102,7 +105,9 @@ class MailgunService:
         if html:
             data["html"] = html
 
-        logger.info(f"Sending email - From: {data['from']}, To: {to_email}, URL: {self.base_url}")
+        logger.info(
+            f"Sending email - From: {data['from']}, To: {to_email}, URL: {self.base_url}"
+        )
 
         try:
             async with httpx.AsyncClient() as client:
@@ -120,9 +125,15 @@ class MailgunService:
                         return response.json()
         except httpx.HTTPError as e:
             logger.error(f"Failed to send email via Mailgun: {str(e)}")
-            logger.error(f"Request details - URL: {self.base_url}, From: {data.get('from')}, API Key prefix: {self.api_key[:10]}...")
-            logger.error(f"Response status: {e.response.status_code if hasattr(e, 'response') else 'N/A'}")
-            logger.error(f"Response body: {e.response.text if hasattr(e, 'response') else 'N/A'}")
+            logger.error(
+                f"Request details - URL: {self.base_url}, From: {data.get('from')}, API Key prefix: {self.api_key[:10]}..."
+            )
+            logger.error(
+                f"Response status: {e.response.status_code if hasattr(e, 'response') else 'N/A'}"
+            )
+            logger.error(
+                f"Response body: {e.response.text if hasattr(e, 'response') else 'N/A'}"
+            )
             raise
 
     def _load_template(self, template_name: str) -> str:
@@ -388,7 +399,9 @@ class MailgunService:
 
             raise
 
-    async def send_slack_integration_email(self, user_id: str, db: AsyncSession) -> dict:
+    async def send_slack_integration_email(
+        self, user_id: str, db: AsyncSession
+    ) -> dict:
         """
         Send a Slack integration nudge email to a user.
 
@@ -438,7 +451,9 @@ class MailgunService:
             db.add(email_record)
             await db.commit()
 
-            logger.info(f"Slack integration email sent to user {user_id} ({user.email})")
+            logger.info(
+                f"Slack integration email sent to user {user_id} ({user.email})"
+            )
 
             return {
                 "success": True,
@@ -448,7 +463,9 @@ class MailgunService:
             }
 
         except Exception as e:
-            logger.error(f"Failed to send slack integration email to user {user_id}: {str(e)}")
+            logger.error(
+                f"Failed to send slack integration email to user {user_id}: {str(e)}"
+            )
 
             # Store failed email record
             email_record = MailgunEmail(
@@ -528,7 +545,9 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
             }
 
         except Exception as e:
-            logger.error(f"Failed to send contact form email from {work_email}: {str(e)}")
+            logger.error(
+                f"Failed to send contact form email from {work_email}: {str(e)}"
+            )
             raise
 
 

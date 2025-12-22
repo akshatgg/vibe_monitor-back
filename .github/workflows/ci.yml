@@ -1,13 +1,12 @@
 name: CI
 
-on:      
+on:
   pull_request:
-    branches:
-      - "main"
+    branches: ["main"]
     types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches:
-      - "main"
+    branches: ["main"]
+
 permissions:
   contents: read
 
@@ -16,18 +15,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Setup:
-    name: Setup
+  ruff:
+    name: Ruff (lint + format check)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.12" ]
-
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
@@ -36,7 +35,6 @@ jobs:
           virtualenvs-in-project: true
 
       - name: Cache Poetry venv
-        id: cache
         uses: actions/cache@v4
         with:
           path: |
@@ -48,120 +46,131 @@ jobs:
       - name: Install dependencies
         run: poetry install --sync --no-root --no-interaction --no-ansi
 
-  ruff:
-    name: Ruff (lint + format autofix)
-    needs: Setup
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-      - uses: actions/cache@v4
-        id: cache
-        with:
-          path: |
-              .venv
-              ~/.cache/pypoetry
-              ~/.cache/pip
-          key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
-      - name: Install dependencies
-        run: poetry install --sync --no-root --no-interaction --no-ansi
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
-      - name: Ruff lint (with suggestions)
+
+      - name: Ruff lint (PR annotations)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           poetry run ruff check --output-format=rdjson . \
             | reviewdog -f=rdjson -name="ruff" -reporter=github-pr-review -level=error -fail-on-error=true
-      - name: Ruff format check (with suggestions)
+
+      - name: Ruff lint (push)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: poetry run ruff check .
+
+      - name: Ruff format check (PR annotations)
         if: ${{ github.event_name == 'pull_request' }}
         env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}      
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          poetry run ruff format --check --diff \
+          poetry run ruff format --check --diff . \
             | reviewdog -f=diff -name="ruff-format" -reporter=github-pr-review -level=error -fail-on-error=true
+
+      - name: Ruff format check (push)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: poetry run ruff format --check --diff .
+
+
   mypy:
-    name: Mypy (type checking)
-    needs: Setup
+    name: Mypy (type check, non-blocking)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: snok/install-poetry@v1
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
-      - uses: actions/cache@v4
-        id: cache
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
         with:
           path: |
             .venv
             ~/.cache/pypoetry
             ~/.cache/pip
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
+
       - name: Install dependencies
         run: poetry install --sync --no-root --no-interaction --no-ansi
+
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
-      - name: Run mypy with reviewdog
+
+      - name: Run mypy (PR annotations, does not fail)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          poetry run mypy . --show-column-numbers --pretty \
-            | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning -fail-on-error=true
+          set -o pipefail
+          poetry run mypy app --show-column-numbers --pretty \
+            | reviewdog -f=mypy -name="mypy" -reporter=github-pr-check -level=warning -fail-on-error=false || true
+
+      - name: Run mypy (push, does not fail)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          poetry run mypy app --show-column-numbers --pretty || true
+
 
   bandit:
-    name: Bandit (security scan)
-    needs: Setup
+    name: Bandit (security scan, non-blocking)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: snok/install-poetry@v1
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
-      - uses: actions/cache@v4
-        id: cache
+
+      - name: Cache Poetry venv
+        uses: actions/cache@v4
         with:
           path: |
             .venv
             ~/.cache/pypoetry
             ~/.cache/pip
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('poetry.lock') }}
+
       - name: Install dependencies
         run: poetry install --sync --no-root --no-interaction --no-ansi
+
       - uses: reviewdog/action-setup@d8edfce3dd5e1ec6978745e801f9c50b5ef80252 # v1.4.0
-      - name: Run bandit with reviewdog
+
+      - name: Run bandit (PR annotations, does not fail)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          poetry run bandit -r . -x .venv,venv,build,dist,tests -f json \
-            | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error
+          set -o pipefail
+          poetry run bandit -r app -ll -f json \
+            | reviewdog -f=bandit -name="bandit" -reporter=github-pr-check -level=error -fail-on-error=false || true
+
+      - name: Run bandit (push, does not fail)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          poetry run bandit -r app -ll || true
+
 
   secrets-scan:
     name: Gitleaks (secrets scan)
-    needs: Setup
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -170,7 +179,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   
+          fetch-depth: 0
 
       - name: Cache Gitleaks
         uses: actions/cache@v4

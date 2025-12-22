@@ -1,8 +1,8 @@
-
 """
 CloudWatch Logs Service - Standalone functions for CloudWatch Logs operations
 Uses AWS Integration credentials with automatic refresh mechanism
 """
+
 import logging
 from typing import Optional, Dict, Any
 import asyncio
@@ -45,10 +45,7 @@ class CloudWatchLogsService:
 
     @staticmethod
     def _create_boto_session(
-        access_key_id: str,
-        secret_access_key: str,
-        session_token: str,
-        region: str
+        access_key_id: str, secret_access_key: str, session_token: str, region: str
     ):
         """
         Create a thread-safe boto3 session with provided credentials
@@ -93,17 +90,20 @@ class CloudWatchLogsService:
             cached = CloudWatchLogsService._client_cache[workspace_id]
             # Reuse client if not expiring within 5 minutes
             if cached["expiration"] > now + timedelta(minutes=5):
-                logger.debug(f"Reusing cached CloudWatch Logs client for workspace {workspace_id}")
+                logger.debug(
+                    f"Reusing cached CloudWatch Logs client for workspace {workspace_id}"
+                )
                 return cached["client"]
             else:
                 # Remove expired cache entry
-                logger.debug(f"Cached client expired for workspace {workspace_id}, refreshing")
+                logger.debug(
+                    f"Cached client expired for workspace {workspace_id}, refreshing"
+                )
                 del CloudWatchLogsService._client_cache[workspace_id]
 
         # Get decrypted credentials (auto-refreshes if expired)
         credentials = await aws_integration_service.get_decrypted_credentials(
-            db=db,
-            workspace_id=workspace_id
+            db=db, workspace_id=workspace_id
         )
 
         if not credentials:
@@ -134,9 +134,11 @@ class CloudWatchLogsService:
             # Cache the client with its expiration time
             CloudWatchLogsService._client_cache[workspace_id] = {
                 "client": logs_client,
-                "expiration": integration.credentials_expiration
+                "expiration": integration.credentials_expiration,
             }
-            logger.debug(f"Cached new CloudWatch Logs client for workspace {workspace_id}")
+            logger.debug(
+                f"Cached new CloudWatch Logs client for workspace {workspace_id}"
+            )
 
         return logs_client
 
@@ -152,16 +154,16 @@ class CloudWatchLogsService:
         if workspace_id:
             if workspace_id in CloudWatchLogsService._client_cache:
                 del CloudWatchLogsService._client_cache[workspace_id]
-                logger.info(f"Cleared CloudWatch Logs client cache for workspace {workspace_id}")
+                logger.info(
+                    f"Cleared CloudWatch Logs client cache for workspace {workspace_id}"
+                )
         else:
             CloudWatchLogsService._client_cache.clear()
             logger.info("Cleared all CloudWatch Logs client caches")
 
     @staticmethod
     async def list_log_groups(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListLogGroupsRequest
+        db: AsyncSession, workspace_id: str, request: ListLogGroupsRequest
     ) -> ListLogGroupsResponse:
         """
         List CloudWatch log groups (standalone function)
@@ -190,8 +192,7 @@ class CloudWatchLogsService:
             # Run boto3 call in thread pool (boto3 is blocking)
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: logs_client.describe_log_groups(**params)
+                None, lambda: logs_client.describe_log_groups(**params)
             )
 
             # Parse response and apply limit
@@ -199,14 +200,10 @@ class CloudWatchLogsService:
             limit = request.limit if request.limit else 100
             limited_log_groups = all_log_groups[:limit]
 
-            log_groups = [
-                LogGroupInfo(**log_group)
-                for log_group in limited_log_groups
-            ]
+            log_groups = [LogGroupInfo(**log_group) for log_group in limited_log_groups]
 
             return ListLogGroupsResponse(
-                logGroups=log_groups,
-                totalCount=len(log_groups)
+                logGroups=log_groups, totalCount=len(log_groups)
             )
 
         except ClientError as e:
@@ -214,18 +211,18 @@ class CloudWatchLogsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to list log groups for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to list log groups: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to list log groups: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to list log groups: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def list_log_streams(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListLogStreamsRequest
+        db: AsyncSession, workspace_id: str, request: ListLogStreamsRequest
     ) -> ListLogStreamsResponse:
         """
         List CloudWatch log streams in a log group (standalone function)
@@ -259,8 +256,7 @@ class CloudWatchLogsService:
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: logs_client.describe_log_streams(**params)
+                None, lambda: logs_client.describe_log_streams(**params)
             )
 
             # Parse response and apply limit
@@ -269,13 +265,11 @@ class CloudWatchLogsService:
             limited_log_streams = all_log_streams[:limit]
 
             log_streams = [
-                LogStreamInfo(**log_stream)
-                for log_stream in limited_log_streams
+                LogStreamInfo(**log_stream) for log_stream in limited_log_streams
             ]
 
             return ListLogStreamsResponse(
-                logStreams=log_streams,
-                totalCount=len(log_streams)
+                logStreams=log_streams, totalCount=len(log_streams)
             )
 
         except ClientError as e:
@@ -283,18 +277,18 @@ class CloudWatchLogsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to list log streams for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to list log streams: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to list log streams: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to list log streams: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def get_log_events(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetLogEventsRequest
+        db: AsyncSession, workspace_id: str, request: GetLogEventsRequest
     ) -> GetLogEventsResponse:
         """
         Get log events from a specific log stream (standalone function)
@@ -329,8 +323,7 @@ class CloudWatchLogsService:
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: logs_client.get_log_events(**params)
+                None, lambda: logs_client.get_log_events(**params)
             )
 
             # Parse response and apply limit
@@ -338,22 +331,16 @@ class CloudWatchLogsService:
             limit = request.limit if request.limit else 100
             limited_events = all_events[:limit]
 
-            events = [
-                LogEvent(**event)
-                for event in limited_events
-            ]
+            events = [LogEvent(**event) for event in limited_events]
 
-            return GetLogEventsResponse(
-                events=events,
-                totalCount=len(events)
-            )
+            return GetLogEventsResponse(events=events, totalCount=len(events))
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to get log events for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
             raise Exception(f"Failed to get log events: {error_code} - {error_message}")
         except Exception as e:
@@ -365,7 +352,7 @@ class CloudWatchLogsService:
         db: AsyncSession,
         workspace_id: str,
         request: StartQueryRequest,
-        max_wait_seconds: int = 60
+        max_wait_seconds: int = 60,
     ) -> GetQueryResultsResponse:
         """
         Execute a CloudWatch Insights query and wait for results (combined start + poll)
@@ -400,8 +387,7 @@ class CloudWatchLogsService:
 
             loop = asyncio.get_event_loop()
             start_response = await loop.run_in_executor(
-                None,
-                lambda: logs_client.start_query(**start_params)
+                None, lambda: logs_client.start_query(**start_params)
             )
             query_id = start_response["queryId"]
 
@@ -415,12 +401,13 @@ class CloudWatchLogsService:
                 # Check timeout
                 elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 if elapsed > max_wait_seconds:
-                    raise Exception(f"Query timed out after {max_wait_seconds} seconds. Query ID: {query_id}")
+                    raise Exception(
+                        f"Query timed out after {max_wait_seconds} seconds. Query ID: {query_id}"
+                    )
 
                 # Get query results
                 response = await loop.run_in_executor(
-                    None,
-                    lambda: logs_client.get_query_results(queryId=query_id)
+                    None, lambda: logs_client.get_query_results(queryId=query_id)
                 )
 
                 status = response.get("status", "Unknown")
@@ -433,7 +420,9 @@ class CloudWatchLogsService:
                     results = []
                     for result_row in response.get("results", []):
                         row = [
-                            QueryResultField(field=field.get("field"), value=field.get("value"))
+                            QueryResultField(
+                                field=field.get("field"), value=field.get("value")
+                            )
                             for field in result_row
                         ]
                         results.append(row)
@@ -445,13 +434,11 @@ class CloudWatchLogsService:
                         statistics = QueryStatistics(
                             recordsMatched=stats.get("recordsMatched", 0),
                             recordsScanned=stats.get("recordsScanned", 0),
-                            bytesScanned=stats.get("bytesScanned", 0)
+                            bytesScanned=stats.get("bytesScanned", 0),
                         )
 
                     return GetQueryResultsResponse(
-                        results=results,
-                        statistics=statistics,
-                        status=status
+                        results=results, statistics=statistics, status=status
                     )
 
                 elif status == "Failed":
@@ -460,7 +447,9 @@ class CloudWatchLogsService:
                     raise Exception(f"Query {query_id} was cancelled")
 
                 # Wait before next poll (Running or Scheduled)
-                logger.debug(f"Query {query_id} status: {status}, polling again in {poll_interval}s")
+                logger.debug(
+                    f"Query {query_id} status: {status}, polling again in {poll_interval}s"
+                )
                 await asyncio.sleep(poll_interval)
 
         except ClientError as e:
@@ -468,7 +457,7 @@ class CloudWatchLogsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to execute query for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
             raise Exception(f"Failed to execute query: {error_code} - {error_message}")
         except Exception as e:
@@ -477,9 +466,7 @@ class CloudWatchLogsService:
 
     @staticmethod
     async def filter_log_events(
-        db: AsyncSession,
-        workspace_id: str,
-        request: FilterLogEventsRequest
+        db: AsyncSession, workspace_id: str, request: FilterLogEventsRequest
     ) -> FilterLogEventsResponse:
         """
         Filter log events across log streams (standalone function)
@@ -519,8 +506,7 @@ class CloudWatchLogsService:
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: logs_client.filter_log_events(**params)
+                None, lambda: logs_client.filter_log_events(**params)
             )
 
             # Parse response and apply limit
@@ -528,15 +514,12 @@ class CloudWatchLogsService:
             limit = request.limit if request.limit else 100
             limited_events = all_events[:limit]
 
-            events = [
-                FilteredLogEvent(**event)
-                for event in limited_events
-            ]
+            events = [FilteredLogEvent(**event) for event in limited_events]
 
             return FilterLogEventsResponse(
                 events=events,
                 searchedLogStreams=response.get("searchedLogStreams"),
-                totalCount=len(events)
+                totalCount=len(events),
             )
 
         except ClientError as e:
@@ -544,9 +527,11 @@ class CloudWatchLogsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to filter log events for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to filter log events: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to filter log events: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to filter log events: {str(e)}", exc_info=True)
             raise

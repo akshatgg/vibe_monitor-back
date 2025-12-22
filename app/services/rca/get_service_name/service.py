@@ -25,10 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 async def extract_service_names_from_repo(
-    workspace_id: str,
-    repo: str,
-    user_id: str,
-    db: AsyncSession
+    workspace_id: str, repo: str, user_id: str, db: AsyncSession
 ) -> List[str]:
     """
     Extract service names from a GitHub repository
@@ -54,7 +51,7 @@ async def extract_service_names_from_repo(
             owner=None,  # Let it use default from integration
             first=5,
             user_id=user_id,
-            db=db
+            db=db,
         )
 
         primary_language = _get_primary_language(metadata)
@@ -67,7 +64,7 @@ async def extract_service_names_from_repo(
             owner=None,  # Let it use default from integration
             expression="HEAD:",
             user_id=user_id,
-            db=db
+            db=db,
         )
 
         files = _extract_file_names(tree)
@@ -77,11 +74,7 @@ async def extract_service_names_from_repo(
 
         # Step 4: Check Dockerfile FIRST (top priority)
         dockerfile_service = await _check_dockerfile_first(
-            workspace_id=workspace_id,
-            repo=repo,
-            user_id=user_id,
-            db=db,
-            files=files
+            workspace_id=workspace_id, repo=repo, user_id=user_id, db=db, files=files
         )
 
         # If Dockerfile has service.name label, return immediately
@@ -91,7 +84,7 @@ async def extract_service_names_from_repo(
 
         # Step 5: Check other files if Dockerfile didn't have the label
         service_names = []
-        for file_path in priority_files[:settings.RCA_MAX_FILES_TO_ANALYZE]:
+        for file_path in priority_files[: settings.RCA_MAX_FILES_TO_ANALYZE]:
             # Skip Dockerfile since we already checked it
             if file_path.lower().startswith("dockerfile"):
                 continue
@@ -104,7 +97,7 @@ async def extract_service_names_from_repo(
                     owner=None,  # Let it use default from integration
                     ref=None,
                     user_id=user_id,
-                    db=db
+                    db=db,
                 )
 
                 if file_content.get("success") and file_content.get("content"):
@@ -125,9 +118,6 @@ async def extract_service_names_from_repo(
     except Exception as e:
         logger.error(f"Error extracting service names from {repo}: {e}")
         return [_normalize_name(repo)]
-
-
-
 
 
 # Helper functions
@@ -194,13 +184,13 @@ def _extract_service_names_from_content(content: str) -> List[str]:
 def _normalize_name(name: str) -> str:
     """Normalize service name"""
     # Remove common prefixes/suffixes
-    name = re.sub(r'^(app-|service-|api-|@[^/]+/)', '', name)
-    name = re.sub(r'(-app|-service|-api)$', '', name)
+    name = re.sub(r"^(app-|service-|api-|@[^/]+/)", "", name)
+    name = re.sub(r"(-app|-service|-api)$", "", name)
 
     # Convert to lowercase, replace special chars
     name = name.lower()
-    name = re.sub(r'[^a-z0-9]+', '-', name)
-    return name.strip('-')
+    name = re.sub(r"[^a-z0-9]+", "-", name)
+    return name.strip("-")
 
 
 def _is_valid_name(name: str) -> bool:
@@ -217,11 +207,7 @@ def _is_valid_name(name: str) -> bool:
 
 
 async def _check_dockerfile_first(
-    workspace_id: str,
-    repo: str,
-    user_id: str,
-    db: AsyncSession,
-    files: List[str]
+    workspace_id: str, repo: str, user_id: str, db: AsyncSession, files: List[str]
 ) -> Optional[str]:
     """
     Check Dockerfile for LABEL service.name="xxx" pattern (TOP PRIORITY)
@@ -250,7 +236,7 @@ async def _check_dockerfile_first(
             owner=None,  # Let it use default from integration
             ref=None,
             user_id=user_id,
-            db=db
+            db=db,
         )
 
         if not file_content.get("success") or not file_content.get("content"):

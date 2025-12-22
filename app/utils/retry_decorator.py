@@ -134,7 +134,6 @@ def retry_external_api(service_name: str = "external_api"):
     return AsyncRetrying(
         # Stop after N attempts
         stop=stop_after_attempt(settings.EXTERNAL_API_RETRY_ATTEMPTS),
-
         # Exponential backoff: wait = min(max_wait, min_wait * (2 ** (attempt - 1)) * multiplier)
         # With multiplier=1.0, min=0.5s, max=2.0s: 0.5s → 1.0s → 2.0s → 2.0s → 2.0s
         wait=wait_exponential(
@@ -142,7 +141,6 @@ def retry_external_api(service_name: str = "external_api"):
             min=settings.EXTERNAL_API_RETRY_MIN_WAIT,
             max=settings.EXTERNAL_API_RETRY_MAX_WAIT,
         ),
-
         # Only retry on specific exception types
         retry=retry_if_exception_type(
             (
@@ -155,11 +153,10 @@ def retry_external_api(service_name: str = "external_api"):
                 httpx.NetworkError,
                 httpx.HTTPStatusError,  # We filter 4xx vs 5xx in _is_retryable_http_error
             )
-        ) & tenacity_retry_if_exception(_is_retryable_http_error),
-
+        )
+        & tenacity_retry_if_exception(_is_retryable_http_error),
         # Log before sleeping
         before_sleep=before_sleep_log(logger, logging.WARNING),
-
         # Don't reraise on final failure (let the exception propagate naturally)
         reraise=True,
     )

@@ -12,9 +12,7 @@ class DatasourceDiscovery:
     """Discovers and manages Grafana Loki datasource UIDs"""
 
     @staticmethod
-    async def get_loki_uid(
-        grafana_url: str, api_token: str
-    ) -> str:
+    async def get_loki_uid(grafana_url: str, api_token: str) -> str:
         """
         Auto-discover Loki datasource UID from Grafana by type
 

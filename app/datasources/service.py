@@ -1,6 +1,7 @@
 """
 Datasources service layer for business logic
 """
+
 import logging
 from typing import Dict, List, Any
 
@@ -30,7 +31,9 @@ class DatasourcesService:
             integration = result.scalar_one_or_none()
 
             if not integration:
-                raise ValueError(f"No Grafana configuration found for workspace {workspace_id}")
+                raise ValueError(
+                    f"No Grafana configuration found for workspace {workspace_id}"
+                )
 
             # Decrypt the API token before returning
             try:
@@ -71,7 +74,7 @@ class DatasourcesService:
                                 "name": ds.get("name"),
                                 "type": ds.get("type"),
                                 "url": ds.get("url", ""),
-                                "isDefault": ds.get("isDefault", False)
+                                "isDefault": ds.get("isDefault", False),
                             }
                             for ds in datasources
                         ]
@@ -85,7 +88,9 @@ class DatasourcesService:
             base_url, api_token = await self._get_workspace_config(workspace_id)
 
             # Get datasource type first to determine the correct API path
-            datasource_info = await self._get_datasource_info(base_url, api_token, datasource_uid)
+            datasource_info = await self._get_datasource_info(
+                base_url, api_token, datasource_uid
+            )
             datasource_type = datasource_info.get("type")
 
             # Construct the appropriate API path based on datasource type
@@ -108,27 +113,32 @@ class DatasourcesService:
 
                         if response_data.get("status") == "success":
                             return LabelResponse(
-                                status="success",
-                                data=response_data.get("data", [])
+                                status="success", data=response_data.get("data", [])
                             )
                         else:
                             logger.error(f"Failed to get labels: {response_data}")
                             return LabelResponse(status="error", data=[])
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error getting labels: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error getting labels: {e.response.status_code} - {e.response.text}"
+            )
             return LabelResponse(status="error", data=[])
         except Exception as e:
             logger.error(f"Error getting labels: {e}")
             raise
 
-    async def get_label_values(self, workspace_id: str, datasource_uid: str, label_name: str) -> LabelResponse:
+    async def get_label_values(
+        self, workspace_id: str, datasource_uid: str, label_name: str
+    ) -> LabelResponse:
         """Get all values for a specific label in a datasource"""
         try:
             base_url, api_token = await self._get_workspace_config(workspace_id)
 
             # Get datasource type first to determine the correct API path
-            datasource_info = await self._get_datasource_info(base_url, api_token, datasource_uid)
+            datasource_info = await self._get_datasource_info(
+                base_url, api_token, datasource_uid
+            )
             datasource_type = datasource_info.get("type")
 
             # Construct the appropriate API path based on datasource type
@@ -151,21 +161,24 @@ class DatasourcesService:
 
                         if response_data.get("status") == "success":
                             return LabelResponse(
-                                status="success",
-                                data=response_data.get("data", [])
+                                status="success", data=response_data.get("data", [])
                             )
                         else:
                             logger.error(f"Failed to get label values: {response_data}")
                             return LabelResponse(status="error", data=[])
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error getting label values: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"HTTP error getting label values: {e.response.status_code} - {e.response.text}"
+            )
             return LabelResponse(status="error", data=[])
         except Exception as e:
             logger.error(f"Error getting label values: {e}")
             raise
 
-    async def _get_datasource_info(self, base_url: str, api_token: str, datasource_uid: str) -> Dict[str, Any]:
+    async def _get_datasource_info(
+        self, base_url: str, api_token: str, datasource_uid: str
+    ) -> Dict[str, Any]:
         """Get datasource information by UID"""
         url = f"{base_url.rstrip('/')}/api/datasources/uid/{datasource_uid}"
         headers = self._get_headers(api_token)

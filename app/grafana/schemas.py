@@ -16,9 +16,7 @@ class GrafanaConnectRequest(BaseModel):
         description="Grafana instance URL",
         examples=["https://your-grafana-instance.com"],
     )
-    api_token: str = Field(
-        ..., description="Grafana API token"
-    )
+    api_token: str = Field(..., description="Grafana API token")
 
 
 class GrafanaConnectionResponse(BaseModel):

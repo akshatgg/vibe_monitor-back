@@ -1,6 +1,7 @@
 """
 Pydantic schemas for engagement metrics.
 """
+
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -8,6 +9,7 @@ from typing import Optional
 
 class MetricPeriod(BaseModel):
     """Metrics for a specific time period."""
+
     last_1_day: int
     last_7_days: int
     last_30_days: int
@@ -16,16 +18,19 @@ class MetricPeriod(BaseModel):
 
 class SignupMetrics(BaseModel):
     """User signup metrics."""
+
     signups: MetricPeriod
 
 
 class ActiveWorkspaceMetrics(BaseModel):
     """Active workspace metrics (workspaces with at least one job in the period)."""
+
     active_workspaces: MetricPeriod
 
 
 class EngagementReport(BaseModel):
     """Complete engagement report."""
+
     report_date: datetime
     signups: MetricPeriod
     active_workspaces: MetricPeriod
@@ -33,6 +38,7 @@ class EngagementReport(BaseModel):
 
 class EngagementReportResponse(BaseModel):
     """Response from the engagement report endpoint."""
+
     success: bool
     message: str
     report: Optional[EngagementReport] = None

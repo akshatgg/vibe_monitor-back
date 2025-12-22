@@ -16,11 +16,9 @@ UNIVERSAL_FILES = ["Dockerfile", ".env", "package.json", "pyproject.toml"]
 SERVICE_PATTERNS = {
     # TOP PRIORITY: Dockerfile LABEL service.name="xxx"
     "dockerfile_label_service_name": r'LABEL\s+service\.name\s*=\s*["\']([a-zA-Z0-9_\-]+)["\']',
-
     # Other Dockerfile patterns
     "dockerfile_label_service": r'LABEL\s+service\s*=\s*["\']?([a-zA-Z0-9_\-]+)["\']?',
     "dockerfile_env": r'ENV\s+(?:SERVICE_NAME|APP_NAME)\s*=\s*["\']?([a-zA-Z0-9_\-]+)["\']?',
-
     # Application patterns
     "python_logger": r'logger\s*=\s*logging\.getLogger\(["\']([a-zA-Z0-9_\-\.]+)["\']\)',
     "fastapi_app": r'FastAPI\([^)]*title\s*=\s*["\']([^"\']+)["\']',

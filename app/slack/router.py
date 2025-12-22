@@ -105,7 +105,9 @@ async def handle_slack_events(request: Request):
         event_type = event_payload.event.get("type")
         event_subtype = event_payload.event.get("subtype")
 
-        logger.info(f"📩 Received Slack event - type: {event_type}, subtype: {event_subtype}")
+        logger.info(
+            f"📩 Received Slack event - type: {event_type}, subtype: {event_subtype}"
+        )
 
         if (
             event_type == "app_mention"
@@ -123,6 +125,7 @@ async def handle_slack_events(request: Request):
     except Exception as e:
         logger.error(f"Error processing Slack event: {e}")
         raise HTTPException(status_code=500, detail="Internal processing error")
+
 
 @slack_router.get("/connection/status")
 async def get_slack_connection_status(
@@ -144,8 +147,7 @@ async def get_slack_connection_status(
     # Verify user has access to the workspace
     membership_result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.workspace_id == workspace_id
+            Membership.user_id == user.id, Membership.workspace_id == workspace_id
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -153,15 +155,12 @@ async def get_slack_connection_status(
     if not membership:
         logger.error(f"User {user.id} does not have access to workspace {workspace_id}")
         raise HTTPException(
-            status_code=403,
-            detail="User does not have access to this workspace"
+            status_code=403, detail="User does not have access to this workspace"
         )
 
     # Check if Slack installation exists for this workspace
     slack_result = await db.execute(
-        select(SlackInstallation).where(
-            SlackInstallation.workspace_id == workspace_id
-        )
+        select(SlackInstallation).where(SlackInstallation.workspace_id == workspace_id)
     )
     slack_installation = slack_result.scalar_one_or_none()
 
@@ -172,11 +171,13 @@ async def get_slack_connection_status(
             content={
                 "connected": False,
                 "message": "Slack workspace not connected",
-                "workspace_id": workspace_id
-            }
+                "workspace_id": workspace_id,
+            },
         )
 
-    logger.info(f"Slack connection found for workspace {workspace_id}: {slack_installation.team_name}")
+    logger.info(
+        f"Slack connection found for workspace {workspace_id}: {slack_installation.team_name}"
+    )
     return JSONResponse(
         status_code=200,
         content={
@@ -187,9 +188,11 @@ async def get_slack_connection_status(
                 "team_name": slack_installation.team_name,
                 "bot_user_id": slack_installation.bot_user_id,
                 "workspace_id": workspace_id,
-                "installed_at": slack_installation.installed_at.isoformat() if slack_installation.installed_at else None,
-            }
-        }
+                "installed_at": slack_installation.installed_at.isoformat()
+                if slack_installation.installed_at
+                else None,
+            },
+        },
     )
 
 
@@ -218,8 +221,7 @@ async def disconnect_slack_integration(
     # Verify user has access to the workspace
     membership_result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.workspace_id == workspace_id
+            Membership.user_id == user.id, Membership.workspace_id == workspace_id
         )
     )
     membership = membership_result.scalar_one_or_none()
@@ -227,23 +229,19 @@ async def disconnect_slack_integration(
     if not membership:
         logger.error(f"User {user.id} does not have access to workspace {workspace_id}")
         raise HTTPException(
-            status_code=403,
-            detail="User does not have access to this workspace"
+            status_code=403, detail="User does not have access to this workspace"
         )
 
     # Find Slack installation for this workspace
     slack_result = await db.execute(
-        select(SlackInstallation).where(
-            SlackInstallation.workspace_id == workspace_id
-        )
+        select(SlackInstallation).where(SlackInstallation.workspace_id == workspace_id)
     )
     slack_installation = slack_result.scalar_one_or_none()
 
     if not slack_installation:
         logger.warning(f"No Slack integration found for workspace {workspace_id}")
         raise HTTPException(
-            status_code=404,
-            detail="No Slack integration found for this workspace"
+            status_code=404, detail="No Slack integration found for this workspace"
         )
 
     # Store details for response before deletion
@@ -256,7 +254,7 @@ async def disconnect_slack_integration(
         control_plane_result = await db.execute(
             select(Integration).where(
                 Integration.workspace_id == workspace_id,
-                Integration.provider == 'slack'
+                Integration.provider == "slack",
             )
         )
         control_plane_integration = control_plane_result.scalar_one_or_none()
@@ -264,7 +262,9 @@ async def disconnect_slack_integration(
         await db.delete(slack_installation)
         if control_plane_integration:
             await db.delete(control_plane_integration)
-            logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=slack")
+            logger.info(
+                f"Deleted Integration control plane record for workspace={workspace_id}, provider=slack"
+            )
 
         await db.commit()
         logger.info(
@@ -275,8 +275,7 @@ async def disconnect_slack_integration(
         await db.rollback()
         logger.error(f"Error disconnecting Slack integration: {e}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to disconnect Slack integration"
+            status_code=500, detail="Failed to disconnect Slack integration"
         )
 
     return JSONResponse(
@@ -288,9 +287,10 @@ async def disconnect_slack_integration(
                 "workspace_id": workspace_id,
                 "disconnected_team_id": team_id,
                 "disconnected_team_name": team_name,
-            }
-        }
+            },
+        },
     )
+
 
 @slack_router.get("/oauth/callback")
 async def slack_oauth_callback(
@@ -416,7 +416,8 @@ async def slack_oauth_callback(
                         error_msg = data.get("error", "Unknown error")
                         logger.error(f"OAuth token exchange failed: {error_msg}")
                         raise HTTPException(
-                            status_code=400, detail=f"slack installation failed: {error_msg}"
+                            status_code=400,
+                            detail=f"slack installation failed: {error_msg}",
                         )
 
         # Extract slack workspace and token information

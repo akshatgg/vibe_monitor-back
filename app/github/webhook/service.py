@@ -199,7 +199,7 @@ class GitHubWebhookService:
             control_plane_result = await db.execute(
                 select(Integration).where(
                     Integration.workspace_id == workspace_id,
-                    Integration.provider == 'github'
+                    Integration.provider == "github",
                 )
             )
             control_plane_integration = control_plane_result.scalar_one_or_none()
@@ -207,7 +207,9 @@ class GitHubWebhookService:
             await db.delete(integration)
             if control_plane_integration:
                 await db.delete(control_plane_integration)
-                logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=github")
+                logger.info(
+                    f"Deleted Integration control plane record for workspace={workspace_id}, provider=github"
+                )
 
             await db.commit()
 
@@ -269,9 +271,7 @@ class GitHubWebhookService:
         existing = result.scalar_one_or_none()
 
         if existing:
-            logger.info(
-                f"Installation {installation_id} already exists in DB"
-            )
+            logger.info(f"Installation {installation_id} already exists in DB")
             return {
                 "status": "acknowledged",
                 "action": "created",

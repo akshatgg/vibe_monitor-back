@@ -24,9 +24,7 @@ auth_service = AuthService()
 
 
 async def verify_workspace_access(
-    workspace_id: str,
-    user: User,
-    db: AsyncSession
+    workspace_id: str, user: User, db: AsyncSession
 ) -> None:
     """
     Verify that the user has access to the workspace
@@ -41,8 +39,7 @@ async def verify_workspace_access(
     """
     # Check if user is a member of the workspace
     membership_query = select(Membership).where(
-        Membership.workspace_id == workspace_id,
-        Membership.user_id == user.id
+        Membership.workspace_id == workspace_id, Membership.user_id == user.id
     )
 
     result = await db.execute(membership_query)
@@ -51,7 +48,7 @@ async def verify_workspace_access(
     if not membership:
         raise HTTPException(
             status_code=403,
-            detail=f"Access denied. You do not have permission to access workspace: {workspace_id}"
+            detail=f"Access denied. You do not have permission to access workspace: {workspace_id}",
         )
 
 

@@ -1,6 +1,7 @@
 """
 Mailgun API routes.
 """
+
 import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -71,7 +72,9 @@ async def send_slack_nudge_emails(
     """
     try:
         # Subject for Slack integration emails (must match exactly with service.py)
-        slack_email_subject = "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
+        slack_email_subject = (
+            "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
+        )
 
         # Calculate 5 days ago
         five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
@@ -154,7 +157,9 @@ async def send_slack_nudge_emails(
                 )
                 sent_count += 1
             except Exception as e:
-                logger.error(f"Failed to send slack nudge email to user {user.id}: {str(e)}")
+                logger.error(
+                    f"Failed to send slack nudge email to user {user.id}: {str(e)}"
+                )
                 failed_count += 1
 
         return {

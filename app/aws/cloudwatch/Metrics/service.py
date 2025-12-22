@@ -3,6 +3,7 @@ CloudWatch Metrics Service - Standalone functions for CloudWatch Metrics operati
 Uses AWS Integration credentials with automatic refresh mechanism
 Includes caching for CloudWatch clients
 """
+
 import logging
 from typing import Optional, Dict, Any
 import asyncio
@@ -47,10 +48,7 @@ class CloudWatchMetricsService:
 
     @staticmethod
     def _create_boto_session(
-        access_key_id: str,
-        secret_access_key: str,
-        session_token: str,
-        region: str
+        access_key_id: str, secret_access_key: str, session_token: str, region: str
     ):
         """
         Create a thread-safe boto3 session with provided credentials
@@ -95,24 +93,29 @@ class CloudWatchMetricsService:
             cached = CloudWatchMetricsService._client_cache[workspace_id]
             # Reuse client if not expiring within 5 minutes
             if cached["expiration"] > now + timedelta(minutes=5):
-                logger.debug(f"Reusing cached CloudWatch client for workspace {workspace_id}")
+                logger.debug(
+                    f"Reusing cached CloudWatch client for workspace {workspace_id}"
+                )
                 return cached["client"]
             else:
                 # Remove expired cache entry
-                logger.debug(f"Cached client expired for workspace {workspace_id}, refreshing")
+                logger.debug(
+                    f"Cached client expired for workspace {workspace_id}, refreshing"
+                )
                 del CloudWatchMetricsService._client_cache[workspace_id]
 
         # Get decrypted credentials (auto-refreshes if expired)
         credentials = await aws_integration_service.get_decrypted_credentials(
-            db=db,
-            workspace_id=workspace_id
+            db=db, workspace_id=workspace_id
         )
 
         if not credentials:
             raise Exception(f"No AWS integration found for workspace: {workspace_id}")
 
         # Debug logging
-        logger.info(f"CloudWatch Metrics - Workspace: {workspace_id}, Region: {credentials.get('region', 'NOT_SET')}")
+        logger.info(
+            f"CloudWatch Metrics - Workspace: {workspace_id}, Region: {credentials.get('region', 'NOT_SET')}"
+        )
 
         # Create boto3 session with credentials
         session = CloudWatchMetricsService._create_boto_session(
@@ -139,7 +142,7 @@ class CloudWatchMetricsService:
             # Cache the client with its expiration time
             CloudWatchMetricsService._client_cache[workspace_id] = {
                 "client": cloudwatch_client,
-                "expiration": integration.credentials_expiration
+                "expiration": integration.credentials_expiration,
             }
             logger.debug(f"Cached new CloudWatch client for workspace {workspace_id}")
 
@@ -157,16 +160,16 @@ class CloudWatchMetricsService:
         if workspace_id:
             if workspace_id in CloudWatchMetricsService._client_cache:
                 del CloudWatchMetricsService._client_cache[workspace_id]
-                logger.info(f"Cleared CloudWatch client cache for workspace {workspace_id}")
+                logger.info(
+                    f"Cleared CloudWatch client cache for workspace {workspace_id}"
+                )
         else:
             CloudWatchMetricsService._client_cache.clear()
             logger.info("Cleared all CloudWatch client caches")
 
     @staticmethod
     async def list_metrics(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListMetricsRequest
+        db: AsyncSession, workspace_id: str, request: ListMetricsRequest
     ) -> ListMetricsResponse:
         """
         List available CloudWatch metrics with namespaces and dimensions
@@ -187,7 +190,9 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client (credentials auto-refresh)
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Prepare parameters
             params = {}
@@ -207,8 +212,7 @@ class CloudWatchMetricsService:
             # Run boto3 call in thread pool (boto3 is blocking)
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.list_metrics(**params)
+                None, lambda: cloudwatch_client.list_metrics(**params)
             )
 
             # Parse response and apply limit
@@ -220,22 +224,19 @@ class CloudWatchMetricsService:
                 MetricInfo(
                     Namespace=metric.get("Namespace"),
                     MetricName=metric.get("MetricName"),
-                    Dimensions=metric.get("Dimensions")
+                    Dimensions=metric.get("Dimensions"),
                 )
                 for metric in limited_metrics
             ]
 
-            return ListMetricsResponse(
-                Metrics=metrics,
-                TotalCount=len(metrics)
-            )
+            return ListMetricsResponse(Metrics=metrics, TotalCount=len(metrics))
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to list metrics for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
             raise Exception(f"Failed to list metrics: {error_code} - {error_message}")
         except Exception as e:
@@ -244,8 +245,7 @@ class CloudWatchMetricsService:
 
     @staticmethod
     async def list_namespaces(
-        db: AsyncSession,
-        workspace_id: str
+        db: AsyncSession, workspace_id: str
     ) -> ListNamespacesResponse:
         """
         List all unique metric namespaces available
@@ -262,7 +262,9 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Collect all unique namespaces
             namespaces = set()
@@ -276,8 +278,7 @@ class CloudWatchMetricsService:
                     params["NextToken"] = next_token
 
                 response = await loop.run_in_executor(
-                    None,
-                    lambda: cloudwatch_client.list_metrics(**params)
+                    None, lambda: cloudwatch_client.list_metrics(**params)
                 )
 
                 for metric in response.get("Metrics", []):
@@ -288,27 +289,25 @@ class CloudWatchMetricsService:
                 if not next_token:
                     break
 
-            return ListNamespacesResponse(
-                Namespaces=sorted(list(namespaces))
-            )
+            return ListNamespacesResponse(Namespaces=sorted(list(namespaces)))
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to list namespaces for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to list namespaces: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to list namespaces: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to list namespaces: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def get_metric_data(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetMetricDataRequest
+        db: AsyncSession, workspace_id: str, request: GetMetricDataRequest
     ) -> GetMetricDataResponse:
         """
         Get metric data (time-series) for graphing and analysis
@@ -332,7 +331,9 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Prepare metric data queries
             queries = []
@@ -370,14 +371,13 @@ class CloudWatchMetricsService:
                 "StartTime": datetime.fromtimestamp(request.StartTime, tz=timezone.utc),
                 "EndTime": datetime.fromtimestamp(request.EndTime, tz=timezone.utc),
                 "ScanBy": request.ScanBy or "TimestampDescending",
-                "MaxDatapoints": max_datapoints
+                "MaxDatapoints": max_datapoints,
             }
 
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.get_metric_data(**params)
+                None, lambda: cloudwatch_client.get_metric_data(**params)
             )
 
             # Parse response
@@ -388,14 +388,13 @@ class CloudWatchMetricsService:
                     Timestamps=result.get("Timestamps", []),
                     Values=result.get("Values", []),
                     StatusCode=result.get("StatusCode"),
-                    Messages=result.get("Messages")
+                    Messages=result.get("Messages"),
                 )
                 for result in response.get("MetricDataResults", [])
             ]
 
             return GetMetricDataResponse(
-                MetricDataResults=results,
-                Messages=response.get("Messages")
+                MetricDataResults=results, Messages=response.get("Messages")
             )
 
         except ClientError as e:
@@ -403,18 +402,18 @@ class CloudWatchMetricsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to get metric data for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to get metric data: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to get metric data: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to get metric data: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def get_metric_statistics(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetMetricStatisticsRequest
+        db: AsyncSession, workspace_id: str, request: GetMetricStatisticsRequest
     ) -> GetMetricStatisticsResponse:
         """
         Get metric statistics (simpler alternative to get_metric_data)
@@ -435,7 +434,9 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Prepare parameters
             params = {
@@ -443,13 +444,12 @@ class CloudWatchMetricsService:
                 "MetricName": request.MetricName,
                 "StartTime": datetime.fromtimestamp(request.StartTime, tz=timezone.utc),
                 "EndTime": datetime.fromtimestamp(request.EndTime, tz=timezone.utc),
-                "Period": request.Period
+                "Period": request.Period,
             }
 
             if request.Dimensions:
                 params["Dimensions"] = [
-                    {"Name": d.Name, "Value": d.Value}
-                    for d in request.Dimensions
+                    {"Name": d.Name, "Value": d.Value} for d in request.Dimensions
                 ]
 
             if request.Statistics:
@@ -461,8 +461,7 @@ class CloudWatchMetricsService:
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.get_metric_statistics(**params)
+                None, lambda: cloudwatch_client.get_metric_statistics(**params)
             )
 
             # Parse response and apply limit
@@ -496,7 +495,7 @@ class CloudWatchMetricsService:
             return GetMetricStatisticsResponse(
                 Label=response.get("Label", request.MetricName),
                 Datapoints=datapoints,
-                TotalDatapoints=len(datapoints)
+                TotalDatapoints=len(datapoints),
             )
 
         except ClientError as e:
@@ -504,18 +503,18 @@ class CloudWatchMetricsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to get metric statistics for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to get metric statistics: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to get metric statistics: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to get metric statistics: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def list_metric_streams(
-        db: AsyncSession,
-        workspace_id: str,
-        request: ListMetricStreamsRequest
+        db: AsyncSession, workspace_id: str, request: ListMetricStreamsRequest
     ) -> ListMetricStreamsResponse:
         """
         List CloudWatch Metric Streams for this workspace
@@ -536,13 +535,14 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.list_metric_streams()
+                None, lambda: cloudwatch_client.list_metric_streams()
             )
 
             # Parse response and apply limit
@@ -561,33 +561,30 @@ class CloudWatchMetricsService:
                     OutputFormat=entry.get("OutputFormat"),
                     IncludeFilters=entry.get("IncludeFilters"),
                     ExcludeFilters=entry.get("ExcludeFilters"),
-                    StatisticsConfigurations=entry.get("StatisticsConfigurations")
+                    StatisticsConfigurations=entry.get("StatisticsConfigurations"),
                 )
                 for entry in limited_entries
             ]
 
-            return ListMetricStreamsResponse(
-                Entries=entries,
-                TotalCount=len(entries)
-            )
+            return ListMetricStreamsResponse(Entries=entries, TotalCount=len(entries))
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to list metric streams for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to list metric streams: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to list metric streams: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to list metric streams: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def get_metric_stream(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetMetricStreamRequest
+        db: AsyncSession, workspace_id: str, request: GetMetricStreamRequest
     ) -> GetMetricStreamResponse:
         """
         Get detailed information about a specific metric stream
@@ -605,13 +602,14 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.get_metric_stream(Name=request.Name)
+                None, lambda: cloudwatch_client.get_metric_stream(Name=request.Name)
             )
 
             return GetMetricStreamResponse(
@@ -624,7 +622,7 @@ class CloudWatchMetricsService:
                 OutputFormat=response.get("OutputFormat"),
                 IncludeFilters=response.get("IncludeFilters"),
                 ExcludeFilters=response.get("ExcludeFilters"),
-                StatisticsConfigurations=response.get("StatisticsConfigurations")
+                StatisticsConfigurations=response.get("StatisticsConfigurations"),
             )
 
         except ClientError as e:
@@ -632,18 +630,18 @@ class CloudWatchMetricsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to get metric stream for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to get metric stream: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to get metric stream: {error_code} - {error_message}"
+            )
         except Exception as e:
             logger.error(f"Failed to get metric stream: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
     async def describe_anomaly_detectors(
-        db: AsyncSession,
-        workspace_id: str,
-        request: DescribeAnomalyDetectorsRequest
+        db: AsyncSession, workspace_id: str, request: DescribeAnomalyDetectorsRequest
     ) -> DescribeAnomalyDetectorsResponse:
         """
         Describe CloudWatch anomaly detectors
@@ -664,7 +662,9 @@ class CloudWatchMetricsService:
         """
         try:
             # Get CloudWatch client
-            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(db, workspace_id)
+            cloudwatch_client = await CloudWatchMetricsService._get_cloudwatch_client(
+                db, workspace_id
+            )
 
             # Prepare parameters
             params = {}
@@ -677,15 +677,13 @@ class CloudWatchMetricsService:
 
             if request.Dimensions:
                 params["Dimensions"] = [
-                    {"Name": d.Name, "Value": d.Value}
-                    for d in request.Dimensions
+                    {"Name": d.Name, "Value": d.Value} for d in request.Dimensions
                 ]
 
             # Run boto3 call in thread pool
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None,
-                lambda: cloudwatch_client.describe_anomaly_detectors(**params)
+                None, lambda: cloudwatch_client.describe_anomaly_detectors(**params)
             )
 
             # Parse response and apply limit
@@ -700,14 +698,13 @@ class CloudWatchMetricsService:
                     Dimensions=detector.get("Dimensions"),
                     Stat=detector.get("Stat"),
                     Configuration=detector.get("Configuration"),
-                    StateValue=detector.get("StateValue")
+                    StateValue=detector.get("StateValue"),
                 )
                 for detector in limited_detectors
             ]
 
             return DescribeAnomalyDetectorsResponse(
-                AnomalyDetectors=detectors,
-                TotalCount=len(detectors)
+                AnomalyDetectors=detectors, TotalCount=len(detectors)
             )
 
         except ClientError as e:
@@ -715,11 +712,15 @@ class CloudWatchMetricsService:
             error_message = e.response.get("Error", {}).get("Message", str(e))
             logger.error(
                 f"Failed to describe anomaly detectors for workspace {workspace_id}: {error_code} - {error_message}",
-                exc_info=True
+                exc_info=True,
             )
-            raise Exception(f"Failed to describe anomaly detectors: {error_code} - {error_message}")
+            raise Exception(
+                f"Failed to describe anomaly detectors: {error_code} - {error_message}"
+            )
         except Exception as e:
-            logger.error(f"Failed to describe anomaly detectors: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to describe anomaly detectors: {str(e)}", exc_info=True
+            )
             raise
 
 

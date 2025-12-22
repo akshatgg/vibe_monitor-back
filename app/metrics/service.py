@@ -511,14 +511,18 @@ class MetricsService:
                             for target in targets_list:
                                 try:
                                     parsed_target = MetricTarget(
-                                        discoveredLabels=target.get("discoveredLabels", {}),
+                                        discoveredLabels=target.get(
+                                            "discoveredLabels", {}
+                                        ),
                                         labels=target.get("labels", {}),
                                         scrapePool=target.get("scrapePool", ""),
                                         scrapeUrl=target.get("scrapeUrl", ""),
                                         globalUrl=target.get("globalUrl", ""),
                                         lastError=target.get("lastError"),
                                         lastScrape=datetime.fromisoformat(
-                                            target.get("lastScrape", "").replace("Z", "+00:00")
+                                            target.get("lastScrape", "").replace(
+                                                "Z", "+00:00"
+                                            )
                                         ),
                                         lastScrapeDuration=float(
                                             target.get("lastScrapeDuration", 0)
@@ -531,7 +535,8 @@ class MetricsService:
                                     continue
 
                         return TargetsResponse(
-                            status=response_data.get("status", "error"), data=parsed_targets
+                            status=response_data.get("status", "error"),
+                            data=parsed_targets,
                         )
             except httpx.HTTPStatusError as e:
                 logger.error(
@@ -542,9 +547,13 @@ class MetricsService:
                 logger.error(f"Error getting targets status: {e}")
                 return TargetsResponse(status="error", data={})
 
-    async def get_all_labels(self, workspace_id: str, retry_on_auth_error: bool = True) -> LabelResponse:
+    async def get_all_labels(
+        self, workspace_id: str, retry_on_auth_error: bool = True
+    ) -> LabelResponse:
         """Get list of all available metric label keys via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/labels"
 
@@ -559,23 +568,28 @@ class MetricsService:
 
                         if response_data.get("status") == "success":
                             return LabelResponse(
-                                status="success",
-                                data=response_data.get("data", [])
+                                status="success", data=response_data.get("data", [])
                             )
                         else:
                             logger.error(f"Failed to get labels: {response_data}")
                             return LabelResponse(status="error", data=[])
 
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting labels: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting labels: {e.response.status_code} - {e.response.text}"
+                )
                 return LabelResponse(status="error", data=[])
             except Exception as e:
                 logger.error(f"Error getting labels: {e}")
                 return LabelResponse(status="error", data=[])
 
-    async def get_label_values(self, workspace_id: str, label_name: str, retry_on_auth_error: bool = True) -> LabelResponse:
+    async def get_label_values(
+        self, workspace_id: str, label_name: str, retry_on_auth_error: bool = True
+    ) -> LabelResponse:
         """Get all values for a specific label via Grafana datasource proxy"""
-        base_url, api_token, datasource_uid = await self._get_workspace_config(workspace_id)
+        base_url, api_token, datasource_uid = await self._get_workspace_config(
+            workspace_id
+        )
         # Build URL without urljoin to preserve subpath (e.g., /grafana prefix)
         url = f"{base_url.rstrip('/')}/api/datasources/proxy/uid/{datasource_uid}/api/v1/label/{label_name}/values"
 
@@ -590,15 +604,16 @@ class MetricsService:
 
                         if response_data.get("status") == "success":
                             return LabelResponse(
-                                status="success",
-                                data=response_data.get("data", [])
+                                status="success", data=response_data.get("data", [])
                             )
                         else:
                             logger.error(f"Failed to get label values: {response_data}")
                             return LabelResponse(status="error", data=[])
 
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error getting label values: {e.response.status_code} - {e.response.text}")
+                logger.error(
+                    f"HTTP error getting label values: {e.response.status_code} - {e.response.text}"
+                )
                 return LabelResponse(status="error", data=[])
             except Exception as e:
                 logger.error(f"Error getting label values: {e}")

@@ -66,6 +66,7 @@ class TargetsResponse(BaseModel):
 
 class LabelResponse(BaseModel):
     """Response for label queries"""
+
     status: str = Field(description="Query status")
     data: List[str] = Field(description="List of label names or values")
 

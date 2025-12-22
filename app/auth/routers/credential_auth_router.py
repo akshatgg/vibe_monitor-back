@@ -24,7 +24,9 @@ jwt_service = AuthService()
 credential_service = CredentialAuthService(jwt_service)
 
 
-@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED
+)
 async def signup(request: SignupRequest, db: AsyncSession = Depends(get_db)):
     """
     Register a new user with email and password.

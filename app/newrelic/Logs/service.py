@@ -2,6 +2,7 @@
 New Relic Logs Service - Standalone functions for New Relic Logs operations
 Uses New Relic Integration credentials (account_id + api_key)
 """
+
 import logging
 import httpx
 from typing import Dict, Any
@@ -53,7 +54,9 @@ class NewRelicLogsService:
         integration = result.scalar_one_or_none()
 
         if not integration:
-            raise Exception(f"No New Relic integration found for workspace: {workspace_id}")
+            raise Exception(
+                f"No New Relic integration found for workspace: {workspace_id}"
+            )
 
         # Decrypt API key
         try:
@@ -69,9 +72,7 @@ class NewRelicLogsService:
 
     @staticmethod
     async def _execute_nrql_query(
-        account_id: str,
-        api_key: str,
-        nrql_query: str
+        account_id: str, api_key: str, nrql_query: str
     ) -> Dict[str, Any]:
         """
         Execute an NRQL query against New Relic GraphQL API
@@ -110,25 +111,16 @@ class NewRelicLogsService:
         }
         """
 
-        variables = {
-            "accountId": int(account_id),
-            "nrql": nrql_query
-        }
+        variables = {"accountId": int(account_id), "nrql": nrql_query}
 
-        headers = {
-            "Content-Type": "application/json",
-            "API-Key": api_key
-        }
+        headers = {"Content-Type": "application/json", "API-Key": api_key}
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.post(
                     NewRelicLogsService.GRAPHQL_API_URL,
-                    json={
-                        "query": graphql_query,
-                        "variables": variables
-                    },
-                    headers=headers
+                    json={"query": graphql_query, "variables": variables},
+                    headers=headers,
                 )
 
                 if response.status_code == 401:
@@ -138,7 +130,9 @@ class NewRelicLogsService:
                     raise Exception("API key does not have access to this account")
 
                 if response.status_code != 200:
-                    raise Exception(f"New Relic API request failed with status {response.status_code}")
+                    raise Exception(
+                        f"New Relic API request failed with status {response.status_code}"
+                    )
 
                 data = response.json()
 
@@ -148,7 +142,12 @@ class NewRelicLogsService:
                     raise Exception(f"NRQL query failed: {error_msg}")
 
                 # Extract results
-                nrql_data = data.get("data", {}).get("actor", {}).get("account", {}).get("nrql", {})
+                nrql_data = (
+                    data.get("data", {})
+                    .get("actor", {})
+                    .get("account", {})
+                    .get("nrql", {})
+                )
 
                 return nrql_data
 
@@ -161,9 +160,7 @@ class NewRelicLogsService:
 
     @staticmethod
     async def query_logs(
-        db: AsyncSession,
-        workspace_id: str,
-        request: QueryLogsRequest
+        db: AsyncSession, workspace_id: str, request: QueryLogsRequest
     ) -> QueryLogsResponse:
         """
         Query New Relic logs using NRQL (standalone function for RCA bot)
@@ -181,13 +178,15 @@ class NewRelicLogsService:
         """
         try:
             # Get credentials
-            credentials = await NewRelicLogsService._get_newrelic_credentials(db, workspace_id)
+            credentials = await NewRelicLogsService._get_newrelic_credentials(
+                db, workspace_id
+            )
 
             # Execute NRQL query
             nrql_data = await NewRelicLogsService._execute_nrql_query(
                 account_id=credentials["account_id"],
                 api_key=credentials["api_key"],
-                nrql_query=request.nrql_query
+                nrql_query=request.nrql_query,
             )
 
             # Parse results
@@ -195,9 +194,7 @@ class NewRelicLogsService:
             metadata = nrql_data.get("metadata", {})
 
             return QueryLogsResponse(
-                results=results,
-                totalCount=len(results),
-                metadata=metadata
+                results=results, totalCount=len(results), metadata=metadata
             )
 
         except Exception as e:
@@ -206,9 +203,7 @@ class NewRelicLogsService:
 
     @staticmethod
     async def filter_logs(
-        db: AsyncSession,
-        workspace_id: str,
-        request: FilterLogsRequest
+        db: AsyncSession, workspace_id: str, request: FilterLogsRequest
     ) -> FilterLogsResponse:
         """
         Filter New Relic logs with common parameters (standalone function for RCA bot)
@@ -257,13 +252,9 @@ class NewRelicLogsService:
             logger.info(f"Generated NRQL query: {nrql_query}")
 
             # Execute query
-            query_request = QueryLogsRequest(
-                nrql_query=nrql_query
-            )
+            query_request = QueryLogsRequest(nrql_query=nrql_query)
             query_response = await NewRelicLogsService.query_logs(
-                db=db,
-                workspace_id=workspace_id,
-                request=query_request
+                db=db, workspace_id=workspace_id, request=query_request
             )
 
             # Convert to LogResult objects
@@ -271,15 +262,13 @@ class NewRelicLogsService:
                 LogResult(
                     timestamp=log.get("timestamp"),
                     message=log.get("message"),
-                    attributes=log
+                    attributes=log,
                 )
                 for log in query_response.results
             ]
 
             return FilterLogsResponse(
-                logs=logs,
-                totalCount=len(logs),
-                hasMore=len(logs) >= limit
+                logs=logs, totalCount=len(logs), hasMore=len(logs) >= limit
             )
 
         except Exception as e:

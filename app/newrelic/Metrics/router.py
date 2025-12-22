@@ -3,6 +3,7 @@ New Relic Metrics API Router
 Provides OPEN endpoints for New Relic Metrics operations (no authentication)
 Designed for RCA bot integration and testing
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,16 +64,13 @@ async def query_metrics(
     """
     try:
         response = await newrelic_metrics_service.query_metrics(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to query New Relic metrics: {str(e)}"
+            status_code=500, detail=f"Failed to query New Relic metrics: {str(e)}"
         )
 
 
@@ -112,16 +110,13 @@ async def get_time_series(
     """
     try:
         response = await newrelic_metrics_service.get_time_series(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get time series metrics: {str(e)}"
+            status_code=500, detail=f"Failed to get time series metrics: {str(e)}"
         )
 
 
@@ -165,16 +160,11 @@ async def get_infra_metrics(
     """
     try:
         response = await newrelic_metrics_service.get_infra_metrics(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get infrastructure metrics: {str(e)}"
+            status_code=500, detail=f"Failed to get infrastructure metrics: {str(e)}"
         )
-
-

@@ -2,6 +2,7 @@
 New Relic Metrics Service - Standalone functions for New Relic Metrics operations
 Uses New Relic Integration credentials (account_id + api_key)
 """
+
 import logging
 import httpx
 from typing import Dict, Any
@@ -54,7 +55,9 @@ class NewRelicMetricsService:
         integration = result.scalar_one_or_none()
 
         if not integration:
-            raise Exception(f"No New Relic integration found for workspace: {workspace_id}")
+            raise Exception(
+                f"No New Relic integration found for workspace: {workspace_id}"
+            )
 
         # Decrypt API key
         try:
@@ -70,9 +73,7 @@ class NewRelicMetricsService:
 
     @staticmethod
     async def _execute_nrql_query(
-        account_id: str,
-        api_key: str,
-        nrql_query: str
+        account_id: str, api_key: str, nrql_query: str
     ) -> Dict[str, Any]:
         """
         Execute an NRQL query against New Relic GraphQL API
@@ -111,25 +112,16 @@ class NewRelicMetricsService:
         }
         """
 
-        variables = {
-            "accountId": int(account_id),
-            "nrql": nrql_query
-        }
+        variables = {"accountId": int(account_id), "nrql": nrql_query}
 
-        headers = {
-            "Content-Type": "application/json",
-            "API-Key": api_key
-        }
+        headers = {"Content-Type": "application/json", "API-Key": api_key}
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.post(
                     NewRelicMetricsService.GRAPHQL_API_URL,
-                    json={
-                        "query": graphql_query,
-                        "variables": variables
-                    },
-                    headers=headers
+                    json={"query": graphql_query, "variables": variables},
+                    headers=headers,
                 )
 
                 if response.status_code == 401:
@@ -139,7 +131,9 @@ class NewRelicMetricsService:
                     raise Exception("API key does not have access to this account")
 
                 if response.status_code != 200:
-                    raise Exception(f"New Relic API request failed with status {response.status_code}")
+                    raise Exception(
+                        f"New Relic API request failed with status {response.status_code}"
+                    )
 
                 data = response.json()
 
@@ -149,7 +143,12 @@ class NewRelicMetricsService:
                     raise Exception(f"NRQL query failed: {error_msg}")
 
                 # Extract results
-                nrql_data = data.get("data", {}).get("actor", {}).get("account", {}).get("nrql", {})
+                nrql_data = (
+                    data.get("data", {})
+                    .get("actor", {})
+                    .get("account", {})
+                    .get("nrql", {})
+                )
 
                 return nrql_data
 
@@ -162,9 +161,7 @@ class NewRelicMetricsService:
 
     @staticmethod
     async def query_metrics(
-        db: AsyncSession,
-        workspace_id: str,
-        request: QueryMetricsRequest
+        db: AsyncSession, workspace_id: str, request: QueryMetricsRequest
     ) -> QueryMetricsResponse:
         """
         Query New Relic metrics using NRQL (standalone function for RCA bot)
@@ -182,13 +179,15 @@ class NewRelicMetricsService:
         """
         try:
             # Get credentials
-            credentials = await NewRelicMetricsService._get_newrelic_credentials(db, workspace_id)
+            credentials = await NewRelicMetricsService._get_newrelic_credentials(
+                db, workspace_id
+            )
 
             # Execute NRQL query
             nrql_data = await NewRelicMetricsService._execute_nrql_query(
                 account_id=credentials["account_id"],
                 api_key=credentials["api_key"],
-                nrql_query=request.nrql_query
+                nrql_query=request.nrql_query,
             )
 
             # Parse results
@@ -196,9 +195,7 @@ class NewRelicMetricsService:
             metadata = nrql_data.get("metadata", {})
 
             return QueryMetricsResponse(
-                results=results,
-                totalCount=len(results),
-                metadata=metadata
+                results=results, totalCount=len(results), metadata=metadata
             )
 
         except Exception as e:
@@ -207,9 +204,7 @@ class NewRelicMetricsService:
 
     @staticmethod
     async def get_time_series(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetTimeSeriesRequest
+        db: AsyncSession, workspace_id: str, request: GetTimeSeriesRequest
     ) -> GetTimeSeriesResponse:
         """
         Get time series metrics (standalone function for RCA bot)
@@ -230,7 +225,7 @@ class NewRelicMetricsService:
             agg_func = request.aggregation or "average"
             nrql_parts = [
                 f"SELECT {agg_func}({request.metric_name}) as value",
-                "FROM Metric"
+                "FROM Metric",
             ]
 
             # Add WHERE clause if provided
@@ -248,13 +243,9 @@ class NewRelicMetricsService:
             logger.info(f"Generated time series NRQL: {nrql_query}")
 
             # Execute query
-            query_request = QueryMetricsRequest(
-                nrql_query=nrql_query
-            )
+            query_request = QueryMetricsRequest(nrql_query=nrql_query)
             query_response = await NewRelicMetricsService.query_metrics(
-                db=db,
-                workspace_id=workspace_id,
-                request=query_request
+                db=db, workspace_id=workspace_id, request=query_request
             )
 
             # Parse results into time series data points
@@ -266,7 +257,7 @@ class NewRelicMetricsService:
                     data_points.append(
                         TimeSeriesDataPoint(
                             timestamp=result.get("beginTimeSeconds", 0),
-                            value=result.get("value")  # Allow None
+                            value=result.get("value"),  # Allow None
                         )
                     )
                 else:
@@ -274,7 +265,7 @@ class NewRelicMetricsService:
                     data_points.append(
                         TimeSeriesDataPoint(
                             timestamp=request.endTime,
-                            value=result.get("value")  # Allow None
+                            value=result.get("value"),  # Allow None
                         )
                     )
 
@@ -282,7 +273,7 @@ class NewRelicMetricsService:
                 metricName=request.metric_name,
                 dataPoints=data_points,
                 aggregation=agg_func,
-                totalCount=len(data_points)
+                totalCount=len(data_points),
             )
 
         except Exception as e:
@@ -291,9 +282,7 @@ class NewRelicMetricsService:
 
     @staticmethod
     async def get_infra_metrics(
-        db: AsyncSession,
-        workspace_id: str,
-        request: GetInfraMetricsRequest
+        db: AsyncSession, workspace_id: str, request: GetInfraMetricsRequest
     ) -> GetInfraMetricsResponse:
         """
         Get infrastructure metrics (standalone function for RCA bot)
@@ -314,7 +303,7 @@ class NewRelicMetricsService:
             agg_func = request.aggregation or "average"
             nrql_parts = [
                 f"SELECT {agg_func}({request.metric_name}) as value",
-                "FROM SystemSample"
+                "FROM SystemSample",
             ]
 
             # Add hostname filter if provided
@@ -329,13 +318,9 @@ class NewRelicMetricsService:
             logger.info(f"Generated infrastructure NRQL: {nrql_query}")
 
             # Execute query
-            query_request = QueryMetricsRequest(
-                nrql_query=nrql_query
-            )
+            query_request = QueryMetricsRequest(nrql_query=nrql_query)
             query_response = await NewRelicMetricsService.query_metrics(
-                db=db,
-                workspace_id=workspace_id,
-                request=query_request
+                db=db, workspace_id=workspace_id, request=query_request
             )
 
             # Parse results
@@ -345,7 +330,7 @@ class NewRelicMetricsService:
                     data_points.append(
                         TimeSeriesDataPoint(
                             timestamp=result.get("beginTimeSeconds", 0),
-                            value=result.get("value")  # Allow None
+                            value=result.get("value"),  # Allow None
                         )
                     )
 
@@ -353,13 +338,14 @@ class NewRelicMetricsService:
                 metricName=request.metric_name,
                 dataPoints=data_points,
                 aggregation=agg_func,
-                totalCount=len(data_points)
+                totalCount=len(data_points),
             )
 
         except Exception as e:
-            logger.error(f"Failed to get infrastructure metrics: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to get infrastructure metrics: {str(e)}", exc_info=True
+            )
             raise
-
 
 
 # Create service instance

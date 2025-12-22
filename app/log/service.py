@@ -176,7 +176,7 @@ class LogsService:
         if labels:
             query = "{" + ",".join(labels) + "}"
         else:
-            query = '{' + label_key + '=~".+"}'  # Match all services if no filter
+            query = "{" + label_key + '=~".+"}'  # Match all services if no filter
 
         # Add line filter for search term
         if search_term:

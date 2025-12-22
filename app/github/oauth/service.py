@@ -135,7 +135,7 @@ class GitHubAppService:
         existing_control_plane_result = await db.execute(
             select(Integration).where(
                 Integration.workspace_id == workspace_id,
-                Integration.provider == 'github'
+                Integration.provider == "github",
             )
         )
         existing_control_plane = existing_control_plane_result.scalar_one_or_none()
@@ -144,23 +144,27 @@ class GitHubAppService:
             # Reuse existing control plane integration
             control_plane_id = existing_control_plane.id
             control_plane_integration = existing_control_plane
-            control_plane_integration.status = 'active'
+            control_plane_integration.status = "active"
             control_plane_integration.updated_at = datetime.now(timezone.utc)
-            logger.info(f"Reusing existing GitHub integration {control_plane_id} for workspace {workspace_id}")
+            logger.info(
+                f"Reusing existing GitHub integration {control_plane_id} for workspace {workspace_id}"
+            )
         else:
             # Create new Integration control plane record
             control_plane_id = str(uuid.uuid4())
             control_plane_integration = Integration(
                 id=control_plane_id,
                 workspace_id=workspace_id,
-                provider='github',
-                status='active',
+                provider="github",
+                status="active",
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
             db.add(control_plane_integration)
             await db.flush()  # Get ID without committing
-            logger.info(f"Created new GitHub integration {control_plane_id} for workspace {workspace_id}")
+            logger.info(
+                f"Created new GitHub integration {control_plane_id} for workspace {workspace_id}"
+            )
 
         # Create provider-specific integration linked to control plane
         provider_integration_id = str(uuid.uuid4())
@@ -186,10 +190,10 @@ class GitHubAppService:
             control_plane_integration.health_status = health_status
             control_plane_integration.last_verified_at = datetime.now(timezone.utc)
             control_plane_integration.last_error = error_message
-            if health_status == 'healthy':
-                control_plane_integration.status = 'active'
-            elif health_status == 'failed':
-                control_plane_integration.status = 'error'
+            if health_status == "healthy":
+                control_plane_integration.status = "active"
+            elif health_status == "failed":
+                control_plane_integration.status = "error"
             await db.commit()
             logger.info(
                 f"GitHub integration created with health_status={health_status}: "

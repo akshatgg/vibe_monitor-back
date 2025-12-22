@@ -80,7 +80,9 @@ Your response must be exactly one word: true OR false"""
     def __init__(self):
         """Initialize the LLM Guard with its own LangChain Groq instance"""
         if not settings.GROQ_API_KEY:
-            logger.warning("GROQ_API_KEY not configured. LLM Guard will fail validations.")
+            logger.warning(
+                "GROQ_API_KEY not configured. LLM Guard will fail validations."
+            )
             self.llm = None
         else:
             # Create separate LangChain Groq instance for security guard
@@ -104,8 +106,12 @@ Your response must be exactly one word: true OR false"""
 
             self.llm = ChatGroq(**llm_params)
 
-            token_info = f"max_tokens={self.max_tokens}" if self.max_tokens else "no token limit"
-            logger.info(f"LLM Guard initialized with {self.model} ({token_info}, temp={self.temperature}) via LangChain")
+            token_info = (
+                f"max_tokens={self.max_tokens}" if self.max_tokens else "no token limit"
+            )
+            logger.info(
+                f"LLM Guard initialized with {self.model} ({token_info}, temp={self.temperature}) via LangChain"
+            )
 
     async def _store_security_event(
         self,
@@ -149,7 +155,9 @@ Your response must be exactly one word: true OR false"""
                 )
                 session.add(security_event)
                 await session.commit()
-                logger.info(f"Security event stored: {event_type.value} (severity: {severity})")
+                logger.info(
+                    f"Security event stored: {event_type.value} (severity: {severity})"
+                )
         except Exception as e:
             logger.error(f"Failed to store security event: {e}", exc_info=True)
             # Don't raise - we don't want database errors to break the guard
@@ -186,19 +194,21 @@ Your response must be exactly one word: true OR false"""
                 "is_safe": True,
                 "blocked": False,
                 "reason": "Empty message",
-                "llm_response": "true"
+                "llm_response": "true",
             }
 
         if not self.llm:
-            logger.error("GROQ_API_KEY not configured. Cannot perform LLM guard validation.")
+            logger.error(
+                "GROQ_API_KEY not configured. Cannot perform LLM guard validation."
+            )
             # Fail closed: block if guard is not configured
             logger.error(
                 "LLM Guard not configured - message blocked for safety",
                 extra={
                     "alert_type": "prompt_injection_guard_degraded",
                     "security_event": True,
-                    "reason": "guard_not_configured"
-                }
+                    "reason": "guard_not_configured",
+                },
             )
 
             # Store security event
@@ -218,7 +228,7 @@ Your response must be exactly one word: true OR false"""
                 "is_safe": False,
                 "blocked": True,
                 "reason": "Guard not configured (fail-closed)",
-                "llm_response": None
+                "llm_response": None,
             }
 
         try:
@@ -226,22 +236,32 @@ Your response must be exactly one word: true OR false"""
             full_prompt = self.GUARD_SYSTEM_PROMPT.format(user_message=user_message)
 
             # Debug: Log prompt details (using same config values, no magic strings!)
-            token_info = f"max_tokens={self.max_tokens}" if self.max_tokens else "no token limit"
-            logger.info(f"[DEBUG] LLM Guard - Calling Groq with model={self.model}, temperature={self.temperature}, {token_info}")
-            logger.info(f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, Message to validate: '{user_message[:50]}...'")
+            token_info = (
+                f"max_tokens={self.max_tokens}" if self.max_tokens else "no token limit"
+            )
+            logger.info(
+                f"[DEBUG] LLM Guard - Calling Groq with model={self.model}, temperature={self.temperature}, {token_info}"
+            )
+            logger.info(
+                f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, Message to validate: '{user_message[:50]}...'"
+            )
 
             # Call Groq via LangChain (completely separate from main RCA agent)
             response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
 
             # Debug: Log raw response object
             logger.info(f"[DEBUG] LLM Guard - Response object type: {type(response)}")
-            logger.info(f"[DEBUG] LLM Guard - Response.content type: {type(response.content)}, value: '{response.content}'")
+            logger.info(
+                f"[DEBUG] LLM Guard - Response.content type: {type(response.content)}, value: '{response.content}'"
+            )
 
             # Extract response text
             llm_response = response.content.strip().lower() if response.content else ""
 
             # Log the raw response for debugging
-            logger.info(f"LLM Guard validation - Context: {context or 'None'}, Raw Response: '{llm_response}' (length: {len(llm_response)})")
+            logger.info(
+                f"LLM Guard validation - Context: {context or 'None'}, Raw Response: '{llm_response}' (length: {len(llm_response)})"
+            )
 
             # Handle unexpected/empty responses
             if not llm_response or llm_response not in ["true", "false"]:
@@ -253,8 +273,8 @@ Your response must be exactly one word: true OR false"""
                         "security_event": True,
                         "reason": "invalid_guard_response",
                         "guard_response": llm_response,
-                        "message_preview": user_message[:100]
-                    }
+                        "message_preview": user_message[:100],
+                    },
                 )
 
                 # Store security event
@@ -275,7 +295,7 @@ Your response must be exactly one word: true OR false"""
                     "is_safe": False,
                     "blocked": True,
                     "reason": "Guard returned invalid response - blocked for safety",
-                    "llm_response": llm_response
+                    "llm_response": llm_response,
                 }
 
             # Check if response is "true" (safe) or "false" (malicious)
@@ -288,8 +308,8 @@ Your response must be exactly one word: true OR false"""
                         "alert_type": "prompt_injection",
                         "security_event": True,
                         "context": context or "None",
-                        "message_preview": user_message[:100]
-                    }
+                        "message_preview": user_message[:100],
+                    },
                 )
 
                 # Store security event for prompt injection
@@ -308,8 +328,10 @@ Your response must be exactly one word: true OR false"""
             return {
                 "is_safe": is_safe,
                 "blocked": not is_safe,
-                "reason": "LLM guard validation" if is_safe else "Prompt injection detected by LLM guard",
-                "llm_response": llm_response
+                "reason": "LLM guard validation"
+                if is_safe
+                else "Prompt injection detected by LLM guard",
+                "llm_response": llm_response,
             }
 
         except Exception as e:
@@ -321,8 +343,8 @@ Your response must be exactly one word: true OR false"""
                     "alert_type": "prompt_injection_guard_degraded",
                     "security_event": True,
                     "reason": "guard_exception",
-                    "error": str(e)
-                }
+                    "error": str(e),
+                },
             )
 
             # Store security event for guard exception
@@ -332,7 +354,11 @@ Your response must be exactly one word: true OR false"""
                 message_preview=user_message[:200] if user_message else None,
                 guard_response=None,
                 reason="Guard exception occurred",
-                event_metadata={"context": context, "error": str(e), "error_type": type(e).__name__},
+                event_metadata={
+                    "context": context,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
                 workspace_id=workspace_id,
                 slack_integration_id=slack_integration_id,
                 slack_user_id=slack_user_id,
@@ -342,7 +368,7 @@ Your response must be exactly one word: true OR false"""
                 "is_safe": False,
                 "blocked": True,
                 "reason": f"Guard error: {str(e)}",
-                "llm_response": None
+                "llm_response": None,
             }
 
 

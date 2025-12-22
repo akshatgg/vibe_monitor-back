@@ -1,6 +1,7 @@
 """
 Pydantic schemas for Mailgun API.
 """
+
 from pydantic import BaseModel, EmailStr
 
 

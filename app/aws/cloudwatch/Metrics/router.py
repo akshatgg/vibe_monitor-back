@@ -3,6 +3,7 @@ CloudWatch Metrics API Router
 Provides OPEN endpoints for CloudWatch Metrics operations (no authentication)
 Designed for RCA bot integration
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,17 +58,12 @@ async def list_metrics(
     """
     try:
         response = await cloudwatch_metrics_service.list_metrics(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list metrics: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to list metrics: {str(e)}")
 
 
 @router.get("/namespaces", response_model=ListNamespacesResponse)
@@ -94,15 +90,13 @@ async def list_namespaces(
     """
     try:
         response = await cloudwatch_metrics_service.list_namespaces(
-            db=db,
-            workspace_id=workspace_id
+            db=db, workspace_id=workspace_id
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list namespaces: {str(e)}"
+            status_code=500, detail=f"Failed to list namespaces: {str(e)}"
         )
 
 
@@ -157,20 +151,21 @@ async def get_metric_data(
     """
     try:
         response = await cloudwatch_metrics_service.get_metric_data(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get metric data: {str(e)}"
+            status_code=500, detail=f"Failed to get metric data: {str(e)}"
         )
 
 
-@router.post("/statistics", response_model=GetMetricStatisticsResponse, response_model_exclude_none=True)
+@router.post(
+    "/statistics",
+    response_model=GetMetricStatisticsResponse,
+    response_model_exclude_none=True,
+)
 async def get_metric_statistics(
     request: GetMetricStatisticsRequest,
     workspace_id: str = Query(..., description="Workspace ID"),
@@ -200,16 +195,13 @@ async def get_metric_statistics(
     """
     try:
         response = await cloudwatch_metrics_service.get_metric_statistics(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get metric statistics: {str(e)}"
+            status_code=500, detail=f"Failed to get metric statistics: {str(e)}"
         )
 
 
@@ -241,16 +233,13 @@ async def list_metric_streams(
     """
     try:
         response = await cloudwatch_metrics_service.list_metric_streams(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list metric streams: {str(e)}"
+            status_code=500, detail=f"Failed to list metric streams: {str(e)}"
         )
 
 
@@ -277,16 +266,13 @@ async def get_metric_stream(
     """
     try:
         response = await cloudwatch_metrics_service.get_metric_stream(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get metric stream: {str(e)}"
+            status_code=500, detail=f"Failed to get metric stream: {str(e)}"
         )
 
 
@@ -324,14 +310,11 @@ async def describe_anomaly_detectors(
     """
     try:
         response = await cloudwatch_metrics_service.describe_anomaly_detectors(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to describe anomaly detectors: {str(e)}"
+            status_code=500, detail=f"Failed to describe anomaly detectors: {str(e)}"
         )

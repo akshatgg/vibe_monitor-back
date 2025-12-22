@@ -23,11 +23,7 @@ logger = logging.getLogger(__name__)
 class GrafanaService:
     """Service for managing Grafana integrations"""
 
-    async def validate_credentials(
-        self,
-        grafana_url: str,
-        api_token: str
-    ) -> bool:
+    async def validate_credentials(self, grafana_url: str, api_token: str) -> bool:
         """
         Validate Grafana URL and API token by testing authentication.
 
@@ -46,7 +42,7 @@ class GrafanaService:
             url = f"{grafana_url.rstrip('/')}/api/user"
             headers = {
                 "Authorization": f"Bearer {api_token}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -56,16 +52,22 @@ class GrafanaService:
 
                         # 200 = valid credentials, 401 = invalid token, 403 = insufficient permissions
                         if response.status_code == 200:
-                            logger.info(f"Grafana credentials validated successfully for {grafana_url}")
+                            logger.info(
+                                f"Grafana credentials validated successfully for {grafana_url}"
+                            )
                             return True
                         elif response.status_code == 401:
-                            logger.warning("Grafana authentication failed: Invalid API token")
+                            logger.warning(
+                                "Grafana authentication failed: Invalid API token"
+                            )
                             return False
                         elif response.status_code == 403:
                             logger.warning("Grafana token has insufficient permissions")
                             return False
                         else:
-                            logger.warning(f"Grafana credentials validation failed: {response.status_code}")
+                            logger.warning(
+                                f"Grafana credentials validation failed: {response.status_code}"
+                            )
                             return False
 
         except httpx.TimeoutException:
@@ -126,7 +128,7 @@ class GrafanaService:
         existing_control_plane_result = await db.execute(
             select(Integration).where(
                 Integration.workspace_id == workspace_id,
-                Integration.provider == 'grafana'
+                Integration.provider == "grafana",
             )
         )
         existing_control_plane = existing_control_plane_result.scalar_one_or_none()
@@ -135,23 +137,27 @@ class GrafanaService:
             # Reuse existing control plane integration
             control_plane_id = existing_control_plane.id
             control_plane_integration = existing_control_plane
-            control_plane_integration.status = 'active'
+            control_plane_integration.status = "active"
             control_plane_integration.updated_at = datetime.now(timezone.utc)
-            logger.info(f"Reusing existing Grafana integration {control_plane_id} for workspace {workspace_id}")
+            logger.info(
+                f"Reusing existing Grafana integration {control_plane_id} for workspace {workspace_id}"
+            )
         else:
             # Create new Integration control plane record
             control_plane_id = str(uuid.uuid4())
             control_plane_integration = Integration(
                 id=control_plane_id,
                 workspace_id=workspace_id,
-                provider='grafana',
-                status='active',
+                provider="grafana",
+                status="active",
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
             db.add(control_plane_integration)
             await db.flush()
-            logger.info(f"Created new Grafana integration {control_plane_id} for workspace {workspace_id}")
+            logger.info(
+                f"Created new Grafana integration {control_plane_id} for workspace {workspace_id}"
+            )
 
         # Create provider-specific integration linked to control plane
         integration = GrafanaIntegration(
@@ -172,10 +178,10 @@ class GrafanaService:
             control_plane_integration.health_status = health_status
             control_plane_integration.last_verified_at = datetime.now(timezone.utc)
             control_plane_integration.last_error = error_message
-            if health_status == 'healthy':
-                control_plane_integration.status = 'active'
-            elif health_status == 'failed':
-                control_plane_integration.status = 'error'
+            if health_status == "healthy":
+                control_plane_integration.status = "active"
+            elif health_status == "failed":
+                control_plane_integration.status = "error"
             await db.commit()
             logger.info(
                 f"Grafana integration created with health_status={health_status}: "
@@ -210,9 +216,7 @@ class GrafanaService:
         )
         return result.scalar_one_or_none()
 
-    async def delete_integration(
-        self, workspace_id: str, db: AsyncSession
-    ) -> bool:
+    async def delete_integration(self, workspace_id: str, db: AsyncSession) -> bool:
         """
         Delete Grafana integration for a workspace.
 
@@ -232,7 +236,7 @@ class GrafanaService:
         control_plane_result = await db.execute(
             select(Integration).where(
                 Integration.workspace_id == workspace_id,
-                Integration.provider == 'grafana'
+                Integration.provider == "grafana",
             )
         )
         control_plane_integration = control_plane_result.scalar_one_or_none()
@@ -240,10 +244,11 @@ class GrafanaService:
         await db.delete(integration)
         if control_plane_integration:
             await db.delete(control_plane_integration)
-            logger.info(f"Deleted Integration control plane record for workspace={workspace_id}, provider=grafana")
+            logger.info(
+                f"Deleted Integration control plane record for workspace={workspace_id}, provider=grafana"
+            )
 
         await db.commit()
 
         logger.info(f"Deleted Grafana integration for workspace {workspace_id}")
         return True
-

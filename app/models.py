@@ -114,27 +114,42 @@ class Integration(Base):
     The 'provider' column serves as both the provider name and type identifier
     (e.g., 'github', 'grafana', 'aws', 'datadog', 'newrelic', 'slack').
     """
+
     __tablename__ = "integrations"
 
     id = Column(String, primary_key=True)
-    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
 
     # Provider serves as both provider name and type
-    provider = Column(String, nullable=False)  # 'github', 'grafana', 'aws', 'datadog', 'newrelic', 'slack'
+    provider = Column(
+        String, nullable=False
+    )  # 'github', 'grafana', 'aws', 'datadog', 'newrelic', 'slack'
 
     # Lifecycle
-    status = Column(String, nullable=False, default='active')  # 'active', 'disabled', 'error'
-    health_status = Column(String, nullable=True)  # 'healthy' or 'failed', NULL means not yet checked
+    status = Column(
+        String, nullable=False, default="active"
+    )  # 'active', 'disabled', 'error'
+    health_status = Column(
+        String, nullable=True
+    )  # 'healthy' or 'failed', NULL means not yet checked
 
     # Verification
     last_verified_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     # Indexes defined in migration file
+
+
 class EmailVerification(Base):
     """
     Stores email verification and password reset tokens.
@@ -146,8 +161,12 @@ class EmailVerification(Base):
     id = Column(String, primary_key=True)  # UUID
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     token = Column(String, unique=True, nullable=False)  # Encrypted token for security
-    token_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hash for O(1) lookup
-    token_type = Column(String, nullable=False)  # 'email_verification' or 'password_reset'
+    token_hash = Column(
+        String(64), nullable=True, index=True
+    )  # SHA-256 hash for O(1) lookup
+    token_type = Column(
+        String, nullable=False
+    )  # 'email_verification' or 'password_reset'
     expires_at = Column(DateTime(timezone=True), nullable=False)
     verified_at = Column(DateTime(timezone=True), nullable=True)  # NULL if not used yet
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -168,7 +187,9 @@ class GrafanaIntegration(Base):
 
     id = Column(String, primary_key=True)
     vm_workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+    )
     grafana_url = Column(String(500), nullable=False)
     api_token = Column(String(500), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -204,7 +225,9 @@ class SlackInstallation(Base):
     workspace_id = Column(
         String, ForeignKey("workspaces.id"), nullable=True
     )  # Optional link to internal workspace
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True
+    )
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -214,7 +237,9 @@ class GitHubIntegration(Base):
 
     id = Column(String, primary_key=True)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+    )
 
     github_user_id = Column(String, nullable=False)
     github_username = Column(String, nullable=False)
@@ -238,9 +263,7 @@ class GitHubIntegration(Base):
     workspace = relationship("Workspace", backref="github_integrations")
 
     # Indexes for query performance
-    __table_args__ = (
-        Index("idx_github_integration_installation", "installation_id"),
-    )
+    __table_args__ = (Index("idx_github_integration_installation", "installation_id"),)
 
 
 # Job Orchestration Models
@@ -313,9 +336,7 @@ class RateLimitTracking(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    resource_type = Column(
-        String, nullable=False
-    )  # e.g., 'rca_request', 'api_call'
+    resource_type = Column(String, nullable=False)  # e.g., 'rca_request', 'api_call'
     window_key = Column(
         String, nullable=False
     )  # e.g., '2025-10-15' (daily), '2025-10-15-14' (hourly)
@@ -383,10 +404,14 @@ class AWSIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+    )
 
     # IAM Role ARN for AssumeRole
-    role_arn = Column(String, nullable=False)  # e.g., arn:aws:iam::123456789012:role/VibeMonitor
+    role_arn = Column(
+        String, nullable=False
+    )  # e.g., arn:aws:iam::123456789012:role/VibeMonitor
 
     # External ID for secure cross-account access (encrypted)
     external_id = Column(String, nullable=True)  # Encrypted external ID for AssumeRole
@@ -397,7 +422,9 @@ class AWSIntegration(Base):
     session_token = Column(String, nullable=False)  # Encrypted session token
 
     # Credential expiration tracking
-    credentials_expiration = Column(DateTime(timezone=True), nullable=False)  # When STS credentials expire
+    credentials_expiration = Column(
+        DateTime(timezone=True), nullable=False
+    )  # When STS credentials expire
 
     # Optional region configuration
     aws_region = Column(String, nullable=True, default="us-west-1")
@@ -429,7 +456,9 @@ class NewRelicIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+    )
 
     # New Relic Account ID
     account_id = Column(String, nullable=False)
@@ -457,7 +486,9 @@ class DatadogIntegration(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    integration_id = Column(String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False)
+    integration_id = Column(
+        String, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False
+    )
 
     # Datadog API Key (organization-level)
     api_key = Column(String, nullable=False)  # Encrypted API key
@@ -478,9 +509,8 @@ class DatadogIntegration(Base):
     workspace = relationship("Workspace", backref="datadog_integrations")
 
     # Indexes for query performance
-    __table_args__ = (
-        Index("idx_datadog_integration_workspace", "workspace_id"),
-    )
+    __table_args__ = (Index("idx_datadog_integration_workspace", "workspace_id"),)
+
 
 class SecurityEventType(enum.Enum):
     PROMPT_INJECTION = "prompt_injection"
@@ -499,20 +529,30 @@ class SecurityEvent(Base):
 
     # Event classification
     event_type = Column(Enum(SecurityEventType), nullable=False)
-    severity = Column(String, nullable=False)  # e.g., 'low', 'medium', 'high', 'critical'
+    severity = Column(
+        String, nullable=False
+    )  # e.g., 'low', 'medium', 'high', 'critical'
 
     # Context
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)
     slack_integration_id = Column(
         String, ForeignKey("slack_installations.id"), nullable=True
     )
-    slack_user_id = Column(String, nullable=True)  # Slack user ID who triggered the event
+    slack_user_id = Column(
+        String, nullable=True
+    )  # Slack user ID who triggered the event
 
     # Event details
-    message_preview = Column(Text, nullable=True)  # Preview of the message that triggered the event
-    guard_response = Column(String, nullable=True)  # "true", "false", or null for guard degradation
+    message_preview = Column(
+        Text, nullable=True
+    )  # Preview of the message that triggered the event
+    guard_response = Column(
+        String, nullable=True
+    )  # "true", "false", or null for guard degradation
     reason = Column(String, nullable=True)  # Human-readable reason for the event
-    event_metadata = Column(JSON, nullable=True)  # Additional context (error details, etc.)
+    event_metadata = Column(
+        JSON, nullable=True
+    )  # Additional context (error details, etc.)
 
     # Timestamp
     detected_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ResourceType(str, Enum):
     """Types of rate-limited resources."""
+
     RCA_REQUEST = "rca_request"
     API_CALL = "api_call"
     EXPORT = "export"
@@ -30,7 +31,7 @@ async def check_rate_limit(
     session: AsyncSession,
     workspace_id: str,
     resource_type: ResourceType,
-    limit: int = None
+    limit: int = None,
 ) -> Tuple[bool, int, int]:
     """
     Check if request is allowed and increment counter if yes.
@@ -80,7 +81,8 @@ async def check_rate_limit(
                 and_(
                     RateLimitTracking.workspace_id == workspace_id,
                     RateLimitTracking.resource_type == resource_type.value,
-                    RateLimitTracking.window_key == today #window key changs everyday so this returns false the next day, no windowkey matched, new tracking record created.
+                    RateLimitTracking.window_key
+                    == today,  # window key changs everyday so this returns false the next day, no windowkey matched, new tracking record created.
                 )
             )
             .with_for_update()  # Lock row to prevent race conditions
@@ -97,7 +99,7 @@ async def check_rate_limit(
                     workspace_id=workspace_id,
                     resource_type=resource_type.value,
                     window_key=today,
-                    count=1  # First request
+                    count=1,  # First request
                 )
                 session.add(tracking)
                 await session.commit()
@@ -139,6 +141,7 @@ async def check_rate_limit(
         logger.error(f"Rate limit error for workspace {workspace_id}: {e}")
         await session.rollback()
         raise
+
 
 # api limit usage details, in case we need this in future
 

@@ -26,13 +26,13 @@ def upgrade() -> None:
 
     conn = context.get_bind()
     inspector = inspect(conn)
-    columns = [c['name'] for c in inspector.get_columns('email_verifications')]
+    columns = [c["name"] for c in inspector.get_columns("email_verifications")]
 
     # Add token_hash column if it doesn't exist
-    if 'token_hash' not in columns:
+    if "token_hash" not in columns:
         op.add_column(
             "email_verifications",
-            sa.Column("token_hash", sa.String(length=64), nullable=True)
+            sa.Column("token_hash", sa.String(length=64), nullable=True),
         )
 
         # Create index on token_hash for O(1) lookups

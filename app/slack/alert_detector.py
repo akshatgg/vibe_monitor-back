@@ -68,11 +68,12 @@ class AlertDetector:
         # Check if bot name matches any known alert bot
         for known_bot, platform in AlertDetector.KNOWN_ALERT_BOTS.items():
             if known_bot in bot_name:
-                logger.info(f"Detected alert from bot: {bot_name} -> platform: {platform}")
+                logger.info(
+                    f"Detected alert from bot: {bot_name} -> platform: {platform}"
+                )
                 return platform
 
         return None
-
 
     @staticmethod
     def is_alert(
@@ -197,7 +198,6 @@ class AlertDetector:
         Returns:
             Tuple of (should_respond: bool, reason: str)
         """
-
 
         # Don't auto-respond to messages mentioning our bot
         if bot_user_id and f"<@{bot_user_id}>" in message_text:

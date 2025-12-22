@@ -3,6 +3,7 @@ CloudWatch Logs API Router
 Provides OPEN endpoints for CloudWatch Logs operations (no authentication)
 Designed for RCA bot integration
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,16 +46,13 @@ async def list_log_groups(
     """
     try:
         response = await cloudwatch_logs_service.list_log_groups(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list log groups: {str(e)}"
+            status_code=500, detail=f"Failed to list log groups: {str(e)}"
         )
 
 
@@ -79,16 +77,13 @@ async def list_log_streams(
     """
     try:
         response = await cloudwatch_logs_service.list_log_streams(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list log streams: {str(e)}"
+            status_code=500, detail=f"Failed to list log streams: {str(e)}"
         )
 
 
@@ -115,16 +110,13 @@ async def get_log_events(
     """
     try:
         response = await cloudwatch_logs_service.get_log_events(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get log events: {str(e)}"
+            status_code=500, detail=f"Failed to get log events: {str(e)}"
         )
 
 
@@ -132,7 +124,9 @@ async def get_log_events(
 async def execute_query(
     request: StartQueryRequest,
     workspace_id: str = Query(..., description="Workspace ID"),
-    max_wait_seconds: int = Query(60, description="Maximum seconds to wait for results"),
+    max_wait_seconds: int = Query(
+        60, description="Maximum seconds to wait for results"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -170,14 +164,13 @@ async def execute_query(
             db=db,
             workspace_id=workspace_id,
             request=request,
-            max_wait_seconds=max_wait_seconds
+            max_wait_seconds=max_wait_seconds,
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to execute query: {str(e)}"
+            status_code=500, detail=f"Failed to execute query: {str(e)}"
         )
 
 
@@ -214,14 +207,11 @@ async def filter_log_events(
     """
     try:
         response = await cloudwatch_logs_service.filter_log_events(
-            db=db,
-            workspace_id=workspace_id,
-            request=request
+            db=db, workspace_id=workspace_id, request=request
         )
         return response
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to filter log events: {str(e)}"
+            status_code=500, detail=f"Failed to filter log events: {str(e)}"
         )

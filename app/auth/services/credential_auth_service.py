@@ -133,7 +133,8 @@ class CredentialAuthService:
                 EmailVerification.token_hash == token_hash,  # Fast indexed lookup
                 EmailVerification.token_type == token_type,
                 EmailVerification.verified_at.is_(None),  # Not already used
-                EmailVerification.expires_at > datetime.now(timezone.utc),  # Not expired
+                EmailVerification.expires_at
+                > datetime.now(timezone.utc),  # Not expired
             )
         )
         verification = result.scalar_one_or_none()
@@ -167,7 +168,7 @@ class CredentialAuthService:
         result = await db.execute(
             select(EmailVerification).where(
                 EmailVerification.token_hash == token_hash,
-                EmailVerification.verified_at.is_(None)
+                EmailVerification.verified_at.is_(None),
             )
         )
         verification = result.scalar_one_or_none()
@@ -290,7 +291,9 @@ class CredentialAuthService:
             "is_verified": False,
         }, new_user
 
-    async def login(self, email: str, password: str, db: AsyncSession) -> Dict[str, any]:
+    async def login(
+        self, email: str, password: str, db: AsyncSession
+    ) -> Dict[str, any]:
         """
         Authenticate user with email and password.
 
@@ -340,14 +343,14 @@ class CredentialAuthService:
                 )
 
                 # Send verification email
-                verification_url = (
-                    f"{settings.WEB_APP_URL}/auth/verify-email?token={verification_token}"
-                )
+                verification_url = f"{settings.WEB_APP_URL}/auth/verify-email?token={verification_token}"
                 await mailgun_service.send_verification_email(
                     user_id=user.id, verification_url=verification_url, db=db
                 )
 
-                logger.info(f"Verification email automatically resent to {email} during login attempt")
+                logger.info(
+                    f"Verification email automatically resent to {email} during login attempt"
+                )
 
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -358,7 +361,9 @@ class CredentialAuthService:
                 raise
             except Exception as e:
                 # If email sending fails, still inform user about verification requirement
-                logger.error(f"Failed to resend verification email during login: {str(e)}")
+                logger.error(
+                    f"Failed to resend verification email during login: {str(e)}"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Please verify your email address before logging in. If you didn't receive a verification email, please use the 'Resend Verification' option.",

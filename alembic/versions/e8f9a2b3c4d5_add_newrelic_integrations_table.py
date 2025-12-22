@@ -26,9 +26,7 @@ def upgrade() -> None:
         sa.Column("workspace_id", sa.String(), nullable=False),
         sa.Column("account_id", sa.String(), nullable=False),
         sa.Column("api_key", sa.String(), nullable=False),
-        sa.Column(
-            "last_verified_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("last_verified_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -53,5 +51,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop New Relic integrations table."""
-    op.drop_index("idx_newrelic_integration_workspace", table_name="newrelic_integrations")
+    op.drop_index(
+        "idx_newrelic_integration_workspace", table_name="newrelic_integrations"
+    )
     op.drop_table("newrelic_integrations")

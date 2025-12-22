@@ -6,6 +6,7 @@ Provides:
 - Active workspace metrics (workspaces with jobs in period)
 - Slack notification for daily reports
 """
+
 import httpx
 import logging
 from datetime import datetime, timezone, timedelta
@@ -55,9 +56,7 @@ class EngagementService:
             total=total,
         )
 
-    async def _count_users_since(
-        self, db: AsyncSession, since: datetime | None
-    ) -> int:
+    async def _count_users_since(self, db: AsyncSession, since: datetime | None) -> int:
         """Count users created since a given datetime."""
         query = select(func.count(User.id))
         if since:
@@ -113,9 +112,8 @@ class EngagementService:
         )
 
         # Count distinct workspaces where any member has logged in
-        query = (
-            select(func.count(distinct(Membership.workspace_id)))
-            .where(Membership.user_id.in_(select(logged_in_users)))
+        query = select(func.count(distinct(Membership.workspace_id))).where(
+            Membership.user_id.in_(select(logged_in_users))
         )
         result = await db.execute(query)
         return result.scalar() or 0
@@ -126,9 +124,7 @@ class EngagementService:
         result = await db.execute(query)
         return result.scalar() or 0
 
-    async def generate_engagement_report(
-        self, db: AsyncSession
-    ) -> EngagementReport:
+    async def generate_engagement_report(self, db: AsyncSession) -> EngagementReport:
         """
         Generate a complete engagement report.
 
@@ -149,8 +145,6 @@ class EngagementService:
 
     def format_slack_message(self, report: EngagementReport) -> str:
         report_date = report.report_date.strftime("%B %d, %Y")
-        generated_time = report.report_date.strftime("%H:%M UTC")
-
         return f"""
     📊 *Daily Engagement Report*  
     🗓️ _{report_date}_
@@ -171,7 +165,6 @@ class EngagementService:
 
     ━━━━━━━━━━━━━━━━━━━━━━
     """.strip()
-
 
     async def send_to_slack(self, message: str) -> Tuple[bool, str]:
         """

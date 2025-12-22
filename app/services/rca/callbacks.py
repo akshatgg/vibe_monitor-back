@@ -1,6 +1,7 @@
 """
 Custom LangChain callbacks for streaming RCA agent progress to Slack
 """
+
 import json
 import re
 import logging
@@ -100,9 +101,14 @@ class SlackProgressCallback(AsyncCallbackHandler):
             context: Context message for logging
         """
         self.consecutive_failures += 1
-        logger.error(f"Failed to send {context} to Slack (failure #{self.consecutive_failures}): {error}")
+        logger.error(
+            f"Failed to send {context} to Slack (failure #{self.consecutive_failures}): {error}"
+        )
 
-        if self.consecutive_failures >= self.max_consecutive_failures and not self.circuit_open:
+        if (
+            self.consecutive_failures >= self.max_consecutive_failures
+            and not self.circuit_open
+        ):
             self.circuit_open = True
             logger.warning(
                 f"⚠️ Circuit breaker OPENED: {self.consecutive_failures} consecutive Slack failures. "
@@ -110,7 +116,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"RCA analysis will continue without progress updates."
             )
 
-    async def _send_to_slack(self, text: str, context: str, use_hourglass: bool = False) -> None:
+    async def _send_to_slack(
+        self, text: str, context: str, use_hourglass: bool = False
+    ) -> None:
         """
         Send message to Slack with circuit breaker protection
         Implements hourglass -> checkmark pattern for step updates
@@ -128,7 +136,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         try:
             # Update previous message with checkmark if this is a new step
             if use_hourglass and self.last_message_ts and self.last_message_text:
-                updated_text = self.last_message_text.replace(":hourglass_flowing_sand:", ":white_check_mark:")
+                updated_text = self.last_message_text.replace(
+                    ":hourglass_flowing_sand:", ":white_check_mark:"
+                )
                 await slack_event_service.update_message(
                     team_id=self.team_id,
                     channel=self.channel_id,
@@ -166,11 +176,15 @@ class SlackProgressCallback(AsyncCallbackHandler):
         tool_name = serialized.get("name", "unknown_tool")
 
         # Log for debugging
-        logger.info(f"Tool start - name: {tool_name}, input_str: {input_str[:200] if input_str else 'None'}, kwargs keys: {list(kwargs.keys())}")
+        logger.info(
+            f"Tool start - name: {tool_name}, input_str: {input_str[:200] if input_str else 'None'}, kwargs keys: {list(kwargs.keys())}"
+        )
 
         # Get user-friendly message from enum mapping
         enum_message = TOOL_NAME_TO_MESSAGE.get(tool_name)
-        base_message = enum_message.value if enum_message else f"🔧 Using {tool_name}..."
+        base_message = (
+            enum_message.value if enum_message else f"🔧 Using {tool_name}..."
+        )
 
         # Extract contextual information from input
         context_info = self._extract_context_info(tool_name, input_str, kwargs)
@@ -187,12 +201,12 @@ class SlackProgressCallback(AsyncCallbackHandler):
         self.sent_messages.add(message)
 
         await self._send_to_slack(
-            text=message,
-            context="tool start message",
-            use_hourglass=True
+            text=message, context="tool start message", use_hourglass=True
         )
 
-    def _extract_context_info(self, tool_name: str, input_str: str, kwargs: Dict[str, Any]) -> str:
+    def _extract_context_info(
+        self, tool_name: str, input_str: str, kwargs: Dict[str, Any]
+    ) -> str:
         """
         Extract service name, repo name, or file path from tool input
 
@@ -206,7 +220,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """
         try:
             # Log the input for debugging
-            logger.info(f"Extracting context for {tool_name} with input: {input_str[:200] if input_str else 'None'}")
+            logger.info(
+                f"Extracting context for {tool_name} with input: {input_str[:200] if input_str else 'None'}"
+            )
             if kwargs:
                 logger.info(f"kwargs: {kwargs}")
 
@@ -234,21 +250,26 @@ class SlackProgressCallback(AsyncCallbackHandler):
                     # Strategy 3: Try to parse as Python literal (handles single quotes)
                     try:
                         import ast
+
                         input_data = ast.literal_eval(input_str)
                         logger.info(f"Successfully parsed Python literal: {input_data}")
                     except (ValueError, SyntaxError):
                         # Strategy 4: Try to extract from dict-like string representation
                         # Match patterns like service_name='value' or service_name="value"
-                        matches = re.findall(r'(\w+)\s*[:=]\s*["\']([^"\']+)["\']', input_str)
+                        matches = re.findall(
+                            r'(\w+)\s*[:=]\s*["\']([^"\']+)["\']', input_str
+                        )
                         if matches:
                             input_data = dict(matches)
                             logger.info(f"Extracted from regex: {input_data}")
                         else:
                             # Strategy 5: Try to extract from key=value pairs
-                            matches = re.findall(r'(\w+)\s*[:=]\s*(\S+)', input_str)
+                            matches = re.findall(r"(\w+)\s*[:=]\s*(\S+)", input_str)
                             if matches:
-                                input_data = {k: v.strip(',') for k, v in matches}
-                                logger.info(f"Extracted from key=value pairs: {input_data}")
+                                input_data = {k: v.strip(",") for k, v in matches}
+                                logger.info(
+                                    f"Extracted from key=value pairs: {input_data}"
+                                )
 
             # Extract service name for logs/metrics tools
             if tool_name in [
@@ -257,7 +278,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 "fetch_cpu_metrics_tool",
                 "fetch_memory_metrics_tool",
                 "fetch_http_latency_tool",
-                "fetch_metrics_tool"
+                "fetch_metrics_tool",
             ]:
                 service_name = input_data.get("service_name")
                 if service_name:
@@ -277,7 +298,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 "download_file_tool",
                 "get_repository_tree_tool",
                 "get_branch_recent_commits_tool",
-                "get_repository_metadata_tool"
+                "get_repository_metadata_tool",
             ]:
                 repo = input_data.get("repo") or input_data.get("name")
                 file_path = input_data.get("file_path") or input_data.get("path")
@@ -292,7 +313,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
                     logger.info(f"Found file_path: {file_path}")
                     return f"`{file_path}`"
                 else:
-                    logger.warning(f"No repo/file_path found in input_data: {input_data}")
+                    logger.warning(
+                        f"No repo/file_path found in input_data: {input_data}"
+                    )
 
             return ""
 
@@ -309,13 +332,12 @@ class SlackProgressCallback(AsyncCallbackHandler):
         # Only send tool output if explicitly enabled (can be verbose)
         if self.send_tool_output and output:
             # Truncate very long outputs
-            truncated_output = output[:settings.RCA_SLACK_MESSAGE_MAX_LENGTH]
+            truncated_output = output[: settings.RCA_SLACK_MESSAGE_MAX_LENGTH]
             if len(output) > settings.RCA_SLACK_MESSAGE_MAX_LENGTH:
                 truncated_output += f"\n\n_(truncated, {len(output) - settings.RCA_SLACK_MESSAGE_MAX_LENGTH} more chars)_"
 
             await self._send_to_slack(
-                text=f"```\n{truncated_output}\n```",
-                context="tool output"
+                text=f"```\n{truncated_output}\n```", context="tool output"
             )
 
     async def on_tool_error(
@@ -326,8 +348,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when a tool encounters an error"""
         sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text=f"⚠️ Tool encountered an issue: {sanitized_error}",
-            context="tool error"
+            text=f"⚠️ Tool encountered an issue: {sanitized_error}", context="tool error"
         )
 
     async def on_agent_action(
@@ -348,8 +369,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
 
                 if thought_text and len(thought_text) > 10:  # Meaningful thought
                     await self._send_to_slack(
-                        text=f"💭 _{thought_text}_",
-                        context="agent thought"
+                        text=f"💭 _{thought_text}_", context="agent thought"
                     )
 
     async def on_agent_finish(
@@ -361,7 +381,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         # Update the last hourglass message to checkmark before finishing
         if self.last_message_ts and self.last_message_text:
             try:
-                updated_text = self.last_message_text.replace(":hourglass_flowing_sand:", ":white_check_mark:")
+                updated_text = self.last_message_text.replace(
+                    ":hourglass_flowing_sand:", ":white_check_mark:"
+                )
                 await slack_event_service.update_message(
                     team_id=self.team_id,
                     channel=self.channel_id,
@@ -381,16 +403,12 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when chain encounters an error"""
         sanitized_error = sanitize_error_for_user(str(error))
         await self._send_to_slack(
-            text="❌ *Analysis encountered an error.*",
-            context="chain error"
+            text="❌ *Analysis encountered an error.*", context="chain error"
         )
         logger.debug(f"❌ Chain error details (not sent to user): {sanitized_error}")
 
     async def send_retry_notification(
-        self,
-        retry_count: int,
-        max_retries: int,
-        backoff_minutes: int
+        self, retry_count: int, max_retries: int, backoff_minutes: int
     ) -> None:
         """
         Send notification about job retry to user.
@@ -405,14 +423,10 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"⚠️ Job encountered an issue. Retrying in {backoff_minutes} minutes...\n"
                 f"Attempt {retry_count}/{max_retries}"
             ),
-            context="retry notification"
+            context="retry notification",
         )
 
-    async def send_final_error(
-        self,
-        error_msg: str,
-        retry_count: int
-    ) -> None:
+    async def send_final_error(self, error_msg: str, retry_count: int) -> None:
         """
         Send final error message to user after max retries exceeded (sanitized).
 
@@ -427,7 +441,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"I tried {retry_count} times but couldn't complete the analysis.\n\n"
                 f"Please try rephrasing your query or contact support if the issue persists."
             ),
-            context="final error message"
+            context="final error message",
         )
 
     async def send_unexpected_error(self) -> None:
@@ -439,7 +453,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 "⚠️ An unexpected error occurred while processing your request.\n\n"
                 "Our team has been notified. Please try again later or contact support if the issue persists."
             ),
-            context="unexpected error message"
+            context="unexpected error message",
         )
 
     async def send_image_processing_notification(self, image_count: int) -> None:
@@ -453,7 +467,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
         await self._send_to_slack(
             text=f"Analyzing {image_text} received.",
             context="image processing notification",
-            use_hourglass=True
+            use_hourglass=True,
         )
 
     async def send_no_healthy_integrations_message(
@@ -477,7 +491,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                         "• Verify your API tokens and credentials are valid\n"
                         f"• Ensure {provider.capitalize()} service is accessible"
                     ),
-                    context=f"unhealthy {provider} integration message"
+                    context=f"unhealthy {provider} integration message",
                 )
         else:
             await self._send_to_slack(
@@ -488,7 +502,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                     "• Check your integration health status in the dashboard\n"
                     "• Verify your API tokens and credentials are valid"
                 ),
-                context="no healthy integrations message"
+                context="no healthy integrations message",
             )
 
     async def send_missing_integration_message(self, provider: str) -> None:
@@ -507,7 +521,7 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"• Connect your {provider.capitalize()} account in the dashboard\n"
                 "• Ensure the integration is properly configured"
             ),
-            context=f"missing {provider} integration message"
+            context=f"missing {provider} integration message",
         )
 
     async def send_degraded_integrations_warning(
@@ -525,5 +539,5 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 f"⚠️ *Some integrations are unhealthy/degraded:* {providers_list}\n\n"
                 "Proceeding with available tools. Some capabilities may be limited."
             ),
-            context="degraded integrations warning"
+            context="degraded integrations warning",
         )
