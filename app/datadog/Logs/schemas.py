@@ -13,14 +13,14 @@ class SearchLogsRequest(BaseModel):
         ...,
         description="Search query using Datadog log search syntax (e.g., 'service:my-app status:error')"
     )
-    from_time: int = Field(
-        ...,
-        description="Start time in milliseconds since epoch",
+    from_time: Optional[int] = Field(
+        None,
+        description="Start time in milliseconds since epoch (default: 2 hours ago)",
         alias="from"
     )
-    to_time: int = Field(
-        ...,
-        description="End time in milliseconds since epoch",
+    to_time: Optional[int] = Field(
+        None,
+        description="End time in milliseconds since epoch (default: now)",
         alias="to"
     )
     limit: Optional[int] = Field(
@@ -32,6 +32,11 @@ class SearchLogsRequest(BaseModel):
     sort: Optional[str] = Field(
         "desc",
         description="Sort order: 'asc' or 'desc' (default: 'desc')"
+    )
+    page_limit: Optional[int] = Field(
+        None,
+        description="Pagination limit",
+        alias="page[limit]"
     )
 
     class Config:
@@ -86,14 +91,14 @@ class AggregateLogsRequest(BaseModel):
         ...,
         description="Search query using Datadog log search syntax"
     )
-    from_timestamp: int = Field(
-        ...,
-        description="Start time in milliseconds since epoch",
+    from_timestamp: Optional[int] = Field(
+        None,
+        description="Start time in milliseconds since epoch (default: 2 hours ago)",
         alias="from"
     )
-    to_timestamp: int = Field(
-        ...,
-        description="End time in milliseconds since epoch",
+    to_timestamp: Optional[int] = Field(
+        None,
+        description="End time in milliseconds since epoch (default: now)",
         alias="to"
     )
     compute: Optional[List[Dict[str, Any]]] = Field(
@@ -127,13 +132,23 @@ class ListLogsRequest(BaseModel):
         "*",
         description="Search query (use '*' for all logs)"
     )
-    from_time: int = Field(
-        ...,
-        description="Start time in milliseconds since epoch"
+    from_time: Optional[int] = Field(
+        None,
+        description="Start time in milliseconds since epoch (default: 2 hours ago)",
+        alias="from"
     )
-    to_time: int = Field(
-        ...,
-        description="End time in milliseconds since epoch"
+    to_time: Optional[int] = Field(
+        None,
+        description="End time in milliseconds since epoch (default: now)",
+        alias="to"
+    )
+    service: Optional[str] = Field(
+        None,
+        description="Filter by service name"
+    )
+    status: Optional[str] = Field(
+        None,
+        description="Filter by status (error, warn, info, debug)"
     )
     limit: Optional[int] = Field(
         100,
@@ -141,6 +156,9 @@ class ListLogsRequest(BaseModel):
         ge=1,
         le=1000
     )
+
+    class Config:
+        populate_by_name = True
 
 
 class SimplifiedLogEntry(BaseModel):
@@ -163,13 +181,15 @@ class ListLogsResponse(BaseModel):
 
 class ListServicesRequest(BaseModel):
     """Request schema for listing all unique services"""
-    from_time: int = Field(
-        ...,
-        description="Start time in milliseconds since epoch"
+    from_time: Optional[int] = Field(
+        None,
+        description="Start time in milliseconds since epoch (default: 24 hours ago)",
+        alias="from"
     )
-    to_time: int = Field(
-        ...,
-        description="End time in milliseconds since epoch"
+    to_time: Optional[int] = Field(
+        None,
+        description="End time in milliseconds since epoch (default: now)",
+        alias="to"
     )
     limit: Optional[int] = Field(
         1000,
@@ -177,6 +197,9 @@ class ListServicesRequest(BaseModel):
         ge=1,
         le=10000
     )
+
+    class Config:
+        populate_by_name = True
 
 
 class ListServicesResponse(BaseModel):

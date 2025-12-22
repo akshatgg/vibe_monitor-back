@@ -47,8 +47,9 @@ async def search_logs(
     - "error OR warning" - Text search with OR
     - "service:my-app -host:excluded" - Exclude with minus
 
-    Time range:
+    Time range (OPTIONAL):
     - from and to are in MILLISECONDS since epoch (not seconds!)
+    - If not provided, defaults to the recent 2 hours
     - Example: for last 1 hour, use: from = (now - 3600) * 1000, to = now * 1000
 
     Returns:
@@ -98,8 +99,9 @@ async def list_logs(
     - "status:error" - Filter by status
     - "error" - Text search
 
-    Time range:
+    Time range (OPTIONAL):
     - from_time and to_time are in MILLISECONDS since epoch
+    - If not provided, defaults to the recent 2 hours
 
     Returns:
     - logs: List of simplified log entries
@@ -137,8 +139,9 @@ async def list_services(
     - Returns sorted list of services
     - Useful for building filters or discovering what services are logging
 
-    Time range:
+    Time range (OPTIONAL):
     - from_time and to_time are in MILLISECONDS since epoch
+    - If not provided, defaults to the recent 2 hours
 
     Limit:
     - Scans up to 'limit' logs to find services (default: 1000, max: 10000)

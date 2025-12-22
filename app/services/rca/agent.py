@@ -19,11 +19,13 @@ from .prompts import RCA_SYSTEM_PROMPT
 from .capabilities import IntegrationCapabilityResolver
 from .builder import AgentExecutorBuilder
 
+
 logger = logging.getLogger(__name__)
 
 
 class NoHealthyIntegrationsError(Exception):
     """Raised when no healthy integrations are available for RCA analysis."""
+
     pass
 
 
@@ -71,7 +73,9 @@ class RCAAgentService:
                 ]
             )
 
-            logger.info(f"RCA Agent for text analysis initialised successfully with Groq model: {settings.GROQ_LLM_MODEL}")
+            logger.info(
+                f"RCA Agent for text analysis initialised successfully with Groq model: {settings.GROQ_LLM_MODEL}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to initialize RCA agent LLM: {e}")
@@ -121,8 +125,7 @@ class RCAAgentService:
         # Check if there are any healthy integrations with capabilities
         # Slack is excluded as it doesn't provide RCA tools
         rca_integrations = {
-            k: v for k, v in execution_context.integrations.items()
-            if k != 'slack'
+            k: v for k, v in execution_context.integrations.items() if k != "slack"
         }
         if not rca_integrations or not execution_context.capabilities:
             logger.warning(
@@ -185,7 +188,9 @@ class RCAAgentService:
                 }
 
             if not db:
-                error_msg = "db session is required for capability-based tool resolution"
+                error_msg = (
+                    "db session is required for capability-based tool resolution"
+                )
                 logger.error(error_msg)
                 return {
                     "output": None,
@@ -292,7 +297,9 @@ class RCAAgentService:
                 }
 
             return {
-                "output": result.get("output", "Analysis completed but no output generated."),
+                "output": result.get(
+                    "output", "Analysis completed but no output generated."
+                ),
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "success": True,
                 "error": None,

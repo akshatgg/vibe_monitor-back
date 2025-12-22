@@ -4,6 +4,7 @@ Uses Datadog Integration credentials (API key and App key)
 """
 import logging
 import httpx
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datadog.integration.service import get_datadog_domain, get_datadog_credentials
@@ -36,10 +37,12 @@ class DatadogLogsService:
         """
         Search Datadog logs using the Logs Search API (standalone function)
 
+        If no time range is provided (from/to), defaults to the recent 2 hours.
+
         Args:
             db: Database session
             workspace_id: Workspace ID
-            request: Search logs request
+            request: Search logs request (time fields are optional, defaults to last 2 hours)
 
         Returns:
             SearchLogsResponse with logs data
@@ -65,12 +68,22 @@ class DatadogLogsService:
                 "Content-Type": "application/json"
             }
 
+            # Set default time range if not provided (last 2 hours)
+            if request.from_time is None or request.to_time is None:
+                end_time = datetime.now(timezone.utc)
+                start_time = end_time - timedelta(hours=2)
+                from_time = request.from_time if request.from_time is not None else int(start_time.timestamp() * 1000)
+                to_time = request.to_time if request.to_time is not None else int(end_time.timestamp() * 1000)
+            else:
+                from_time = request.from_time
+                to_time = request.to_time
+
             # Prepare request body
             body = {
                 "filter": {
                     "query": request.query,
-                    "from": request.from_time,
-                    "to": request.to_time
+                    "from": from_time,
+                    "to": to_time
                 },
                 "sort": request.sort,
                 "page": {
@@ -166,11 +179,12 @@ class DatadogLogsService:
         List Datadog logs with simplified response (standalone function)
 
         This is a simplified version of search_logs that returns a cleaner response format.
+        If no time range is provided (from/to), defaults to the recent 2 hours.
 
         Args:
             db: Database session
             workspace_id: Workspace ID
-            request: List logs request
+            request: List logs request (time fields are optional, defaults to last 2 hours)
 
         Returns:
             ListLogsResponse with simplified log entries
@@ -225,11 +239,12 @@ class DatadogLogsService:
         List all unique service names from Datadog logs (standalone function)
 
         This function queries logs and extracts unique service names.
+        If no time range is provided (from/to), defaults to the recent 2 hours.
 
         Args:
             db: Database session
             workspace_id: Workspace ID
-            request: List services request
+            request: List services request (time fields are optional, defaults to last 2 hours)
 
         Returns:
             ListServicesResponse with unique service names

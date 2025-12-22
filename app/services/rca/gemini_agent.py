@@ -24,6 +24,7 @@ from .prompts import RCA_SYSTEM_PROMPT
 from .capabilities import IntegrationCapabilityResolver
 from .builder import AgentExecutorBuilder
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,11 +61,17 @@ class GeminiRCAAgentService:
             logger.info(f"Using {settings.GEMINI_LLM_MODEL} for image analysis")
 
             # Create chat prompt template with system message, service mapping, and thread history
-            self.prompt = ChatPromptTemplate.from_messages([
-                ("system", RCA_SYSTEM_PROMPT + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}"),
-                ("human", "{input}"),
-                ("placeholder", "{agent_scratchpad}"),
-            ])
+            self.prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        RCA_SYSTEM_PROMPT
+                        + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}",
+                    ),
+                    ("human", "{input}"),
+                    ("placeholder", "{agent_scratchpad}"),
+                ]
+            )
 
             logger.info("Gemini RCA Agent LLM initialized successfully")
 
@@ -144,11 +151,15 @@ class GeminiRCAAgentService:
                 # Only process images
                 mimetype = file_obj.get("mimetype", "")
                 if not mimetype.startswith("image/"):
-                    logger.info(f"Skipping non-image file: {file_obj.get('name')} ({mimetype})")
+                    logger.info(
+                        f"Skipping non-image file: {file_obj.get('name')} ({mimetype})"
+                    )
                     continue
 
                 # Use url_private_download for direct download
-                url_download = file_obj.get("url_private_download") or file_obj.get("url_private")
+                url_download = file_obj.get("url_private_download") or file_obj.get(
+                    "url_private"
+                )
                 if not url_download:
                     logger.warning(f"No download URL for file: {file_obj.get('name')}")
                     continue
@@ -182,7 +193,9 @@ class GeminiRCAAgentService:
                         parsed = urlparse(redirect_url)
 
                         # only follow redirects to files.slack.com, not the slack login or workspace url, we need an image hrere.
-                        if parsed.netloc and not parsed.netloc.startswith("files.slack.com"):
+                        if parsed.netloc and not parsed.netloc.startswith(
+                            "files.slack.com"
+                        ):
                             logger.error(
                                 f"Rejecting redirect to non-files domain: {parsed.netloc}. "
                                 f"This typically indicates an authentication issue. "
@@ -197,13 +210,21 @@ class GeminiRCAAgentService:
 
                         # Sanitize URL to prevent token exposure in logs
                         safe_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                        logger.info(f"Following redirect ({redirect_count + 1}/{max_redirects}): {safe_url}")
+                        logger.info(
+                            f"Following redirect ({redirect_count + 1}/{max_redirects}): {safe_url}"
+                        )
                     else:
-                        raise Exception(f"Too many redirects (>{max_redirects}) while downloading {file_obj.get('name')}")
+                        raise Exception(
+                            f"Too many redirects (>{max_redirects}) while downloading {file_obj.get('name')}"
+                        )
 
                     # Debug: Check what we actually downloaded
                     content_type = response.headers.get("content-type", "unknown")
-                    first_bytes = response.content[:100] if len(response.content) >= 100 else response.content
+                    first_bytes = (
+                        response.content[:100]
+                        if len(response.content) >= 100
+                        else response.content
+                    )
 
                     # Validate we got an image, not HTML
                     if content_type.startswith("text/html"):
@@ -223,17 +244,23 @@ class GeminiRCAAgentService:
                         f"First bytes: {first_bytes[:50]!r}"
                     )
 
-                    downloaded_images.append({
-                        "name": file_obj.get("name", "image"),
-                        "mimetype": mimetype,
-                        "data": response.content,
-                        "size": len(response.content),
-                    })
+                    downloaded_images.append(
+                        {
+                            "name": file_obj.get("name", "image"),
+                            "mimetype": mimetype,
+                            "data": response.content,
+                            "size": len(response.content),
+                        }
+                    )
 
-                    logger.info(f"Downloaded image: {file_obj.get('name')} ({len(response.content)} bytes)")
+                    logger.info(
+                        f"Downloaded image: {file_obj.get('name')} ({len(response.content)} bytes)"
+                    )
 
                 except Exception as e:
-                    logger.error(f"Failed to download image {file_obj.get('name')}: {e}")
+                    logger.error(
+                        f"Failed to download image {file_obj.get('name')}: {e}"
+                    )
 
         return downloaded_images
 
@@ -275,7 +302,9 @@ class GeminiRCAAgentService:
                 }
 
             if not db:
-                error_msg = "db session is required for capability-based tool resolution"
+                error_msg = (
+                    "db session is required for capability-based tool resolution"
+                )
                 logger.error(error_msg)
                 return {
                     "output": None,
@@ -293,23 +322,33 @@ class GeminiRCAAgentService:
 
             # Format the mapping for the prompt
             if service_repo_mapping:
-                mapping_lines = [f"- Service `{service}` → Repository `{repo}`"
-                                for service, repo in service_repo_mapping.items()]
+                mapping_lines = [
+                    f"- Service `{service}` → Repository `{repo}`"
+                    for service, repo in service_repo_mapping.items()
+                ]
                 service_mapping_text = "\n".join(mapping_lines)
-                logger.info(f"Injecting service→repo mapping with {len(service_repo_mapping)} entries")
+                logger.info(
+                    f"Injecting service→repo mapping with {len(service_repo_mapping)} entries"
+                )
             else:
-                service_mapping_text = "(No services discovered - workspace may have no repositories)"
+                service_mapping_text = (
+                    "(No services discovered - workspace may have no repositories)"
+                )
                 logger.warning("No service→repo mapping provided in context")
 
             # Extract and format thread history from context
             thread_history = (context or {}).get("thread_history", [])
 
             if thread_history:
-                logger.info(f"Formatting thread history with {len(thread_history)} messages")
+                logger.info(
+                    f"Formatting thread history with {len(thread_history)} messages"
+                )
 
                 # Format thread messages as conversation history
                 history_lines = ["## 🧵 CONVERSATION HISTORY", ""]
-                history_lines.append("This is a follow-up question in an existing thread. Here's the previous conversation:")
+                history_lines.append(
+                    "This is a follow-up question in an existing thread. Here's the previous conversation:"
+                )
                 history_lines.append("")
 
                 for msg in thread_history:
@@ -318,7 +357,9 @@ class GeminiRCAAgentService:
                     bot_id = msg.get("bot_id")
 
                     # Strip bot mentions from message text (e.g., <@U12345678>)
-                    clean_text = re.sub(settings.SLACK_USER_MENTION_PATTERN, "", text).strip()
+                    clean_text = re.sub(
+                        settings.SLACK_USER_MENTION_PATTERN, "", text
+                    ).strip()
 
                     # Identify if message is from bot or user
                     if bot_id:
@@ -346,7 +387,9 @@ class GeminiRCAAgentService:
             images = []
 
             if files:
-                logger.info(f"Detected {len(files)} files in message, processing images...")
+                logger.info(
+                    f"Detected {len(files)} files in message, processing images..."
+                )
 
                 # Get Slack access token to download images
                 team_id = (context or {}).get("team_id")
@@ -354,23 +397,39 @@ class GeminiRCAAgentService:
                     from app.slack.service import slack_event_service
                     from app.utils.token_processor import token_processor
 
-                    slack_installation = await slack_event_service.get_installation(team_id)
+                    slack_installation = await slack_event_service.get_installation(
+                        team_id
+                    )
                     if slack_installation and slack_installation.access_token:
                         try:
-                            access_token = token_processor.decrypt(slack_installation.access_token)
-                            images = await self._download_slack_images(files, access_token)
-                            logger.info(f"Downloaded {len(images)} images for Gemini processing")
+                            access_token = token_processor.decrypt(
+                                slack_installation.access_token
+                            )
+                            images = await self._download_slack_images(
+                                files, access_token
+                            )
+                            logger.info(
+                                f"Downloaded {len(images)} images for Gemini processing"
+                            )
                         except Exception as e:
-                            logger.error(f"Failed to decrypt Slack access token for team {team_id}: {e}")
-                            logger.warning("Proceeding with text-only analysis due to token decryption failure")
+                            logger.error(
+                                f"Failed to decrypt Slack access token for team {team_id}: {e}"
+                            )
+                            logger.warning(
+                                "Proceeding with text-only analysis due to token decryption failure"
+                            )
                             # Continue without images rather than failing the entire job
                     else:
-                        logger.warning(f"No Slack installation or access token found for team {team_id}")
+                        logger.warning(
+                            f"No Slack installation or access token found for team {team_id}"
+                        )
 
             # Prepare input for the agent
             # If images are present, we need to use multimodal message format
             if images:
-                logger.info(f"Processing query with {len(images)} images using Gemini multimodal")
+                logger.info(
+                    f"Processing query with {len(images)} images using Gemini multimodal"
+                )
 
                 # For LangChain with multimodal input, we need to bypass the agent
                 # and directly call the LLM with HumanMessage containing images
@@ -386,24 +445,28 @@ class GeminiRCAAgentService:
                 for img in images:
                     try:
                         # Validate image can be opened (ensures it's a valid image)
-                        with Image.open(io.BytesIO(img['data'])) as pil_image:
+                        with Image.open(io.BytesIO(img["data"])) as pil_image:
                             logger.info(
                                 f"Validated {img['name']} as valid image "
                                 f"(size: {pil_image.size}, mode: {pil_image.mode}, format: {pil_image.format})"
                             )
 
                         # Encode image to base64 for Gemini
-                        encoded = self._encode_base64(img['data'])
+                        encoded = self._encode_base64(img["data"])
 
                         # Format per LangChain docs: nested object with "url" key
                         # https://github.com/GoogleCloudPlatform/generative-ai/blob/main/gemini/use-cases/retrieval-augmented-generation/multimodal_rag_langchain.ipynb
-                        content_parts.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{img['mimetype']};base64,{encoded}"
+                        content_parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{img['mimetype']};base64,{encoded}"
+                                },
                             }
-                        })
-                        logger.info(f"Encoded {img['name']} to base64 ({len(encoded)} chars)")
+                        )
+                        logger.info(
+                            f"Encoded {img['name']} to base64 ({len(encoded)} chars)"
+                        )
                     except Exception as e:
                         logger.error(f"Failed to process {img['name']}: {e}")
                         # Skip corrupted images rather than failing entire request
@@ -415,18 +478,26 @@ class GeminiRCAAgentService:
                 # Notify user that images are being processed (send to Slack via callback)
                 if callbacks:
                     from app.services.rca.callbacks import SlackProgressCallback
+
                     for callback in callbacks:
                         if isinstance(callback, SlackProgressCallback):
-                            await callback.send_image_processing_notification(len(images))
+                            await callback.send_image_processing_notification(
+                                len(images)
+                            )
                             break
 
                 # First, get image analysis from Gemini
                 try:
-
-                    logger.info("Sending multimodal message to Gemini for image analysis...")
-                    image_analysis_response = await self.llm.ainvoke([multimodal_message])
+                    logger.info(
+                        "Sending multimodal message to Gemini for image analysis..."
+                    )
+                    image_analysis_response = await self.llm.ainvoke(
+                        [multimodal_message]
+                    )
                     image_analysis = image_analysis_response.content
-                    logger.info(f"Gemini image analysis completed: {len(image_analysis)} chars")
+                    logger.info(
+                        f"Gemini image analysis completed: {len(image_analysis)} chars"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to analyze images with Gemini: {e}")
                     image_analysis = f"[Image analysis failed: {str(e)}]"
@@ -455,7 +526,9 @@ class GeminiRCAAgentService:
 
             # Execute the agent asynchronously with callbacks
             if callbacks:
-                result = await agent_executor.ainvoke(agent_input, config={"callbacks": callbacks})
+                result = await agent_executor.ainvoke(
+                    agent_input, config={"callbacks": callbacks}
+                )
             else:
                 result = await agent_executor.ainvoke(agent_input)
 
@@ -484,7 +557,7 @@ class GeminiRCAAgentService:
     @staticmethod
     def _encode_base64(data: bytes) -> str:
         """Encode bytes to base64 string"""
-        return base64.b64encode(data).decode('utf-8')
+        return base64.b64encode(data).decode("utf-8")
 
     async def analyze_with_retry(
         self,
