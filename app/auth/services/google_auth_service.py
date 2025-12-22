@@ -180,7 +180,7 @@ class AuthService:
     async def create_or_get_user(
         self, google_user_info: Dict[str, str], db: AsyncSession
     ) -> UserResponse:
-        """Create new user or return existing user"""
+        """Create new user or return existing user, handling account linking"""
         email = google_user_info.get("email")
         name = google_user_info.get("name", "")
 
@@ -189,11 +189,27 @@ class AuthService:
         existing_user = result.scalar_one_or_none()
 
         if existing_user:
+            # ACCOUNT LINKING: User already exists (possibly from credential signup)
+            # Set is_verified=True since Google has verified email ownership
+            # This allows unverified credential users to verify via Google OAuth
+            if not existing_user.is_verified:
+                existing_user.is_verified = True
+                await db.commit()
+                await db.refresh(existing_user)
+                logger.info(f"Existing unverified user now verified via Google OAuth: {email}")
+            else:
+                logger.info(f"Existing verified user logging in via Google OAuth: {email}")
             return UserResponse.model_validate(existing_user)
 
-        # Create new user
+        # Create new user via Google OAuth
         user_id = str(uuid.uuid4())
-        new_user = User(id=user_id, name=name, email=email)
+        new_user = User(
+            id=user_id,
+            name=name,
+            email=email,
+            password_hash=None,  # No password for Google OAuth users
+            is_verified=True,  # Google OAuth users are auto-verified
+        )
 
         db.add(new_user)
         await db.commit()

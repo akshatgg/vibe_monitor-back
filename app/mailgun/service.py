@@ -55,6 +55,7 @@ class MailgunService:
         self.api_key = settings.MAILGUN_API_KEY
         self.domain = settings.MAILGUN_DOMAIN_NAME
         self.base_url = f"https://api.mailgun.net/v3/{self.domain}/messages"
+        logger.info(f"MailgunService initialized - Domain: {self.domain}, From: {settings.MAILGUN_FROM_EMAIL}")
 
     async def send_email(
         self,
@@ -101,20 +102,27 @@ class MailgunService:
         if html:
             data["html"] = html
 
+        logger.info(f"Sending email - From: {data['from']}, To: {to_email}, URL: {self.base_url}")
+
         try:
             async with httpx.AsyncClient() as client:
                 async for attempt in retry_external_api("Mailgun"):
                     with attempt:
+                        # Mailgun requires multipart/form-data format
+                        files = {key: (None, value) for key, value in data.items()}
                         response = await client.post(
                             self.base_url,
                             auth=("api", self.api_key),
-                            data=data,
+                            files=files,
                             timeout=10.0,
                         )
                         response.raise_for_status()
                         return response.json()
         except httpx.HTTPError as e:
             logger.error(f"Failed to send email via Mailgun: {str(e)}")
+            logger.error(f"Request details - URL: {self.base_url}, From: {data.get('from')}, API Key prefix: {self.api_key[:10]}...")
+            logger.error(f"Response status: {e.response.status_code if hasattr(e, 'response') else 'N/A'}")
+            logger.error(f"Response body: {e.response.text if hasattr(e, 'response') else 'N/A'}")
             raise
 
     def _load_template(self, template_name: str) -> str:
@@ -216,6 +224,158 @@ class MailgunService:
             logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")
 
             # Store failed email record
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=subject,
+                status="failed",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            raise
+
+    async def send_verification_email(
+        self, user_id: str, verification_url: str, db: AsyncSession
+    ) -> dict:
+        """
+        Send email verification link to user.
+
+        Args:
+            user_id: User ID
+            verification_url: Full URL with verification token
+            db: Database session
+
+        Returns:
+            dict: Email send status
+        """
+        # Get user from database
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        subject = "Verify your email - VibeMonitor"
+
+        # Load and render HTML template
+        template = self._load_template("email_verification.html")
+        html = self._render_template(
+            template,
+            user_name=user.name,
+            verification_url=verification_url,
+            app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
+        )
+
+        try:
+            response = await self.send_email(
+                to_email=user.email,
+                subject=subject,
+                text="",
+                html=html,
+            )
+
+            # Store email record
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=subject,
+                message_id=response.get("id"),
+                status="sent",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            logger.info(f"Verification email sent to {user.email}")
+
+            return {
+                "success": True,
+                "message": "Verification email sent",
+                "email": user.email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to send verification email: {str(e)}")
+
+            # Store failed record
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=subject,
+                status="failed",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            raise
+
+    async def send_password_reset_email(
+        self, user_id: str, reset_url: str, db: AsyncSession
+    ) -> dict:
+        """
+        Send password reset link to user.
+
+        Args:
+            user_id: User ID
+            reset_url: Full URL with reset token
+            db: Database session
+
+        Returns:
+            dict: Email send status
+        """
+        # Get user from database
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        subject = "Reset your password - VibeMonitor"
+
+        # Load and render HTML template
+        template = self._load_template("password_reset.html")
+        html = self._render_template(
+            template,
+            user_name=user.name,
+            reset_url=reset_url,
+            app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
+        )
+
+        try:
+            response = await self.send_email(
+                to_email=user.email,
+                subject=subject,
+                text="",
+                html=html,
+            )
+
+            # Store email record
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=subject,
+                message_id=response.get("id"),
+                status="sent",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            logger.info(f"Password reset email sent to {user.email}")
+
+            return {
+                "success": True,
+                "message": "Password reset email sent",
+                "email": user.email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to send password reset email: {str(e)}")
+
+            # Store failed record
             email_record = MailgunEmail(
                 id=str(uuid.uuid4()),
                 user_id=user_id,

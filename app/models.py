@@ -46,6 +46,11 @@ class User(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
+
+    # Authentication fields
+    password_hash = Column(String, nullable=True)  # Null for Google OAuth users
+    is_verified = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -130,6 +135,32 @@ class Integration(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Indexes defined in migration file
+class EmailVerification(Base):
+    """
+    Stores email verification and password reset tokens.
+    Supports both verification links and password reset flows.
+    """
+
+    __tablename__ = "email_verifications"
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    token = Column(String, unique=True, nullable=False)  # Encrypted token for security
+    token_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hash for O(1) lookup
+    token_type = Column(String, nullable=False)  # 'email_verification' or 'password_reset'
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    verified_at = Column(DateTime(timezone=True), nullable=True)  # NULL if not used yet
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    user = relationship("User", backref="email_verifications")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_email_verification_token", "token"),
+        Index("idx_email_verification_user", "user_id"),
+        Index("idx_email_verification_expires", "expires_at"),
+    )
 
 
 class GrafanaIntegration(Base):
