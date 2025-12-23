@@ -93,7 +93,7 @@ class MailgunService:
             else:
                 from_address = from_email
         else:
-            from_address = f"VibeMonitor <noreply@{self.domain}>"
+            from_address = f"{settings.MAILGUN_FROM_NAME} <{settings.MAILGUN_FROM_EMAIL}>"
 
         data = {
             "from": from_address,
