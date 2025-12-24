@@ -1,5 +1,5 @@
 """
-Mailgun API routes.
+Email API routes.
 """
 
 import logging
@@ -11,13 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
 from app.models import User, MailgunEmail, SlackInstallation, Membership
-from app.mailgun.service import mailgun_service, verify_scheduler_token
-from app.mailgun.schemas import EmailResponse, ContactFormRequest
+from app.email.service import email_service, verify_scheduler_token
+from app.email.schemas import EmailResponse, ContactFormRequest
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
 
-router = APIRouter(prefix="/mailgun", tags=["mailgun"])
+router = APIRouter(prefix="/email", tags=["email"])
 
 
 @router.post("/nudge-email", response_model=EmailResponse)
@@ -39,7 +39,7 @@ async def send_welcome_email(
         EmailResponse with email sending status
     """
     try:
-        result = await mailgun_service.send_welcome_email(
+        result = await email_service.send_welcome_email(
             user_id=current_user.id,
             db=db,
         )
@@ -151,7 +151,7 @@ async def send_slack_nudge_emails(
 
         for user in eligible_users:
             try:
-                await mailgun_service.send_slack_integration_email(
+                await email_service.send_slack_integration_email(
                     user_id=user.id,
                     db=db,
                 )
@@ -198,7 +198,7 @@ async def submit_contact_form(
         EmailResponse with email submission status
     """
     try:
-        result = await mailgun_service.send_contact_form_email(
+        result = await email_service.send_contact_form_email(
             name=request.name,
             work_email=request.work_email,
             interested_topics=request.interested_topics,

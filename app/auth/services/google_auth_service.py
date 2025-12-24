@@ -18,7 +18,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.utils.retry_decorator import retry_external_api
 from app.onboarding.services.workspace_service import WorkspaceService
-from app.mailgun.service import mailgun_service
+from app.email.service import email_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,7 @@ class AuthService:
 
         # Send welcome email to new user
         try:
-            await mailgun_service.send_welcome_email(user_id=user_id, db=db)
+            await email_service.send_welcome_email(user_id=user_id, db=db)
             logger.info(f"Welcome email queued for user {user_id} ({email})")
         except Exception as e:
             # Log the error but don't fail user creation

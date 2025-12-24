@@ -55,11 +55,10 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = []
 
-    # MAILGUN
-    MAILGUN_API_KEY: Optional[str] = None
-    MAILGUN_DOMAIN_NAME: Optional[str] = None
-    MAILGUN_FROM_EMAIL: str = "support@vibemonitor.ai"
-    MAILGUN_FROM_NAME: str = "VibeMonitor.ai"
+    # Postmark Email
+    POSTMARK_SERVER_TOKEN: Optional[str] = None
+    EMAIL_FROM_ADDRESS: str = "support@vibemonitor.ai"
+    EMAIL_FROM_NAME: str = "VibeMonitor.ai"
     CONTACT_FORM_RECIPIENT_EMAIL: str = "support@vibemonitor.ai"
 
     # Slack Integration
@@ -119,7 +118,7 @@ class Settings(BaseSettings):
     # HTTP Settings
     HTTP_REQUEST_TIMEOUT_SECONDS: float = 30.0  # Default timeout for HTTP requests
 
-    # External API Retry Configuration (Grafana, GitHub, Slack, Google OAuth, Mailgun)
+    # External API Retry Configuration (Grafana, GitHub, Slack, Google OAuth, Postmark)
     # Uses tenacity library for retry logic with exponential backoff
     EXTERNAL_API_RETRY_ATTEMPTS: int = (
         4  # Total attempts (3 retries + 1 initial = 4 total)

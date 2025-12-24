@@ -11,7 +11,7 @@ import logging
 
 from app.models import User, EmailVerification, RefreshToken
 from app.core.config import settings
-from app.mailgun.service import mailgun_service
+from app.email.service import email_service
 from app.onboarding.services.workspace_service import WorkspaceService
 from app.utils.token_processor import token_processor
 
@@ -274,7 +274,7 @@ class CredentialAuthService:
             verification_url = (
                 f"{settings.WEB_APP_URL}/auth/verify-email?token={verification_token}"
             )
-            await mailgun_service.send_verification_email(
+            await email_service.send_verification_email(
                 user_id=user_id, verification_url=verification_url, db=db
             )
             logger.info(f"Verification email sent to {email}")
@@ -344,7 +344,7 @@ class CredentialAuthService:
 
                 # Send verification email
                 verification_url = f"{settings.WEB_APP_URL}/auth/verify-email?token={verification_token}"
-                await mailgun_service.send_verification_email(
+                await email_service.send_verification_email(
                     user_id=user.id, verification_url=verification_url, db=db
                 )
 
@@ -468,7 +468,7 @@ class CredentialAuthService:
         verification_url = (
             f"{settings.WEB_APP_URL}/auth/verify-email?token={verification_token}"
         )
-        await mailgun_service.send_verification_email(
+        await email_service.send_verification_email(
             user_id=user.id, verification_url=verification_url, db=db
         )
 
@@ -510,7 +510,7 @@ class CredentialAuthService:
 
         # Send email
         reset_url = f"{settings.WEB_APP_URL}/auth/reset-password?token={reset_token}"
-        await mailgun_service.send_password_reset_email(
+        await email_service.send_password_reset_email(
             user_id=user.id, reset_url=reset_url, db=db
         )
 

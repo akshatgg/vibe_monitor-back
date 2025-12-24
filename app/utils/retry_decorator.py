@@ -2,7 +2,7 @@
 Retry decorator for external API calls using tenacity library.
 
 Provides automatic retry logic with exponential backoff for HTTP requests
-to external services (Grafana, GitHub, Slack, Google OAuth, Mailgun).
+to external services (Grafana, GitHub, Slack, Google OAuth, Postmark).
 
 Features:
 - Exponential backoff with jitter to prevent thundering herd

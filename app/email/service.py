@@ -1,5 +1,5 @@
 """
-Mailgun service for sending emails.
+Email service for sending emails via Postmark.
 """
 
 import uuid
@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Get the templates directory path
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+# Postmark API endpoint
+POSTMARK_API_URL = "https://api.postmarkapp.com/email"
 
 
 def verify_scheduler_token(x_scheduler_token: str = Header(...)):
@@ -49,42 +52,38 @@ def verify_scheduler_token(x_scheduler_token: str = Header(...)):
     return True
 
 
-class MailgunService:
-    """Service for sending emails via Mailgun API"""
+class EmailService:
+    """Service for sending emails via Postmark API"""
 
     def __init__(self):
-        self.api_key = settings.MAILGUN_API_KEY
-        self.domain = settings.MAILGUN_DOMAIN_NAME
-        self.base_url = f"https://api.mailgun.net/v3/{self.domain}/messages"
-        logger.info(
-            f"MailgunService initialized - Domain: {self.domain}, From: {settings.MAILGUN_FROM_EMAIL}"
-        )
+        self.server_token = settings.POSTMARK_SERVER_TOKEN
+        logger.info(f"EmailService initialized - From: {settings.EMAIL_FROM_ADDRESS}")
 
     async def send_email(
         self,
         to_email: str,
         subject: str,
         text: str,
-        html: str = None,
+        html_body: str = None,
         from_email: str = None,
         from_name: str = None,
     ) -> dict:
         """
-        Send an email using Mailgun API.
+        Send an email using Postmark API.
 
         Args:
             to_email: Recipient email address
             subject: Email subject
             text: Plain text content
-            html: HTML content (optional)
+            html_body: HTML content (optional)
             from_email: Custom from email address (optional)
             from_name: Custom from name (optional)
 
         Returns:
-            dict: Response from Mailgun API
+            dict: Response from Postmark API
         """
-        if not self.api_key or not self.domain:
-            raise ValueError("Mailgun API key and domain must be configured")
+        if not self.server_token:
+            raise ValueError("Postmark server token must be configured")
 
         # Use custom from address if provided, otherwise use default
         if from_email:
@@ -93,41 +92,47 @@ class MailgunService:
             else:
                 from_address = from_email
         else:
-            from_address = f"{settings.MAILGUN_FROM_NAME} <{settings.MAILGUN_FROM_EMAIL}>"
+            from_address = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
 
-        data = {
-            "from": from_address,
-            "to": to_email,
-            "subject": subject,
-            "text": text,
+        # Build Postmark request payload
+        payload = {
+            "From": from_address,
+            "To": to_email,
+            "Subject": subject,
+            "MessageStream": "outbound",
         }
 
-        if html:
-            data["html"] = html
+        if text:
+            payload["TextBody"] = text
 
-        logger.info(
-            f"Sending email - From: {data['from']}, To: {to_email}, URL: {self.base_url}"
-        )
+        if html_body:
+            payload["HtmlBody"] = html_body
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Postmark-Server-Token": self.server_token,
+        }
+
+        logger.info(f"Sending email - From: {from_address}, To: {to_email}")
 
         try:
             async with httpx.AsyncClient() as client:
-                async for attempt in retry_external_api("Mailgun"):
+                async for attempt in retry_external_api("Postmark"):
                     with attempt:
-                        # Mailgun requires multipart/form-data format
-                        files = {key: (None, value) for key, value in data.items()}
                         response = await client.post(
-                            self.base_url,
-                            auth=("api", self.api_key),
-                            files=files,
+                            POSTMARK_API_URL,
+                            json=payload,
+                            headers=headers,
                             timeout=10.0,
                         )
                         response.raise_for_status()
-                        return response.json()
+                        result = response.json()
+                        # Postmark returns MessageID in the response
+                        return {"id": result.get("MessageID"), **result}
         except httpx.HTTPError as e:
-            logger.error(f"Failed to send email via Mailgun: {str(e)}")
-            logger.error(
-                f"Request details - URL: {self.base_url}, From: {data.get('from')}, API Key prefix: {self.api_key[:10]}..."
-            )
+            logger.error(f"Failed to send email via Postmark: {str(e)}")
+            logger.error(f"Request details - From: {from_address}, To: {to_email}")
             logger.error(
                 f"Response status: {e.response.status_code if hasattr(e, 'response') else 'N/A'}"
             )
@@ -194,7 +199,7 @@ class MailgunService:
 
         # Load and render HTML template
         template = self._load_template("welcome.html")
-        html = self._render_template(
+        html_content = self._render_template(
             template,
             user_name=user.name,
             app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
@@ -202,12 +207,11 @@ class MailgunService:
         )
 
         try:
-            # Send email via Mailgun (auto-generates plain text from HTML)
             response = await self.send_email(
                 to_email=user.email,
                 subject=subject,
                 text="",
-                html=html,
+                html_body=html_content,
             )
 
             # Store email record in database
@@ -271,7 +275,7 @@ class MailgunService:
 
         # Load and render HTML template
         template = self._load_template("email_verification.html")
-        html = self._render_template(
+        html_content = self._render_template(
             template,
             user_name=user.name,
             verification_url=verification_url,
@@ -283,7 +287,7 @@ class MailgunService:
                 to_email=user.email,
                 subject=subject,
                 text="",
-                html=html,
+                html_body=html_content,
             )
 
             # Store email record
@@ -347,7 +351,7 @@ class MailgunService:
 
         # Load and render HTML template
         template = self._load_template("password_reset.html")
-        html = self._render_template(
+        html_content = self._render_template(
             template,
             user_name=user.name,
             reset_url=reset_url,
@@ -359,7 +363,7 @@ class MailgunService:
                 to_email=user.email,
                 subject=subject,
                 text="",
-                html=html,
+                html_body=html_content,
             )
 
             # Store email record
@@ -423,7 +427,7 @@ class MailgunService:
 
         # Load and render HTML template
         template = self._load_template("slack_integration.html")
-        html = self._render_template(
+        html_content = self._render_template(
             template,
             user_name=user.name,
             app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
@@ -431,12 +435,11 @@ class MailgunService:
         )
 
         try:
-            # Send email via Mailgun (auto-generates plain text from HTML)
             response = await self.send_email(
                 to_email=user.email,
                 subject=subject,
-                text="",  # Mailgun auto-generates from HTML
-                html=html,
+                text="",
+                html_body=html_content,
             )
 
             # Store email record in database
@@ -506,7 +509,7 @@ class MailgunService:
 
         # Load and render HTML template
         template = self._load_template("contact_form.html")
-        html = self._render_template(
+        html_content = self._render_template(
             template,
             name=name,
             work_email=work_email,
@@ -527,12 +530,11 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         """
 
         try:
-            # Send email via Mailgun from verified domain
             response = await self.send_email(
                 to_email=support_email,
                 subject=subject,
                 text=text,
-                html=html,
+                html_body=html_content,
             )
 
             logger.info(f"Contact form email sent from {work_email} to {support_email}")
@@ -552,4 +554,4 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
 
 
 # Singleton instance
-mailgun_service = MailgunService()
+email_service = EmailService()
