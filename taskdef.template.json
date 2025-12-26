@@ -53,7 +53,9 @@
         {"name": "OTEL_OTLP_ENDPOINT", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-otlp-endpoint"},
         {"name": "HOSTNAME", "valueFrom": "/vm-api-ENV_PLACEHOLDER/hostname"},
         {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"},
-        {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/engagement-slack-webhook-url"}
+        {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/engagement-slack-webhook-url"},
+        {"name": "GITHUB_OAUTH_CLIENT_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-id"},
+        {"name": "GITHUB_OAUTH_CLIENT_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-secret"}
       ]
     }
   ]

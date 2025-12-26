@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     GOOGLE_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
     GOOGLE_USERINFO_URL: str = "https://openidconnect.googleapis.com/v1/userinfo"
 
+    # GitHub OAuth (for user authentication)
+    GITHUB_OAUTH_CLIENT_ID: Optional[str] = None
+    GITHUB_OAUTH_CLIENT_SECRET: Optional[str] = None
+    GITHUB_OAUTH_AUTH_URL: str = "https://github.com/login/oauth/authorize"
+    GITHUB_OAUTH_TOKEN_URL: str = "https://github.com/login/oauth/access_token"
+    GITHUB_OAUTH_USER_URL: str = "https://api.github.com/user"
+    GITHUB_OAUTH_USER_EMAIL_URL: str = "https://api.github.com/user/emails"
+
     # GitHub App
     GITHUB_APP_NAME: Optional[str] = None
     GITHUB_APP_ID: Optional[str] = None

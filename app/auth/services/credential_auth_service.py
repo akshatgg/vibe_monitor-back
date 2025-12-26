@@ -425,6 +425,14 @@ class CredentialAuthService:
 
         logger.info(f"Email verified for user {user_id}")
 
+        # Send welcome email after successful verification
+        try:
+            await email_service.send_welcome_email(user_id=user_id, db=db)
+            logger.info(f"Welcome email sent to user {user_id} ({user.email})")
+        except Exception as e:
+            # Log the error but don't fail verification
+            logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")
+
         return {"message": "Email verified successfully", "email": user.email}
 
     async def resend_verification_email(
