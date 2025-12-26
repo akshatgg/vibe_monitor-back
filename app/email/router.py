@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
-from app.models import User, MailgunEmail, SlackInstallation, Membership
+from app.models import User, MailgunEmail, SlackInstallation, Membership, RefreshToken
 from app.email.service import email_service, verify_scheduler_token
 from app.email.schemas import EmailResponse, ContactFormRequest
 
@@ -210,4 +211,153 @@ async def submit_contact_form(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to submit contact form. Please try again later.",
+        )
+
+
+@router.post("/send-user-help-emails")
+async def send_user_help_emails(
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Send help/onboarding emails to users who signed up in the last 24 hours.
+
+    Eligibility criteria:
+    - User signed up within the last 24 hours
+    - User has NOT already received this email
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        users_result = await db.execute(
+            select(User).where(User.created_at >= twenty_four_hours_ago)
+        )
+        new_users = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in new_users:
+            existing_email = await db.execute(
+                select(MailgunEmail)
+                .where(MailgunEmail.user_id == user.id)
+                .where(MailgunEmail.subject == settings.USER_HELP_EMAIL_SUBJECT)
+                .where(MailgunEmail.status == "sent")
+                .limit(1)
+            )
+            already_sent = existing_email.scalar_one_or_none() is not None
+
+            if not already_sent:
+                eligible_users.append(user)
+
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await email_service.send_user_help_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed to send user help email to user {user.id}: {str(e)}"
+                )
+                failed_count += 1
+
+        return {
+            "success": True,
+            "message": "User help emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process user help emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process user help emails: {str(e)}",
+        )
+
+
+@router.post("/send-usage-feedback-emails")
+async def send_usage_feedback_emails(
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Send usage feedback emails to active users.
+
+    Eligibility criteria:
+    - User signed up more than 7 days ago
+    - User has logged in at least once after signup (has refresh token created after signup)
+    - User has NOT already received this email (one-time only)
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+        users_result = await db.execute(
+            select(User).where(User.created_at <= seven_days_ago)
+        )
+        users_7_days_old = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in users_7_days_old:
+            # Check if already received this email
+            already_sent_result = await db.execute(
+                select(MailgunEmail)
+                .where(MailgunEmail.user_id == user.id)
+                .where(MailgunEmail.subject == settings.USAGE_FEEDBACK_EMAIL_SUBJECT)
+                .where(MailgunEmail.status == "sent")
+                .limit(1)
+            )
+            if already_sent_result.scalar_one_or_none() is not None:
+                continue
+
+            # Check if user has logged in after signup (refresh token created > 5 min after signup)
+            login_after_signup = await db.execute(
+                select(RefreshToken)
+                .where(RefreshToken.user_id == user.id)
+                .where(RefreshToken.created_at > user.created_at + timedelta(minutes=5))
+                .limit(1)
+            )
+            if login_after_signup.scalar_one_or_none() is None:
+                continue
+
+            eligible_users.append(user)
+
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await email_service.send_usage_feedback_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception:
+                failed_count += 1
+
+        return {
+            "success": True,
+            "message": "Usage feedback emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process usage feedback emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process usage feedback emails: {str(e)}",
         )

@@ -57,7 +57,10 @@ class EmailService:
 
     def __init__(self):
         self.server_token = settings.POSTMARK_SERVER_TOKEN
-        logger.info(f"EmailService initialized - From: {settings.EMAIL_FROM_ADDRESS}")
+        logger.info(
+            f"EmailService initialized - Company: {settings.COMPANY_EMAIL_FROM_ADDRESS}, "
+            f"Personal: {settings.PERSONAL_EMAIL_FROM_ADDRESS}"
+        )
 
     async def send_email(
         self,
@@ -85,14 +88,14 @@ class EmailService:
         if not self.server_token:
             raise ValueError("Postmark server token must be configured")
 
-        # Use custom from address if provided, otherwise use default
+        # Use custom from address if provided, otherwise use company default
         if from_email:
             if from_name:
                 from_address = f"{from_name} <{from_email}>"
             else:
                 from_address = from_email
         else:
-            from_address = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
+            from_address = f"{settings.COMPANY_EMAIL_FROM_NAME} <{settings.COMPANY_EMAIL_FROM_ADDRESS}>"
 
         # Build Postmark request payload
         payload = {
@@ -550,6 +553,144 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
             logger.error(
                 f"Failed to send contact form email from {work_email}: {str(e)}"
             )
+            raise
+
+    async def send_user_help_email(self, user_id: str, db: AsyncSession) -> dict:
+        """
+        Send an email to users offering help with setup and understanding their needs.
+
+        Args:
+            user_id: User ID to send email to
+            db: Async database session
+
+        Returns:
+            dict: Response containing email status and details
+        """
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        email_subject = settings.USER_HELP_EMAIL_SUBJECT
+        # Load text template from file
+        text_template = self._load_template("text_body/user_help.txt")
+        email_text_body = self._render_template(
+            text_template, sender_name=settings.PERSONAL_EMAIL_FROM_NAME
+        )
+
+        try:
+            # Use personal email settings for personalized outreach
+            response = await self.send_email(
+                to_email=user.email,
+                subject=email_subject,
+                text=email_text_body,
+                from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
+                from_name=settings.PERSONAL_EMAIL_FROM_NAME,
+            )
+
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                message_id=response.get("id"),
+                status="sent",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            logger.info(f"User help email sent to user {user_id} ({user.email})")
+
+            return {
+                "success": True,
+                "message": f"User help email sent to {user_id} successfully",
+                "email": user.email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to send user help email to user {user_id}: {str(e)}")
+
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                status="failed",
+            )
+            db.add(email_record)
+            await db.commit()
+            raise
+
+    async def send_usage_feedback_email(self, user_id: str, db: AsyncSession) -> dict:
+        """
+        Send usage feedback email to active users after 7+ days on platform.
+
+        Args:
+            user_id: User ID to send email to
+            db: Async database session
+
+        Returns:
+            dict: Response containing email status and details
+        """
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        email_subject = settings.USAGE_FEEDBACK_EMAIL_SUBJECT
+        # Load text template from file
+        text_template = self._load_template("text_body/usage_feedback.txt")
+        email_text_body = self._render_template(
+            text_template, sender_name=settings.PERSONAL_EMAIL_FROM_NAME
+        )
+
+        try:
+            # Use personal email settings for personalized outreach
+            response = await self.send_email(
+                to_email=user.email,
+                subject=email_subject,
+                text=email_text_body,
+                from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
+                from_name=settings.PERSONAL_EMAIL_FROM_NAME,
+            )
+
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                message_id=response.get("id"),
+                status="sent",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            logger.info(f"Usage feedback email sent to user {user_id}")
+
+            return {
+                "success": True,
+                "message": "Usage feedback email sent successfully",
+                "email": user.email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to send usage feedback email to user {user_id}: {str(e)}"
+            )
+
+            email_record = MailgunEmail(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                status="failed",
+            )
+            db.add(email_record)
+            await db.commit()
             raise
 
 

@@ -55,11 +55,21 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = []
 
-    # Postmark Email
+    # Postmark Email Configuration
     POSTMARK_SERVER_TOKEN: Optional[str] = None
-    EMAIL_FROM_ADDRESS: str = "support@vibemonitor.ai"
-    EMAIL_FROM_NAME: str = "VibeMonitor.ai"
+
+    # Company Email Settings (for automated/system emails)
+    COMPANY_EMAIL_FROM_ADDRESS: str = "support@vibemonitor.ai"
+    COMPANY_EMAIL_FROM_NAME: str = "VibeMonitor"
     CONTACT_FORM_RECIPIENT_EMAIL: str = "support@vibemonitor.ai"
+
+    # Personal Email Settings (for personalized outreach emails)
+    PERSONAL_EMAIL_FROM_ADDRESS: str = "ankesh@vibemonitor.ai"
+    PERSONAL_EMAIL_FROM_NAME: str = "Ankesh Khemani"
+
+    # Email Subjects (uses PERSONAL settings - templates in app/email/templates/text_body/)
+    USER_HELP_EMAIL_SUBJECT: str = "Quick question about your setup"
+    USAGE_FEEDBACK_EMAIL_SUBJECT: str = "How's it going so far?"
 
     # Slack Integration
     SLACK_SIGNING_SECRET: Optional[str] = None
