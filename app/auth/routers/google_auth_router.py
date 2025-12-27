@@ -17,10 +17,17 @@ auth_service = AuthService()
 
 @router.get("/login")
 async def login(
-    redirect_uri: str = Query(..., description="The URI to redirect to after authentication (frontend callback URL)"),
+    redirect_uri: str = Query(
+        ...,
+        description="The URI to redirect to after authentication (frontend callback URL)",
+    ),
     state: Optional[str] = Query(None, description="CSRF state parameter"),
-    code_challenge: Optional[str] = Query(None, description="PKCE code challenge for SPA/mobile"),
-    code_challenge_method: Optional[str] = Query("S256", description="PKCE code challenge method"),
+    code_challenge: Optional[str] = Query(
+        None, description="PKCE code challenge for SPA/mobile"
+    ),
+    code_challenge_method: Optional[str] = Query(
+        "S256", description="PKCE code challenge method"
+    ),
 ):
     """
     OAuth 2.0 Authorization Code Flow with PKCE - Login Endpoint
@@ -54,7 +61,9 @@ async def login(
     try:
         # Store state in backend for validation during callback (CSRF protection)
         if state:
-            oauth_state_manager.store_state(state, ttl_seconds=300)  # 5 minutes expiration
+            oauth_state_manager.store_state(
+                state, ttl_seconds=300
+            )  # 5 minutes expiration
 
         # Generate auth URL with frontend callback URL and PKCE
         auth_url = auth_service.get_google_auth_url(
@@ -65,10 +74,7 @@ async def login(
         )
 
         # Return URL as JSON (frontend will redirect manually)
-        return {
-            "auth_url": auth_url,
-            "state": state
-        }
+        return {"auth_url": auth_url, "state": state}
 
     except HTTPException as he:
         raise he
@@ -81,9 +87,14 @@ async def login(
 @router.post("/callback")
 async def callback(
     code: str = Query(..., description="Authorization code from Google"),
-    redirect_uri: str = Query(..., description="Frontend callback URI that matches the one used in authorization"),
+    redirect_uri: str = Query(
+        ...,
+        description="Frontend callback URI that matches the one used in authorization",
+    ),
     state: Optional[str] = Query(None, description="CSRF state parameter"),
-    code_verifier: Optional[str] = Query(None, description="PKCE code verifier (if PKCE was used)"),
+    code_verifier: Optional[str] = Query(
+        None, description="PKCE code verifier (if PKCE was used)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -108,7 +119,7 @@ async def callback(
             if not is_valid:
                 raise HTTPException(
                     status_code=403,
-                    detail="Invalid or expired state parameter. Possible CSRF attack."
+                    detail="Invalid or expired state parameter. Possible CSRF attack.",
                 )
         # Exchange code for Google tokens with PKCE support
         token_data = await auth_service.exchange_code_for_tokens(
@@ -141,6 +152,7 @@ async def callback(
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "last_visited_workspace_id": user.last_visited_workspace_id,
             "user": user,
         }
 

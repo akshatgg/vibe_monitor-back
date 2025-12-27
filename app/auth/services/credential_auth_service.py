@@ -383,6 +383,7 @@ class CredentialAuthService:
             "token_type": "bearer",
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             "is_verified": user.is_verified,
+            "last_visited_workspace_id": user.last_visited_workspace_id,
             "user": {
                 "id": user.id,
                 "email": user.email,

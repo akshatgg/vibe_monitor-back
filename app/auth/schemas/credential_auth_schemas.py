@@ -36,6 +36,7 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     is_verified: bool
+    last_visited_workspace_id: str | None = None
     user: dict
 
 

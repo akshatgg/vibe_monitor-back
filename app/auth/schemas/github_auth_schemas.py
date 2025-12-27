@@ -8,6 +8,7 @@ class UserResponse(BaseModel):
     id: str
     name: str
     email: str
+    last_visited_workspace_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
