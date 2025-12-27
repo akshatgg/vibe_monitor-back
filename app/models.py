@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Text,
     Index,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSON
@@ -114,6 +115,9 @@ class Workspace(Base):
     memberships = relationship("Membership", back_populates="workspace")
     grafana_integration = relationship(
         "GrafanaIntegration", back_populates="workspace", uselist=False
+    )
+    environments = relationship(
+        "Environment", back_populates="workspace", cascade="all, delete-orphan"
     )
 
 
@@ -775,4 +779,88 @@ class TurnStep(Base):
     __table_args__ = (
         Index("idx_turn_steps_turn", "turn_id"),
         Index("idx_turn_steps_turn_sequence", "turn_id", "sequence"),
+    )
+
+
+# Environment Models
+class Environment(Base):
+    """
+    Deployment environment configuration for a workspace.
+    Examples: Production, Staging, Development.
+
+    Environments allow workspace owners to define deployment contexts that map
+    to specific branches in their GitHub repositories. This enables the RCA bot
+    to query the correct code version based on the environment context from logs.
+    """
+
+    __tablename__ = "environments"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(
+        String(255), nullable=False
+    )  # e.g., "Production", "Staging", "Development"
+    is_default = Column(
+        Boolean, default=False, nullable=False
+    )  # Only one per workspace can be default
+    auto_discovery_enabled = Column(
+        Boolean, default=True, nullable=False
+    )  # Auto-add new repos when discovered
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="environments")
+    repository_configs = relationship(
+        "EnvironmentRepository",
+        back_populates="environment",
+        cascade="all, delete-orphan",
+    )
+
+    # Constraints and Indexes
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_environment_workspace_name"),
+        Index("ix_environments_workspace_id", "workspace_id"),
+    )
+
+
+class EnvironmentRepository(Base):
+    """
+    Repository configuration within an environment.
+    Maps a repository to a specific branch for that environment.
+
+    Repositories are disabled by default until a branch is configured.
+    When auto_discovery_enabled is true on the parent Environment,
+    new repositories are automatically added here when discovered.
+    """
+
+    __tablename__ = "environment_repositories"
+
+    id = Column(String, primary_key=True)  # UUID
+    environment_id = Column(
+        String, ForeignKey("environments.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
+    branch_name = Column(
+        String(255), nullable=True
+    )  # e.g., "main", "develop" - nullable until configured
+    is_enabled = Column(
+        Boolean, default=False, nullable=False
+    )  # Disabled until branch configured
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    environment = relationship("Environment", back_populates="repository_configs")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        UniqueConstraint("environment_id", "repo_full_name", name="uq_env_repo"),
+        Index("ix_environment_repositories_environment_id", "environment_id"),
     )
