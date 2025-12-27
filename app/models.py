@@ -48,7 +48,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
 
     # Authentication fields
-    
+
     password_hash = Column(String, nullable=True)  # Null for Google OAuth users
     is_verified = Column(Boolean, default=False, nullable=False)
 
@@ -362,13 +362,13 @@ class RateLimitTracking(Base):
     )
 
 
-class MailgunEmail(Base):
+class Email(Base):
     """
-    Tracks emails sent via Mailgun.
+    Tracks emails sent to users.
     Stores which user was sent an email and when.
     """
 
-    __tablename__ = "mailgun_emails"
+    __tablename__ = "emails"
 
     id = Column(String, primary_key=True)  # UUID
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -376,7 +376,7 @@ class MailgunEmail(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )  # When the email was sent
     subject = Column(String, nullable=True)  # Email subject
-    message_id = Column(String, nullable=True)  # Mailgun message ID for tracking
+    message_id = Column(String, nullable=True)  # Provider message ID for tracking
     status = Column(
         String, nullable=True
     )  # Status: 'sent', 'delivered', 'failed', etc.
@@ -384,13 +384,13 @@ class MailgunEmail(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    user = relationship("User", backref="mailgun_emails")
+    user = relationship("User", backref="emails")
 
     # Indexes for query performance
     __table_args__ = (
-        Index("idx_mailgun_emails_user", "user_id"),
-        Index("idx_mailgun_emails_sent_at", "sent_at"),
-        Index("idx_mailgun_emails_status", "status"),
+        Index("idx_emails_user", "user_id"),
+        Index("idx_emails_sent_at", "sent_at"),
+        Index("idx_emails_status", "status"),
     )
 
 

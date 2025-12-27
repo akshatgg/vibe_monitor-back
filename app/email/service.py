@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.utils.retry_decorator import retry_external_api
-from app.models import MailgunEmail, User
+from app.models import Email, User
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ class EmailService:
             )
 
             # Store email record in database
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -242,7 +242,7 @@ class EmailService:
             logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")
 
             # Store failed email record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -294,7 +294,7 @@ class EmailService:
             )
 
             # Store email record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -318,7 +318,7 @@ class EmailService:
             logger.error(f"Failed to send verification email: {str(e)}")
 
             # Store failed record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -370,7 +370,7 @@ class EmailService:
             )
 
             # Store email record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -394,7 +394,7 @@ class EmailService:
             logger.error(f"Failed to send password reset email: {str(e)}")
 
             # Store failed record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -446,7 +446,7 @@ class EmailService:
             )
 
             # Store email record in database
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -474,7 +474,7 @@ class EmailService:
             )
 
             # Store failed email record
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -589,7 +589,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 from_name=settings.PERSONAL_EMAIL_FROM_NAME,
             )
 
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -612,7 +612,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         except Exception as e:
             logger.error(f"Failed to send user help email to user {user_id}: {str(e)}")
 
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -657,7 +657,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 from_name=settings.PERSONAL_EMAIL_FROM_NAME,
             )
 
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),
@@ -682,7 +682,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 f"Failed to send usage feedback email to user {user_id}: {str(e)}"
             )
 
-            email_record = MailgunEmail(
+            email_record = Email(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 sent_at=datetime.now(timezone.utc),

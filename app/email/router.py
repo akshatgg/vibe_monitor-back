@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
-from app.models import User, MailgunEmail, SlackInstallation, Membership, RefreshToken
+from app.models import User, Email, SlackInstallation, Membership, RefreshToken
 from app.email.service import email_service, verify_scheduler_token
 from app.email.schemas import EmailResponse, ContactFormRequest
 
@@ -112,10 +112,10 @@ async def send_slack_nudge_emails(
 
             # Count how many SUCCESSFULLY sent Slack nudge emails this user has received
             email_count_result = await db.execute(
-                select(func.count(MailgunEmail.id))
-                .where(MailgunEmail.user_id == user.id)
-                .where(MailgunEmail.subject == slack_email_subject)
-                .where(MailgunEmail.status == "sent")  # Only count successful emails
+                select(func.count(Email.id))
+                .where(Email.user_id == user.id)
+                .where(Email.subject == slack_email_subject)
+                .where(Email.status == "sent")  # Only count successful emails
             )
             email_count = email_count_result.scalar()
 
@@ -125,11 +125,11 @@ async def send_slack_nudge_emails(
 
             # Get last SUCCESSFULLY sent email to this user
             last_email_result = await db.execute(
-                select(MailgunEmail)
-                .where(MailgunEmail.user_id == user.id)
-                .where(MailgunEmail.subject == slack_email_subject)
-                .where(MailgunEmail.status == "sent")  # Only check successful emails
-                .order_by(MailgunEmail.sent_at.desc())
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == slack_email_subject)
+                .where(Email.status == "sent")  # Only check successful emails
+                .order_by(Email.sent_at.desc())
                 .limit(1)
             )
             last_email = last_email_result.scalar_one_or_none()
@@ -241,10 +241,10 @@ async def send_user_help_emails(
 
         for user in new_users:
             existing_email = await db.execute(
-                select(MailgunEmail)
-                .where(MailgunEmail.user_id == user.id)
-                .where(MailgunEmail.subject == settings.USER_HELP_EMAIL_SUBJECT)
-                .where(MailgunEmail.status == "sent")
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == settings.USER_HELP_EMAIL_SUBJECT)
+                .where(Email.status == "sent")
                 .limit(1)
             )
             already_sent = existing_email.scalar_one_or_none() is not None
@@ -313,10 +313,10 @@ async def send_usage_feedback_emails(
         for user in users_7_days_old:
             # Check if already received this email
             already_sent_result = await db.execute(
-                select(MailgunEmail)
-                .where(MailgunEmail.user_id == user.id)
-                .where(MailgunEmail.subject == settings.USAGE_FEEDBACK_EMAIL_SUBJECT)
-                .where(MailgunEmail.status == "sent")
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == settings.USAGE_FEEDBACK_EMAIL_SUBJECT)
+                .where(Email.status == "sent")
                 .limit(1)
             )
             if already_sent_result.scalar_one_or_none() is not None:
