@@ -1,6 +1,10 @@
 """
 Simple universal rate limiter.
 Check if request is allowed, increment if yes.
+
+BYOLLM Support:
+- Workspaces with custom LLM configuration bypass rate limiting
+- Only VibeMonitor AI (default Groq) users are rate limited
 """
 
 import logging
@@ -13,7 +17,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Workspace, RateLimitTracking
+from app.models import Workspace, RateLimitTracking, LLMProviderConfig, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -197,3 +201,87 @@ async def check_rate_limit(
 #         workspace_id=workspace_id,
 #         resource_type=ResourceType.RCA_REQUEST
 #     )
+
+
+async def is_byollm_workspace(workspace_id: str, session: AsyncSession) -> bool:
+    """
+    Check if workspace has configured their own LLM (not using VibeMonitor AI).
+
+    BYOLLM users are NOT rate limited - they use their own API keys and quotas.
+
+    Args:
+        workspace_id: The workspace ID to check
+        session: Database session
+
+    Returns:
+        bool: True if workspace uses custom LLM (OpenAI, Azure, Gemini),
+              False if using VibeMonitor default (Groq)
+    """
+    try:
+        result = await session.execute(
+            select(LLMProviderConfig.provider).where(
+                LLMProviderConfig.workspace_id == workspace_id
+            )
+        )
+        provider = result.scalar_one_or_none()
+
+        # If no config exists or provider is vibemonitor, not BYOLLM
+        if provider is None:
+            return False
+
+        return provider != LLMProvider.VIBEMONITOR
+
+    except Exception as e:
+        logger.error(f"Error checking BYOLLM status for workspace {workspace_id}: {e}")
+        # Default to not BYOLLM on error (apply rate limits)
+        return False
+
+
+async def check_rate_limit_with_byollm_bypass(
+    session: AsyncSession,
+    workspace_id: str,
+    resource_type: ResourceType,
+    limit: int = None,
+) -> Tuple[bool, int, int]:
+    """
+    Check rate limit with BYOLLM bypass.
+
+    BYOLLM workspaces (OpenAI, Azure OpenAI, Gemini) are NOT rate limited.
+    Only VibeMonitor AI (Groq) users are subject to rate limits.
+
+    Args:
+        session: Database session
+        workspace_id: Workspace ID
+        resource_type: Type of resource (RCA_REQUEST, API_CALL, etc.)
+        limit: Custom limit (if None, uses workspace.daily_request_limit for RCA)
+
+    Returns:
+        (allowed: bool, current_count: int, limit: int)
+        - For BYOLLM: Always (True, 0, -1) indicating unlimited
+        - For VibeMonitor AI: Normal rate limit check
+
+    Example:
+        allowed, count, limit = await check_rate_limit_with_byollm_bypass(
+            session=db,
+            workspace_id="workspace-123",
+            resource_type=ResourceType.RCA_REQUEST
+        )
+
+        if not allowed:
+            return f"Rate limit exceeded: {count}/{limit}"
+    """
+    # Check if workspace uses BYOLLM
+    if await is_byollm_workspace(workspace_id, session):
+        logger.info(
+            f"BYOLLM workspace {workspace_id} - bypassing rate limit for {resource_type.value}"
+        )
+        # Return unlimited indicator: allowed=True, count=0, limit=-1 (unlimited)
+        return (True, 0, -1)
+
+    # Apply normal rate limiting for VibeMonitor AI users
+    return await check_rate_limit(
+        session=session,
+        workspace_id=workspace_id,
+        resource_type=resource_type,
+        limit=limit,
+    )
