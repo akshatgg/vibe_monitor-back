@@ -74,6 +74,23 @@ class StepStatus(enum.Enum):
     FAILED = "failed"
 
 
+class LLMProvider(enum.Enum):
+    """Available LLM providers for BYOLLM"""
+
+    VIBEMONITOR = "vibemonitor"  # Default (uses Groq)
+    OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
+    GEMINI = "gemini"
+
+
+class LLMConfigStatus(enum.Enum):
+    """Status of LLM provider configuration"""
+
+    ACTIVE = "active"
+    ERROR = "error"
+    UNCONFIGURED = "unconfigured"
+
+
 # User and Workspace Models
 class User(Base):
     __tablename__ = "users"
@@ -114,6 +131,12 @@ class Workspace(Base):
     memberships = relationship("Membership", back_populates="workspace")
     grafana_integration = relationship(
         "GrafanaIntegration", back_populates="workspace", uselist=False
+    )
+    llm_config = relationship(
+        "LLMProviderConfig",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
 
@@ -775,4 +798,74 @@ class TurnStep(Base):
     __table_args__ = (
         Index("idx_turn_steps_turn", "turn_id"),
         Index("idx_turn_steps_turn_sequence", "turn_id", "sequence"),
+    )
+
+
+class LLMProviderConfig(Base):
+    """
+    Workspace-level LLM provider configuration for BYOLLM (Bring Your Own LLM).
+
+    Allows workspace owners to configure their own LLM provider (OpenAI, Azure OpenAI,
+    Google Gemini) instead of using VibeMonitor's default AI (Groq).
+
+    Benefits:
+    - BYOLLM users: No rate limits on AI sessions
+    - VibeMonitor AI users: Subject to workspace.daily_request_limit
+
+    API keys are encrypted using Fernet symmetric encryption (TokenProcessor).
+    """
+
+    __tablename__ = "llm_provider_configs"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # One config per workspace
+    )
+
+    # Provider: 'vibemonitor' | 'openai' | 'azure_openai' | 'gemini'
+    provider = Column(
+        Enum(LLMProvider, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LLMProvider.VIBEMONITOR,
+    )
+
+    # Model name (e.g., "gpt-4-turbo", "gemini-1.5-pro")
+    # Null means use default model for the provider
+    model_name = Column(String(100), nullable=True)
+
+    # Encrypted JSON config blob containing API keys and provider-specific settings
+    # Use TokenProcessor.encrypt() before storing, TokenProcessor.decrypt() when reading
+    # Structure varies by provider:
+    # - OpenAI: {"api_key": "sk-..."}
+    # - Azure OpenAI: {"api_key": "...", "endpoint": "https://xxx.openai.azure.com/",
+    #                  "api_version": "2024-02-01", "deployment_name": "gpt-4"}
+    # - Gemini: {"api_key": "AIza..."}
+    # - VibeMonitor: {} (no config needed, uses global settings)
+    config_encrypted = Column(Text, nullable=True)
+
+    # Status: 'active' | 'error' | 'unconfigured'
+    status = Column(
+        Enum(LLMConfigStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LLMConfigStatus.ACTIVE,
+    )
+
+    # Verification tracking
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="llm_config")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_llm_provider_config_workspace", "workspace_id"),
+        Index("idx_llm_provider_config_provider", "provider"),
     )
