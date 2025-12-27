@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.models import User, Membership
 from app.auth.services.google_auth_service import AuthService
+from app.integrations.utils import check_integration_permission
 from .schemas import (
     DatadogIntegrationCreate,
     DatadogIntegrationResponse,
@@ -81,6 +82,9 @@ async def store_datadog_integration(
     """
     # Verify user has access to this workspace
     await verify_workspace_access(workspace_id, current_user, db)
+
+    # Check workspace type restriction (Datadog blocked on personal workspaces)
+    await check_integration_permission(workspace_id, "datadog", db)
 
     try:
         integration = await create_datadog_integration(

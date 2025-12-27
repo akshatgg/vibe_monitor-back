@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models import User
 from app.auth.services.google_auth_service import AuthService
+from app.integrations.utils import check_integration_permission
 from .schemas import (
     GrafanaConnectRequest,
     GrafanaConnectionResponse,
@@ -41,6 +42,9 @@ async def connect_grafana(
     - grafana_url: Grafana instance URL (e.g., https://your-grafana-instance.com)
     - api_token: Grafana API token
     """
+    # Check workspace type restriction (Grafana blocked on personal workspaces)
+    await check_integration_permission(request.workspace_id, "grafana", db)
+
     try:
         # Validate credentials before storing
         is_valid = await grafana_service.validate_credentials(
