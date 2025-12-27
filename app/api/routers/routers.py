@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.auth.routers.google_auth_router import router as auth_router
 from app.auth.routers.credential_auth_router import router as credential_auth_router
 from app.auth.routers.github_auth_router import router as github_auth_router
+from app.auth.routers.account_router import router as account_router
 from app.onboarding.routes.workspace_router import router as workspace_router
 from app.slack.router import slack_router
 
@@ -47,6 +48,7 @@ api_router = APIRouter()
 api_router.include_router(auth_router, tags=["authentication"])
 api_router.include_router(credential_auth_router, tags=["credential-authentication"])
 api_router.include_router(github_auth_router, tags=["github-authentication"])
+api_router.include_router(account_router, tags=["account"])
 api_router.include_router(workspace_router, tags=["workspaces"])
 api_router.include_router(slack_router)
 api_router.include_router(log_router)
