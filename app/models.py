@@ -115,6 +115,9 @@ class Workspace(Base):
     grafana_integration = relationship(
         "GrafanaIntegration", back_populates="workspace", uselist=False
     )
+    services = relationship(
+        "Service", back_populates="workspace", cascade="all, delete-orphan"
+    )
 
 
 class Membership(Base):
@@ -775,4 +778,51 @@ class TurnStep(Base):
     __table_args__ = (
         Index("idx_turn_steps_turn", "turn_id"),
         Index("idx_turn_steps_turn_sequence", "turn_id", "sequence"),
+    )
+
+
+# Billing Models
+class Service(Base):
+    """
+    Represents a billable service within a workspace.
+    Services are the billing unit for the platform:
+    - Free tier: 5 services
+    - Paid tier: $30/month for 5 services + $5/month per additional service
+
+    Service names should match what appears in observability logs/traces.
+    One service can be linked to one repository (optional).
+    One repository can have multiple services.
+    """
+
+    __tablename__ = "services"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(255), nullable=False)
+
+    # Optional repository link (one service -> one repo, but one repo -> many services)
+    repository_id = Column(
+        String, ForeignKey("github_integrations.id", ondelete="SET NULL"), nullable=True
+    )
+    repository_name = Column(String(255), nullable=True)  # Denormalized for display
+
+    # Status
+    enabled = Column(Boolean, default=True, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="services")
+    repository = relationship("GitHubIntegration", backref="services")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        Index("uq_workspace_service_name", "workspace_id", "name", unique=True),
+        Index("idx_services_workspace", "workspace_id"),
+        Index("idx_services_repository", "repository_id"),
+        Index("idx_services_enabled", "enabled"),
     )
