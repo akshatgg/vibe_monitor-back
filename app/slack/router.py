@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Optional
 import httpx
 import secrets
@@ -14,6 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.auth.services.google_auth_service import AuthService
 from app.models import SlackInstallation, Workspace, Membership, Integration
+from app.chat.service import ChatService
 from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,121 @@ async def handle_slack_events(request: Request):
     except Exception as e:
         logger.error(f"Error processing Slack event: {e}")
         raise HTTPException(status_code=500, detail="Internal processing error")
+
+
+@slack_router.post("/interactions")
+async def handle_slack_interactions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Handle Slack interactive components (buttons, modals).
+
+    This endpoint handles:
+    1. Feedback button clicks (thumbs up/down, comment)
+    2. Feedback modal submissions
+    """
+    # Verify request signature
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    request_body = await request.body()
+
+    if not await slack_event_service.verify_slack_request(
+        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
+    ):
+        raise HTTPException(status_code=403, detail="Invalid request signature")
+
+    # Parse payload from form data
+    form_data = await request.form()
+    payload = json.loads(form_data.get("payload", "{}"))
+
+    payload_type = payload.get("type")
+    team_id = payload.get("team", {}).get("id")
+
+    logger.info(f"Received Slack interaction: type={payload_type}")
+
+    # Handle button clicks
+    if payload_type == "block_actions":
+        actions = payload.get("actions", [])
+        for action in actions:
+            action_id = action.get("action_id")
+            turn_id = action.get("value")
+            trigger_id = payload.get("trigger_id")
+
+            if action_id == "feedback_thumbs_up":
+                # Quick thumbs up - save directly
+                chat_service = ChatService(db)
+                turn = await chat_service.submit_feedback_by_turn_id(
+                    turn_id=turn_id,
+                    score=5,  # Thumbs up = 5
+                    comment=None,
+                )
+                await db.commit()
+
+                if turn:
+                    logger.info(f"Thumbs up feedback recorded for turn {turn_id}")
+                return JSONResponse({"ok": True})
+
+            elif action_id == "feedback_thumbs_down":
+                # Quick thumbs down - save directly
+                chat_service = ChatService(db)
+                turn = await chat_service.submit_feedback_by_turn_id(
+                    turn_id=turn_id,
+                    score=1,  # Thumbs down = 1
+                    comment=None,
+                )
+                await db.commit()
+
+                if turn:
+                    logger.info(f"Thumbs down feedback recorded for turn {turn_id}")
+                return JSONResponse({"ok": True})
+
+            elif action_id == "feedback_with_comment":
+                # Open modal for detailed feedback
+                await slack_event_service.open_feedback_modal(
+                    team_id=team_id,
+                    trigger_id=trigger_id,
+                    turn_id=turn_id,
+                )
+                return JSONResponse({"ok": True})
+
+    # Handle modal submission
+    if payload_type == "view_submission":
+        callback_id = payload.get("view", {}).get("callback_id")
+
+        if callback_id == "feedback_submission":
+            turn_id = payload.get("view", {}).get("private_metadata")
+            values = payload.get("view", {}).get("state", {}).get("values", {})
+
+            # Extract rating and comment from modal
+            rating = (
+                values.get("rating_block", {})
+                .get("rating_select", {})
+                .get("selected_option", {})
+                .get("value")
+            )
+            comment = (
+                values.get("comment_block", {}).get("comment_input", {}).get("value")
+            )
+
+            if rating:
+                chat_service = ChatService(db)
+                turn = await chat_service.submit_feedback_by_turn_id(
+                    turn_id=turn_id,
+                    score=int(rating),
+                    comment=comment,
+                )
+                await db.commit()
+
+                if turn:
+                    logger.info(
+                        f"Feedback submitted for turn {turn_id}: score={rating}"
+                    )
+
+            # Close modal
+            return JSONResponse({"response_action": "clear"})
+
+    return JSONResponse({"ok": True})
 
 
 @slack_router.get("/connection/status")

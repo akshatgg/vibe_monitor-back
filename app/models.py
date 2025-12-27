@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Text,
     Index,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
@@ -35,6 +36,40 @@ class JobStatus(enum.Enum):
     QUEUED = "queued"
     RUNNING = "running"
     WAITING_INPUT = "waiting_input"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class JobSource(enum.Enum):
+    """Source channel that triggered the job"""
+
+    SLACK = "slack"
+    WEB = "web"
+    MSTEAMS = "msteams"  # Future
+
+
+class TurnStatus(enum.Enum):
+    """Status of a chat turn"""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class StepType(enum.Enum):
+    """Type of processing step within a turn"""
+
+    TOOL_CALL = "tool_call"
+    THINKING = "thinking"
+    STATUS = "status"
+
+
+class StepStatus(enum.Enum):
+    """Status of a processing step"""
+
+    PENDING = "pending"
+    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -283,6 +318,13 @@ class Job(Base):
 
     # Workspace link
     vm_workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # Source channel (slack, web, msteams)
+    source = Column(
+        Enum(JobSource, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=JobSource.SLACK,
+    )  # Default to slack for backward compatibility
 
     # Slack context
     slack_integration_id = Column(
@@ -570,4 +612,167 @@ class SecurityEvent(Base):
         Index("idx_security_events_detected_at", "detected_at"),
         Index("idx_security_events_slack_user", "slack_user_id"),
         Index("idx_security_events_slack_integration", "slack_integration_id"),
+    )
+
+
+# Chat Models
+class ChatSession(Base):
+    """
+    A conversation session between a user and the RCA bot within a workspace.
+    Contains multiple turns (question/answer pairs).
+
+    Unified model for both Web and Slack:
+    - Web: session_id (UUID), user_id references users table
+    - Slack: team_id + channel_id + thread_ts, slack_user_id for Slack user
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+
+    # Source channel (web, slack, msteams)
+    source = Column(
+        Enum(JobSource, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=JobSource.WEB,
+    )
+
+    # Web user (nullable - Slack users aren't in our users table)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    # Slack-specific identifiers (nullable for web sessions)
+    slack_team_id = Column(String, nullable=True)
+    slack_channel_id = Column(String, nullable=True)
+    slack_thread_ts = Column(String, nullable=True)  # Identifies the thread
+    slack_user_id = Column(String, nullable=True)  # Slack user who started it
+
+    # Session metadata
+    title = Column(
+        String(255), nullable=True
+    )  # Auto-generated from first message, user can rename
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="chat_sessions")
+    user = relationship("User", backref="chat_sessions")
+    turns = relationship(
+        "ChatTurn", back_populates="session", cascade="all, delete-orphan"
+    )
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_chat_sessions_workspace", "workspace_id"),
+        Index("idx_chat_sessions_user", "user_id"),
+        Index("idx_chat_sessions_workspace_user", "workspace_id", "user_id"),
+        Index("idx_chat_sessions_created_at", "created_at"),
+        Index("idx_chat_sessions_source", "source"),
+        # Unique constraint for Slack threads
+        Index(
+            "idx_chat_sessions_slack_thread",
+            "slack_team_id",
+            "slack_channel_id",
+            "slack_thread_ts",
+            unique=True,
+            postgresql_where=text("source = 'slack'"),
+        ),
+    )
+
+
+class ChatTurn(Base):
+    """
+    A single turn in a chat conversation: user message + bot response.
+    Feedback is collected at the turn level, not individual message level.
+    """
+
+    __tablename__ = "chat_turns"
+
+    id = Column(String, primary_key=True)  # UUID
+    session_id = Column(
+        String, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # User's question/message
+    user_message = Column(Text, nullable=False)
+
+    # Bot's final response (filled when processing completes)
+    final_response = Column(Text, nullable=True)
+
+    # Processing status
+    status = Column(
+        Enum(TurnStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TurnStatus.PENDING,
+    )
+
+    # Link to the RCA job that processes this turn
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=True)
+
+    # Feedback (at turn level)
+    feedback_score = Column(Integer, nullable=True)  # 1 = thumbs down, 5 = thumbs up
+    feedback_comment = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    session = relationship("ChatSession", back_populates="turns")
+    job = relationship("Job", backref="chat_turn")
+    steps = relationship(
+        "TurnStep", back_populates="turn", cascade="all, delete-orphan"
+    )
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_chat_turns_session", "session_id"),
+        Index("idx_chat_turns_job", "job_id"),
+        Index("idx_chat_turns_status", "status"),
+        Index("idx_chat_turns_created_at", "created_at"),
+    )
+
+
+class TurnStep(Base):
+    """
+    Individual processing steps within a turn.
+    Used for SSE streaming to show progress (tool calls, thinking, etc.).
+    """
+
+    __tablename__ = "turn_steps"
+
+    id = Column(String, primary_key=True)  # UUID
+    turn_id = Column(
+        String, ForeignKey("chat_turns.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Step details
+    step_type = Column(
+        Enum(StepType, values_callable=lambda x: [e.value for e in x]), nullable=False
+    )
+    tool_name = Column(String(100), nullable=True)  # For tool_call type
+    content = Column(Text, nullable=True)  # Step output/content
+
+    # Processing status
+    status = Column(
+        Enum(StepStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=StepStatus.PENDING,
+    )
+
+    # Ordering
+    sequence = Column(Integer, nullable=False)  # Order of steps within turn
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    turn = relationship("ChatTurn", back_populates="steps")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_turn_steps_turn", "turn_id"),
+        Index("idx_turn_steps_turn_sequence", "turn_id", "sequence"),
     )

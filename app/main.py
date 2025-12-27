@@ -19,6 +19,7 @@ from app.core.otel_metrics import init_meter
 
 from app.worker import RCAOrchestratorWorker
 from app.services.sqs.client import sqs_client
+from app.core.redis import close_redis, get_redis
 
 
 # Load environment variables
@@ -57,6 +58,17 @@ async def lifespan(app: FastAPI):
         # Initialize database
         await init_database()
         logger.info("Database initialized")
+
+        # Validate Redis connection (for web chat SSE streaming)
+        if not settings.REDIS_URL:
+            logger.warning("REDIS_URL not configured - web chat will be unavailable")
+        else:
+            try:
+                redis_client = await get_redis()
+                await redis_client.ping()
+                logger.info("Redis connection validated")
+            except Exception as e:
+                logger.error(f"Redis connection failed: {e}")
 
         # Initialize OpenTelemetry (if enabled)
         if settings.OTEL_ENABLED and settings.OTEL_OTLP_ENDPOINT:
@@ -101,6 +113,10 @@ async def lifespan(app: FastAPI):
             # Close SQS client
             await sqs_client.close()
             logger.info("SQS client closed")
+
+            # Close Redis client
+            await close_redis()
+            logger.info("Redis client closed")
 
             logger.info("All services stopped successfully")
         except Exception:

@@ -55,7 +55,8 @@
         {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"},
         {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/engagement-slack-webhook-url"},
         {"name": "GITHUB_OAUTH_CLIENT_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-id"},
-        {"name": "GITHUB_OAUTH_CLIENT_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-secret"}
+        {"name": "GITHUB_OAUTH_CLIENT_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-secret"},
+        {"name": "REDIS_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/redis-url"}
       ]
     }
   ]

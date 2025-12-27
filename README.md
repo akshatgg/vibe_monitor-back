@@ -160,7 +160,7 @@ This setup provides:
 - ✅ Easy debugging (attach debugger directly)
 - ✅ Full IDE integration
 - ✅ Auto-installs Python dependencies
-- ✅ Infrastructure services in Docker (Supabase, LocalStack)
+- ✅ Infrastructure services in Docker (Supabase, LocalStack, Redis)
 
 ### Services & Ports
 
@@ -169,6 +169,7 @@ This setup provides:
 | **VM-API** | http://localhost:8000 | FastAPI application |
 | **Supabase Studio** | http://localhost:3500 | Database management UI |
 | **LocalStack** | http://localhost:4566 | AWS services emulation (SQS) |
+| **Redis** | redis://localhost:6379 | SSE pub/sub for real-time chat streaming |
 | **Supabase DB** | postgresql://postgres:postgres@localhost:54322/postgres | PostgreSQL database |
 
 ### Alternative: Full Docker Setup

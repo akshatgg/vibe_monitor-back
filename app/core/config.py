@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     SQS_QUEUE_URL: Optional[str] = None
     AWS_ENDPOINT_URL: Optional[str] = None
 
+    # Redis (ElastiCache Serverless)
+    REDIS_URL: Optional[str] = None  # e.g., rediss://...elasticache.amazonaws.com:6379
+    REDIS_MAX_CONNECTIONS: int = 100  # Connection pool size
+    REDIS_SOCKET_CONNECT_TIMEOUT: float = 5.0  # Seconds
+    REDIS_SOCKET_KEEPALIVE: bool = True
+
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "VibeMonitor-API"
@@ -188,6 +194,13 @@ class Settings(BaseSettings):
     RCA_SLACK_MESSAGE_MAX_LENGTH: int = (
         500  # Maximum length for Slack progress messages
     )
+
+    # RCA Web Chat Truncation Settings
+    RCA_WEB_TOOL_OUTPUT_MAX_LENGTH: int = (
+        500  # Max length for tool output in SSE events
+    )
+    RCA_WEB_THINKING_MAX_LENGTH: int = 1000  # Max length for thinking content in DB
+    RCA_WEB_THINKING_SSE_MAX_LENGTH: int = 500  # Max length for thinking in SSE events
     RCA_SLACK_MAX_CONSECUTIVE_FAILURES: int = (
         3  # Max consecutive Slack failures before circuit breaker opens
     )
@@ -203,6 +216,14 @@ class Settings(BaseSettings):
         50  # Increased for complex multi-service investigations
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
+
+    # SSE Staleness Detection Settings
+    MAX_JOB_PROCESSING_MINUTES: int = (
+        15  # Maximum time a job can be in PROCESSING state before considered stale
+    )
+    SSE_REDIS_TIMEOUT_SECONDS: int = (
+        180  # SSE Redis subscription timeout as safety net (3 minutes)
+    )
 
     # RCA Image Processing Settings
     RCA_SLACK_IMAGE_DOWNLOAD_TIMEOUT: float = (

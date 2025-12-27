@@ -21,6 +21,9 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test} # Used by the LocalStack container itself to initialize
 
+      # Redis (for SSE pub/sub streaming)
+      - REDIS_URL=redis://redis:6379
+
       # OpenTelemetry configuration
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_OTLP_ENDPOINT=${OTEL_OTLP_ENDPOINT}
@@ -34,6 +37,8 @@ services:
       supabase-db:
         condition: service_started
       localstack:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
@@ -122,6 +127,21 @@ services:
     networks:
       - app-network
 
+  # Redis (for SSE pub/sub streaming)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app-network
+
   # LocalStack (Local AWS services emulation)
   localstack:
     image: localstack/localstack:3.0
@@ -146,6 +166,7 @@ services:
 volumes:
   supabase_db_data:
   localstack_data:
+  redis_data:
 
 networks:
   app-network:

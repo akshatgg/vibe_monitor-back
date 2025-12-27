@@ -9,12 +9,14 @@ from app.services.sqs.client import sqs_client
 from app.services.rca.agent import rca_agent_service
 from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.callbacks import SlackProgressCallback
+from app.chat.notifiers import WebProgressCallback
 from app.integrations.service import get_workspace_integrations
 from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
 from app.core.logging_config import set_job_id, clear_job_id
-from app.models import Job, JobStatus
+from app.models import Job, JobStatus, JobSource, TurnStatus
+from app.chat.service import ChatService
 from app.github.tools.router import list_repositories_graphql
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.engagement.service import engagement_service
@@ -295,7 +297,18 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = "GitHub integration not configured"
                         await db.commit()
 
-                        if team_id and channel_id:
+                        # Notify client based on source
+                        if job.source == JobSource.WEB:
+                            turn_id = requested_context.get("turn_id")
+                            if turn_id:
+                                web_callback = WebProgressCallback(
+                                    turn_id=turn_id,
+                                    db=db,
+                                )
+                                await web_callback.send_error(
+                                    "GitHub integration not configured. Please connect GitHub first."
+                                )
+                        elif team_id and channel_id:
                             slack_callback = SlackProgressCallback(
                                 team_id=team_id,
                                 channel_id=channel_id,
@@ -390,6 +403,18 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = f"Service discovery failed: {str(e)}"
                         await db.commit()
 
+                        # Notify client based on source
+                        if job.source == JobSource.WEB:
+                            turn_id = requested_context.get("turn_id")
+                            if turn_id:
+                                web_callback = WebProgressCallback(
+                                    turn_id=turn_id,
+                                    db=db,
+                                )
+                                await web_callback.send_error(
+                                    f"Service discovery failed: {str(e)}"
+                                )
+
                         logger.warning(
                             "Service discovery failed, marking job as FAILED and exiting"
                         )
@@ -444,20 +469,38 @@ class RCAOrchestratorWorker(BaseWorker):
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
                     }
 
-                    # Create Slack progress callback for real-time updates
-                    slack_callback = None
-                    if team_id and channel_id:
-                        slack_callback = SlackProgressCallback(
-                            team_id=team_id,
-                            channel_id=channel_id,
-                            thread_ts=thread_ts,
-                            send_tool_output=False,  # Don't send verbose tool outputs
-                        )
+                    # Create appropriate progress callback based on job source
+                    progress_callback = None
+                    web_callback = None  # Keep reference for web-specific methods
+
+                    if job.source == JobSource.WEB:
+                        # Web chat: use WebProgressCallback for SSE streaming
+                        turn_id = requested_context.get("turn_id")
+                        if turn_id:
+                            web_callback = WebProgressCallback(
+                                turn_id=turn_id,
+                                db=db,
+                            )
+                            progress_callback = web_callback
+                            logger.info(f"🌐 Using web callback for turn {turn_id}")
+                        else:
+                            logger.warning(
+                                f"Web job {job_id} missing turn_id in context"
+                            )
+                    else:
+                        # Slack: use SlackProgressCallback
+                        if team_id and channel_id:
+                            progress_callback = SlackProgressCallback(
+                                team_id=team_id,
+                                channel_id=channel_id,
+                                thread_ts=thread_ts,
+                                send_tool_output=False,
+                            )
 
                     result = await selected_agent.analyze_with_retry(
                         user_query=query,
                         context=analysis_context,
-                        callbacks=[slack_callback] if slack_callback else None,
+                        callbacks=[progress_callback] if progress_callback else None,
                         db=db,  # Pass db session for capability-based tool resolution
                     )
 
@@ -470,16 +513,46 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.finished_at = datetime.now(timezone.utc)
                         await db.commit()
 
-                        # Send analysis result back to Slack
-                        if team_id and channel_id:
-                            await slack_event_service.send_message(
-                                team_id=team_id,
-                                channel=channel_id,
-                                text=result.get("output", "Analysis completed."),
-                                thread_ts=thread_ts,
-                            )
+                        # Send final response based on source
+                        final_output = result.get("output", "Analysis completed.")
 
-                        logger.info(f"📤 Job {job_id} result sent to Slack")
+                        if job.source == JobSource.WEB and web_callback:
+                            # Web: send via SSE/Redis
+                            await web_callback.send_complete(final_output)
+                            logger.info(f"📤 Job {job_id} result sent to web client")
+                        elif team_id and channel_id:
+                            # Slack: update turn status and send message with feedback buttons
+                            turn_id = requested_context.get("turn_id")
+                            if turn_id:
+                                # Update turn status and response
+                                chat_service = ChatService(db)
+                                await chat_service.update_turn_status(
+                                    turn_id=turn_id,
+                                    status=TurnStatus.COMPLETED,
+                                    final_response=final_output,
+                                )
+                                await db.commit()
+
+                                # Send with feedback buttons
+                                await slack_event_service.send_message_with_feedback_button(
+                                    team_id=team_id,
+                                    channel=channel_id,
+                                    text=final_output,
+                                    turn_id=turn_id,
+                                    thread_ts=thread_ts,
+                                )
+                                logger.info(
+                                    f"📤 Job {job_id} result sent to Slack with feedback buttons"
+                                )
+                            else:
+                                # Fallback: send without feedback button
+                                await slack_event_service.send_message(
+                                    team_id=team_id,
+                                    channel=channel_id,
+                                    text=final_output,
+                                    thread_ts=thread_ts,
+                                )
+                                logger.info(f"📤 Job {job_id} result sent to Slack")
 
                     else:
                         # Analysis failed - mark as failed
@@ -495,12 +568,17 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = error_msg
                         await db.commit()
 
-                        # Send appropriate error message to user based on error type
-                        if slack_callback:
+                        # Send error based on source
+                        if job.source == JobSource.WEB and web_callback:
+                            await web_callback.send_error(error_msg)
+                        elif progress_callback and hasattr(
+                            progress_callback, "send_no_healthy_integrations_message"
+                        ):
+                            # Slack callback with special methods
                             if error_type == "no_healthy_integrations":
-                                await slack_callback.send_no_healthy_integrations_message()
+                                await progress_callback.send_no_healthy_integrations_message()
                             else:
-                                await slack_callback.send_final_error(
+                                await progress_callback.send_final_error(
                                     error_msg=error_msg, retry_count=0
                                 )
 
@@ -518,17 +596,28 @@ class RCAOrchestratorWorker(BaseWorker):
                             job.error_message = f"Worker exception: {str(e)}"
                             await db.commit()
 
-                            # Attempt to send error notification to Slack (sanitized)
+                            # Attempt to send error notification based on source
                             if job.requested_context:
-                                team_id = job.requested_context.get("team_id")
-                                if team_id and job.trigger_channel_id:
-                                    # Create temporary callback for error notification
-                                    error_callback = SlackProgressCallback(
-                                        team_id=team_id,
-                                        channel_id=job.trigger_channel_id,
-                                        thread_ts=job.trigger_thread_ts,
-                                    )
-                                    await error_callback.send_unexpected_error()
+                                if job.source == JobSource.WEB:
+                                    turn_id = job.requested_context.get("turn_id")
+                                    if turn_id:
+                                        error_web_callback = WebProgressCallback(
+                                            turn_id=turn_id,
+                                            db=db,
+                                        )
+                                        await error_web_callback.send_error(
+                                            "An unexpected error occurred. Please try again."
+                                        )
+                                else:
+                                    team_id = job.requested_context.get("team_id")
+                                    if team_id and job.trigger_channel_id:
+                                        # Create temporary callback for error notification
+                                        error_callback = SlackProgressCallback(
+                                            team_id=team_id,
+                                            channel_id=job.trigger_channel_id,
+                                            thread_ts=job.trigger_thread_ts,
+                                        )
+                                        await error_callback.send_unexpected_error()
                     except Exception as recovery_error:
                         logger.error(f"Failed to handle job failure: {recovery_error}")
         except Exception:

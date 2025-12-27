@@ -22,7 +22,8 @@ from app.slack.schemas import (
     SlackInstallationResponse,
 )
 from app.models import SlackInstallation, Integration
-from app.models import Job, JobStatus
+from app.models import Job, JobStatus, JobSource, TurnStatus
+from app.chat.service import ChatService
 from app.integrations.health_checks import check_slack_health
 from app.slack.alert_detector import alert_detector
 from app.security.llm_guard import llm_guard
@@ -531,11 +532,33 @@ class SlackEventService:
                             f"allowing request to proceed"
                         )
 
-                    # Create job record with alert info if auto-detected
+                    # ═══════════════════════════════════════════════════════════════
+                    # Create ChatSession and ChatTurn (unified model for Slack + Web)
+                    # ═══════════════════════════════════════════════════════════════
+                    chat_service = ChatService(db)
+
+                    # Get or create session for this Slack thread
+                    session = await chat_service.get_or_create_slack_session(
+                        workspace_id=workspace_id,
+                        slack_team_id=team_id,
+                        slack_channel_id=channel_id,
+                        slack_thread_ts=thread_ts,
+                        slack_user_id=user_id,
+                        first_message=clean_message,
+                    )
+
+                    # Create turn for this message
+                    turn = await chat_service.create_turn(
+                        session=session,
+                        user_message=clean_message,
+                    )
+
+                    # Build job context with alert info if auto-detected
                     job_context = {
                         "query": clean_message,
                         "user_id": user_id,
                         "team_id": team_id,
+                        "turn_id": turn.id,  # Link to turn for feedback
                         "is_explicit_mention": is_explicit_mention,
                     }
 
@@ -581,9 +604,11 @@ class SlackEventService:
                                 f"Found {len(files)} file(s) but none were valid images with required fields"
                             )
 
+                    # Create job linked to turn
                     job = Job(
                         id=job_id,
                         vm_workspace_id=workspace_id,
+                        source=JobSource.SLACK,
                         slack_integration_id=slack_integration_id,
                         trigger_channel_id=channel_id,
                         trigger_thread_ts=thread_ts,
@@ -592,8 +617,15 @@ class SlackEventService:
                         requested_context=job_context,
                     )
                     db.add(job)
+
+                    # Link job to turn and update turn status
+                    turn.job_id = job_id
+                    turn.status = TurnStatus.PROCESSING
+
                     await db.commit()
-                    logger.info(f"✅ Job {job_id} created in database")
+                    logger.info(
+                        f"✅ Session {session.id}, Turn {turn.id}, Job {job_id} created"
+                    )
 
                 # Send lightweight message to SQS (just job_id)
                 success = await sqs_client.send_message({"job_id": job_id})
@@ -1031,6 +1063,230 @@ class SlackEventService:
 
         except Exception as e:
             logger.error(f"Error updating Slack message: {e}")
+            return False
+
+    @staticmethod
+    async def send_message_with_feedback_button(
+        team_id: str,
+        channel: str,
+        text: str,
+        turn_id: str,
+        thread_ts: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        Send RCA response with a feedback button.
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID to send message to
+            text: Message text (RCA response)
+            turn_id: Turn ID to pass to feedback modal
+            thread_ts: Thread timestamp for reply
+
+        Returns:
+            Dict with 'ok' status and 'ts' if successful, None if failed
+        """
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation or not installation.access_token:
+            logger.error(f"No installation/token for team {team_id}")
+            return None
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+        except Exception as err:
+            logger.error(f"Failed to decrypt token for team {team_id}: {err}")
+            return None
+
+        # Build message blocks with feedback button
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👍", "emoji": True},
+                        "style": "primary",
+                        "action_id": "feedback_thumbs_up",
+                        "value": turn_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👎", "emoji": True},
+                        "action_id": "feedback_thumbs_down",
+                        "value": turn_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💬 Comment",
+                            "emoji": True,
+                        },
+                        "action_id": "feedback_with_comment",
+                        "value": turn_id,
+                    },
+                ],
+            },
+        ]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                payload = {
+                    "channel": channel,
+                    "text": text,  # Fallback for notifications
+                    "blocks": blocks,
+                }
+                if thread_ts:
+                    payload["thread_ts"] = thread_ts
+
+                response = await client.post(
+                    f"{settings.SLACK_API_BASE_URL}/chat.postMessage",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=10.0,
+                )
+
+                data = response.json()
+                if data.get("ok"):
+                    logger.info(f"Message with feedback buttons sent to {channel}")
+                    return {"ok": True, "ts": data.get("ts")}
+                else:
+                    logger.error(f"Failed to send message: {data.get('error')}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Error sending message with feedback button: {e}")
+            return None
+
+    @staticmethod
+    async def open_feedback_modal(
+        team_id: str,
+        trigger_id: str,
+        turn_id: str,
+        initial_score: Optional[int] = None,
+    ) -> bool:
+        """
+        Open feedback modal in Slack for detailed feedback.
+
+        Args:
+            team_id: Slack team/workspace ID
+            trigger_id: Slack trigger ID from interaction
+            turn_id: Turn ID to store in modal metadata
+            initial_score: Pre-selected score (5 for thumbs up, 1 for thumbs down)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation or not installation.access_token:
+            return False
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+        except Exception:
+            return False
+
+        # Build modal with optional pre-selected score
+        modal = {
+            "type": "modal",
+            "callback_id": "feedback_submission",
+            "private_metadata": turn_id,
+            "title": {"type": "plain_text", "text": "Share Feedback"},
+            "submit": {"type": "plain_text", "text": "Submit"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "How was this analysis? Your feedback helps us improve! 🙏",
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "rating_block",
+                    "element": {
+                        "type": "static_select",
+                        "action_id": "rating_select",
+                        "placeholder": {"type": "plain_text", "text": "Select rating"},
+                        "initial_option": {
+                            "text": {"type": "plain_text", "text": "👍 Helpful"},
+                            "value": "5",
+                        }
+                        if initial_score == 5
+                        else {
+                            "text": {"type": "plain_text", "text": "👎 Not helpful"},
+                            "value": "1",
+                        }
+                        if initial_score == 1
+                        else None,
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": "👍 Helpful"},
+                                "value": "5",
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "👎 Not helpful",
+                                },
+                                "value": "1",
+                            },
+                        ],
+                    },
+                    "label": {"type": "plain_text", "text": "Rating"},
+                },
+                {
+                    "type": "input",
+                    "block_id": "comment_block",
+                    "optional": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "comment_input",
+                        "multiline": True,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Any additional comments? (optional)",
+                        },
+                    },
+                    "label": {"type": "plain_text", "text": "Comments"},
+                },
+            ],
+        }
+
+        # Remove initial_option if not set
+        if initial_score is None:
+            del modal["blocks"][1]["element"]["initial_option"]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{settings.SLACK_API_BASE_URL}/views.open",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"trigger_id": trigger_id, "view": modal},
+                    timeout=10.0,
+                )
+
+                data = response.json()
+                if data.get("ok"):
+                    logger.info(f"Feedback modal opened for turn {turn_id}")
+                    return True
+                else:
+                    logger.error(f"Failed to open modal: {data.get('error')}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error opening feedback modal: {e}")
             return False
 
 

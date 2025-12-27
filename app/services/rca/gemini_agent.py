@@ -524,6 +524,34 @@ class GeminiRCAAgentService:
                     "thread_history_text": thread_history_text,
                 }
 
+            # Log context details before LLM API call for debugging context length issues
+            # Model context windows: llama-3.3-70b-versatile = 128K tokens, gemini-2.0-flash-exp = 1M tokens
+            system_prompt_len = len(RCA_SYSTEM_PROMPT)
+            thread_history_len = len(thread_history_text)
+            service_mapping_len = len(service_mapping_text)
+            user_query_len = len(
+                agent_input["input"]
+            )  # Use actual input (may include image analysis)
+            total_chars = (
+                system_prompt_len
+                + thread_history_len
+                + service_mapping_len
+                + user_query_len
+            )
+
+            # Rough token estimate (1 token ≈ 4 characters for English text)
+            estimated_tokens = total_chars // 4
+
+            logger.info(
+                f"📊 Context size before LLM call (model: {settings.GEMINI_LLM_MODEL}):\n"
+                f"  - System prompt: {system_prompt_len} chars\n"
+                f"  - Thread history: {thread_history_len} chars ({len(thread_history)} messages)\n"
+                f"  - Service mapping: {service_mapping_len} chars ({len(service_repo_mapping)} services)\n"
+                f"  - User query (with images if any): {user_query_len} chars\n"
+                f"  - Total input: {total_chars} chars (~{estimated_tokens} tokens est.)\n"
+                f"  - Max output tokens: {settings.RCA_AGENT_MAX_TOKENS}"
+            )
+
             # Execute the agent asynchronously with callbacks
             if callbacks:
                 result = await agent_executor.ainvoke(
@@ -546,12 +574,43 @@ class GeminiRCAAgentService:
             }
 
         except Exception as e:
-            logger.error(f"Error during Gemini RCA analysis: {e}", exc_info=True)
+            # Enhanced error logging for Gemini API errors
+            error_details = {"error_type": type(e).__name__, "error_message": str(e)}
+            is_context_length_error = False
+
+            # Check for context_length_exceeded or quota errors in Gemini
+            error_str = str(e).lower()
+            if (
+                "context_length" in error_str
+                or "quota" in error_str
+                or "resource" in error_str
+            ):
+                is_context_length_error = True
+
+            # Special logging for context_length_exceeded errors
+            if is_context_length_error:
+                # Log complete context details for debugging
+                logger.error(
+                    f"🚨 CONTEXT/QUOTA ERROR DETECTED IN GEMINI 🚨\n"
+                    f"Model: {settings.GEMINI_LLM_MODEL}\n"
+                    f"Max output tokens configured: {settings.RCA_AGENT_MAX_TOKENS}\n"
+                    f"System prompt length: {len(RCA_SYSTEM_PROMPT)} chars\n"
+                    f"Thread history length: {len(thread_history_text)} chars\n"
+                    f"Service mapping length: {len(service_mapping_text)} chars\n"
+                    f"User query length: {len(user_query)} chars\n"
+                    f"Error details: {error_details}"
+                )
+                error_details["is_context_length_error"] = True
+
+            logger.error(
+                f"Error during Gemini RCA analysis: {error_details}", exc_info=True
+            )
             return {
                 "output": None,
                 "intermediate_steps": [],
                 "success": False,
                 "error": f"RCA analysis failed: {str(e)}",
+                "error_details": error_details,  # Include error details for fallback logic
             }
 
     @staticmethod

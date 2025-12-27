@@ -18,6 +18,7 @@ from app.core.config import settings
 from .prompts import RCA_SYSTEM_PROMPT
 from .capabilities import IntegrationCapabilityResolver
 from .builder import AgentExecutorBuilder
+from .gemini_agent import gemini_rca_agent_service
 
 
 logger = logging.getLogger(__name__)
@@ -274,6 +275,32 @@ class RCAAgentService:
                 "thread_history_text": thread_history_text,
             }
 
+            # Log context details before LLM API call for debugging context length issues
+            # Model context windows: llama-3.3-70b-versatile = 128K tokens, gemini-2.0-flash-exp = 1M tokens
+            system_prompt_len = len(RCA_SYSTEM_PROMPT)
+            thread_history_len = len(thread_history_text)
+            service_mapping_len = len(service_mapping_text)
+            user_query_len = len(user_query)
+            total_chars = (
+                system_prompt_len
+                + thread_history_len
+                + service_mapping_len
+                + user_query_len
+            )
+
+            # Rough token estimate (1 token ≈ 4 characters for English text)
+            estimated_tokens = total_chars // 4
+
+            logger.info(
+                f"📊 Context size before LLM call (model: {settings.GROQ_LLM_MODEL}):\n"
+                f"  - System prompt: {system_prompt_len} chars\n"
+                f"  - Thread history: {thread_history_len} chars ({len(thread_history)} messages)\n"
+                f"  - Service mapping: {service_mapping_len} chars ({len(service_repo_mapping)} services)\n"
+                f"  - User query: {user_query_len} chars\n"
+                f"  - Total input: {total_chars} chars (~{estimated_tokens} tokens est.)\n"
+                f"  - Max output tokens: {settings.RCA_AGENT_MAX_TOKENS}"
+            )
+
             # Execute the agent asynchronously with callbacks
             if callbacks:
                 result = await agent_executor.ainvoke(
@@ -319,6 +346,7 @@ class RCAAgentService:
         except Exception as e:
             # Enhanced error logging for Groq API errors
             error_details = {"error_type": type(e).__name__, "error_message": str(e)}
+            is_context_length_error = False
 
             # Extract failed_generation from Groq API errors if available
             if hasattr(e, "body") and isinstance(e.body, dict):
@@ -327,6 +355,10 @@ class RCAAgentService:
                     error_info = error_body["error"]
                     error_details["error_code"] = error_info.get("code")
                     error_details["error_type_api"] = error_info.get("type")
+
+                    # Check if this is a context_length_exceeded error
+                    if error_info.get("code") == "context_length_exceeded":
+                        is_context_length_error = True
 
                     # Capture failed_generation for debugging
                     if "failed_generation" in error_info:
@@ -337,12 +369,29 @@ class RCAAgentService:
                             f"Groq API tool_use_failed - failed_generation: {error_info['failed_generation']}"
                         )
 
+            # Special logging for context_length_exceeded errors
+            if is_context_length_error:
+                # Log complete context details for debugging
+                logger.error(
+                    f"🚨 CONTEXT_LENGTH_EXCEEDED ERROR DETECTED 🚨\n"
+                    f"Model: {settings.GROQ_LLM_MODEL}\n"
+                    f"Max output tokens configured: {settings.RCA_AGENT_MAX_TOKENS}\n"
+                    f"System prompt length: {len(RCA_SYSTEM_PROMPT)} chars\n"
+                    f"Thread history length: {len(thread_history_text)} chars\n"
+                    f"Service mapping length: {len(service_mapping_text)} chars\n"
+                    f"User query length: {len(user_query)} chars\n"
+                    f"Error details: {error_details}"
+                )
+                # Add context_length_exceeded flag to error response for fallback handling
+                error_details["is_context_length_error"] = True
+
             logger.error(f"Error during RCA analysis: {error_details}", exc_info=True)
             return {
                 "output": None,
                 "intermediate_steps": [],
                 "success": False,
                 "error": f"RCA analysis failed: {str(e)}",
+                "error_details": error_details,  # Include error details for fallback logic
             }
 
     async def analyze_with_retry(
@@ -354,7 +403,10 @@ class RCAAgentService:
         db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
-        Perform RCA analysis with automatic retry on failure
+        Perform RCA analysis with automatic retry on failure.
+
+        If Groq fails with context_length_exceeded or any LLM API error,
+        automatically falls back to Gemini agent.
 
         Args:
             user_query: User's question
@@ -366,6 +418,7 @@ class RCAAgentService:
         Returns:
             Analysis result dictionary
         """
+        gemini_fallback_attempted = False
         for attempt in range(max_retries + 1):
             try:
                 result = await self.analyze(
@@ -382,6 +435,46 @@ class RCAAgentService:
                         "No healthy integrations - skipping retries as this won't resolve itself"
                     )
                     return result
+
+                # Check if this is a context_length_exceeded error or any LLM API error
+                error_details = result.get("error_details", {})
+                is_llm_error = (
+                    error_details.get("is_context_length_error", False)
+                    or error_details.get("error_code") is not None
+                )
+
+                if is_llm_error and not gemini_fallback_attempted:
+                    gemini_fallback_attempted = True
+                    logger.warning(
+                        f"⚠️ Groq LLM error detected on attempt {attempt + 1}. "
+                        f"Attempting fallback to Gemini agent with larger context window..."
+                    )
+
+                    # Try Gemini as fallback
+                    try:
+                        logger.info(
+                            f"🔄 Switching from Groq ({settings.GROQ_LLM_MODEL}) to Gemini ({settings.GEMINI_LLM_MODEL}) "
+                            f"due to LLM error: {error_details.get('error_code', 'unknown')}"
+                        )
+
+                        gemini_result = await gemini_rca_agent_service.analyze(
+                            user_query, context, callbacks=callbacks, db=db
+                        )
+
+                        if gemini_result["success"]:
+                            logger.info("✅ Gemini fallback succeeded!")
+                            return gemini_result
+                        else:
+                            logger.warning(
+                                f"Gemini fallback also failed: {gemini_result.get('error')}"
+                            )
+                            # Continue with retry logic
+
+                    except Exception as gemini_error:
+                        logger.error(
+                            f"Gemini fallback error: {gemini_error}", exc_info=True
+                        )
+                        # Continue with retry logic
 
                 # If analysis didn't succeed but didn't error, retry
                 logger.warning(

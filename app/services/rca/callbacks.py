@@ -432,13 +432,23 @@ class SlackProgressCallback(AsyncCallbackHandler):
 
         Args:
             error_msg: Raw error message (will be sanitized)
-            retry_count: Number of retry attempts made
+            retry_count: Number of retry attempts made (0 means 1 attempt, no retries)
         """
         user_friendly_msg = sanitize_error_for_user(error_msg)
+
+        # Make message grammatically correct based on retry count
+        # retry_count=0 means 1 attempt (no retries), retry_count=2 means 3 attempts total
+        total_attempts = retry_count + 1
+        if total_attempts == 1:
+            attempt_text = "I couldn't complete the analysis."
+        else:
+            attempt_text = (
+                f"I tried {total_attempts} times but couldn't complete the analysis."
+            )
+
         await self._send_to_slack(
             text=(
-                f"❌ {user_friendly_msg}. "
-                f"I tried {retry_count} times but couldn't complete the analysis.\n\n"
+                f"❌ {user_friendly_msg}. {attempt_text}\n\n"
                 f"Please try rephrasing your query or contact support if the issue persists."
             ),
             context="final error message",
