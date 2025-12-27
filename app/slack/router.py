@@ -17,6 +17,10 @@ from app.auth.services.google_auth_service import AuthService
 from app.models import SlackInstallation, Workspace, Membership, Integration
 from app.chat.service import ChatService
 from fastapi.responses import RedirectResponse
+from app.integrations.utils import (
+    is_integration_allowed,
+    get_blocked_integration_message,
+)
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
@@ -26,7 +30,9 @@ slack_router = APIRouter(prefix="/slack", tags=["slack"])
 
 @slack_router.get("/install")
 async def initiate_slack_install(
-    workspace_id: str, user=Depends(auth_service.get_current_user)
+    workspace_id: str,
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate Slack OAuth URL with workspace_id and user_id embedded in state parameter
@@ -42,6 +48,21 @@ async def initiate_slack_install(
         - Requires JWT authentication
         - State includes user_id|workspace_id|nonce to prevent CSRF attacks
     """
+    # Check workspace type restriction (Slack blocked on personal workspaces)
+    workspace_result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = workspace_result.scalar_one_or_none()
+
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if not is_integration_allowed(workspace.type, "slack"):
+        raise HTTPException(
+            status_code=400,
+            detail=get_blocked_integration_message("slack"),
+        )
+
     # Create state with user_id, workspace_id, and random nonce (same pattern as GitHub)
     state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
@@ -483,6 +504,14 @@ async def slack_oauth_callback(
     if not workspace:
         logger.error(f"Workspace not found: {workspace_id}")
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+    # Check workspace type restriction (Slack blocked on personal workspaces)
+    if not is_integration_allowed(workspace.type, "slack"):
+        logger.warning(f"Slack OAuth attempted for personal workspace: {workspace_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=get_blocked_integration_message("slack"),
+        )
 
     # Check if user is a member of the workspace
     membership_result = await db.execute(
