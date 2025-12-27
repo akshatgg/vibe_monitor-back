@@ -39,3 +39,12 @@ class HealthCheckResponse(BaseModel):
     status: str
     last_verified_at: datetime | None
     last_error: str | None
+
+
+class AvailableIntegrationsResponse(BaseModel):
+    """Response model for available integrations based on workspace type."""
+
+    workspace_type: str
+    allowed_integrations: List[str]
+    restrictions: dict[str, bool]
+    upgrade_message: str | None

@@ -6,10 +6,11 @@ Provides endpoints for managing and monitoring integrations.
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 
 from app.core.database import get_db
-from app.models import User
+from app.models import User, Workspace, Membership, WorkspaceType
 from app.auth.services.google_auth_service import AuthService
 from app.integrations.service import (
     check_integration_health,
@@ -21,7 +22,9 @@ from app.integrations.schemas import (
     IntegrationResponse,
     IntegrationListResponse,
     HealthCheckResponse,
+    AvailableIntegrationsResponse,
 )
+from app.integrations.utils import get_allowed_integrations, ALL_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +227,87 @@ async def check_workspace_integrations_health(
             f"user_id={current_user.id}"
         )
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+
+@router.get(
+    "/workspace/{workspace_id}/available", response_model=AvailableIntegrationsResponse
+)
+async def get_available_integrations(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of integrations available for this workspace.
+
+    Used by frontend to show/hide integration options based on workspace type.
+
+    Returns:
+    - workspace_type: The type of workspace (personal or team)
+    - allowed_integrations: List of integration providers allowed for this workspace
+    - restrictions: Dict mapping provider names to blocked status (True = blocked)
+    - upgrade_message: Message to display for personal workspaces, null for team workspaces
+    """
+    logger.info(
+        f"API request: get available integrations - workspace_id={workspace_id}, "
+        f"user_id={current_user.id}"
+    )
+
+    try:
+        # Verify user has access to the workspace
+        membership_result = await db.execute(
+            select(Membership).where(
+                Membership.user_id == current_user.id,
+                Membership.workspace_id == workspace_id,
+            )
+        )
+        membership = membership_result.scalar_one_or_none()
+
+        if not membership:
+            raise HTTPException(
+                status_code=403, detail="User does not have access to this workspace"
+            )
+
+        # Get workspace to check type
+        workspace_result = await db.execute(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        workspace = workspace_result.scalar_one_or_none()
+
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        allowed = get_allowed_integrations(workspace.type)
+
+        # Build restrictions dict (True = blocked)
+        restrictions = {provider: provider not in allowed for provider in ALL_PROVIDERS}
+
+        # Upgrade message only for personal workspaces
+        upgrade_message = (
+            "Create a team workspace to access all integrations."
+            if workspace.type == WorkspaceType.PERSONAL
+            else None
+        )
+
+        logger.info(
+            f"API response: available integrations - workspace_id={workspace_id}, "
+            f"workspace_type={workspace.type.value}, allowed_count={len(allowed)}"
+        )
+
+        return AvailableIntegrationsResponse(
+            workspace_type=workspace.type.value,
+            allowed_integrations=sorted(list(allowed)),
+            restrictions=restrictions,
+            upgrade_message=upgrade_message,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            f"API error: get available integrations failed - workspace_id={workspace_id}, "
+            f"user_id={current_user.id}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get available integrations: {str(e)}"
+        )
