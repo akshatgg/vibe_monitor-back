@@ -5,11 +5,18 @@ from typing import List, Optional
 import uuid
 from fastapi import HTTPException
 
-from app.models import Workspace, Membership, User, Role
+from app.models import (
+    Workspace,
+    Membership,
+    User,
+    Role,
+    WorkspaceType as DBWorkspaceType,
+)
 from ..schemas.schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceWithMembership,
+    WorkspaceType,
 )
 
 
@@ -26,19 +33,41 @@ class WorkspaceService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Auto-set domain if visible_to_org is True and no domain provided
-        domain = workspace_data.domain
-        if workspace_data.visible_to_org and not domain:
-            user_email = user.email
-            domain = user_email.split("@")[1] if "@" in user_email else None
+        # Determine workspace type (default to TEAM)
+        workspace_type = (
+            workspace_data.type if workspace_data.type else WorkspaceType.TEAM
+        )
+
+        # Validation for personal workspaces
+        if workspace_type == WorkspaceType.PERSONAL:
+            # Check if user already has a personal workspace
+            existing_personal = await self._get_user_personal_workspace(
+                user_id=owner_user_id, db=db
+            )
+            if existing_personal:
+                raise HTTPException(
+                    status_code=400,
+                    detail="User already has a personal workspace. Only one personal workspace is allowed.",
+                )
+            # Personal workspaces cannot be visible to org or have a domain
+            domain = None
+            visible_to_org = False
+        else:
+            # Auto-set domain if visible_to_org is True and no domain provided
+            domain = workspace_data.domain
+            if workspace_data.visible_to_org and not domain:
+                user_email = user.email
+                domain = user_email.split("@")[1] if "@" in user_email else None
+            visible_to_org = workspace_data.visible_to_org
 
         # Create workspace
         workspace_id = str(uuid.uuid4())
         new_workspace = Workspace(
             id=workspace_id,
             name=workspace_data.name,
+            type=DBWorkspaceType(workspace_type.value),
             domain=domain,
-            visible_to_org=workspace_data.visible_to_org,
+            visible_to_org=visible_to_org,
         )
 
         db.add(new_workspace)
@@ -61,6 +90,21 @@ class WorkspaceService:
 
         return WorkspaceResponse.model_validate(new_workspace)
 
+    async def _get_user_personal_workspace(
+        self, user_id: str, db: AsyncSession
+    ) -> Optional[Workspace]:
+        """Get user's personal workspace if it exists"""
+        query = (
+            select(Workspace)
+            .join(Membership, Membership.workspace_id == Workspace.id)
+            .where(
+                Membership.user_id == user_id,
+                Workspace.type == DBWorkspaceType.PERSONAL,
+            )
+        )
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
     async def get_user_workspaces(
         self, user_id: str, db: AsyncSession
     ) -> List[WorkspaceWithMembership]:
@@ -81,6 +125,7 @@ class WorkspaceService:
             workspace_data = {
                 "id": membership.workspace.id,
                 "name": membership.workspace.name,
+                "type": WorkspaceType(membership.workspace.type.value),
                 "domain": membership.workspace.domain,
                 "visible_to_org": membership.workspace.visible_to_org,
                 "is_paid": membership.workspace.is_paid,
@@ -116,6 +161,7 @@ class WorkspaceService:
         workspace_data = {
             "id": membership.workspace.id,
             "name": membership.workspace.name,
+            "type": WorkspaceType(membership.workspace.type.value),
             "domain": membership.workspace.domain,
             "visible_to_org": membership.workspace.visible_to_org,
             "is_paid": membership.workspace.is_paid,
@@ -124,6 +170,35 @@ class WorkspaceService:
         }
 
         return WorkspaceWithMembership.model_validate(workspace_data)
+
+    async def update_last_visited_workspace(
+        self, user_id: str, workspace_id: str, db: AsyncSession
+    ) -> bool:
+        """Update the last visited workspace for a user"""
+        # Verify user has access to this workspace
+        membership_query = select(Membership).where(
+            Membership.workspace_id == workspace_id, Membership.user_id == user_id
+        )
+        result = await db.execute(membership_query)
+        membership = result.scalar_one_or_none()
+
+        if not membership:
+            raise HTTPException(
+                status_code=403,
+                detail="User does not have access to this workspace",
+            )
+
+        # Update the user's last visited workspace
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.last_visited_workspace_id = workspace_id
+        await db.commit()
+
+        return True
 
     async def get_visible_workspaces_by_domain(
         self, domain: str, db: AsyncSession
@@ -255,6 +330,7 @@ class WorkspaceService:
 
         workspace_data = WorkspaceCreate(
             name=workspace_name,
+            type=WorkspaceType.PERSONAL,  # Explicitly set as personal workspace
             domain=None,  # Personal workspaces don't have a domain
             visible_to_org=False,  # Personal workspaces are not visible to org
         )
