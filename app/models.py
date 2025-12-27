@@ -29,7 +29,7 @@ Base = declarative_base()
 # Enums
 class Role(enum.Enum):
     OWNER = "owner"
-    MEMBER = "member"
+    USER = "user"  # Renamed from MEMBER
 
 
 class JobStatus(enum.Enum):
@@ -79,6 +79,15 @@ class WorkspaceType(enum.Enum):
 
     PERSONAL = "personal"
     TEAM = "team"
+
+
+class InvitationStatus(enum.Enum):
+    """Status of a workspace invitation"""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    EXPIRED = "expired"
 
 
 # User and Workspace Models
@@ -143,13 +152,64 @@ class Membership(Base):
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    role = Column(Enum(Role), nullable=False, default=Role.MEMBER)
+    role = Column(Enum(Role), nullable=False, default=Role.USER)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     user = relationship("User", back_populates="memberships")
     workspace = relationship("Workspace", back_populates="memberships")
+
+
+class WorkspaceInvitation(Base):
+    """
+    Invitation to join a team workspace.
+    Allows workspace owners to invite users by email.
+    """
+
+    __tablename__ = "workspace_invitations"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    inviter_id = Column(String, ForeignKey("users.id"), nullable=False)
+    invitee_email = Column(String, nullable=False)
+    invitee_id = Column(
+        String, ForeignKey("users.id"), nullable=True
+    )  # Null if user doesn't exist yet
+    role = Column(Enum(Role), nullable=False, default=Role.USER)
+    status = Column(
+        Enum(InvitationStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=InvitationStatus.PENDING,
+    )
+
+    # Token for email invitation link
+    token = Column(String, unique=True, nullable=False)
+
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="invitations")
+    inviter = relationship(
+        "User", foreign_keys=[inviter_id], backref="sent_invitations"
+    )
+    invitee = relationship(
+        "User", foreign_keys=[invitee_id], backref="received_invitations"
+    )
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_invitation_workspace", "workspace_id"),
+        Index("idx_invitation_invitee_email", "invitee_email"),
+        Index("idx_invitation_token", "token"),
+        Index("idx_invitation_status", "status"),
+        Index("idx_invitation_expires_at", "expires_at"),
+    )
 
 
 class RefreshToken(Base):
