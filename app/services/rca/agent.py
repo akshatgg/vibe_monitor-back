@@ -1,10 +1,15 @@
 """
-RCA Agent Service using LangChain with Groq LLM
+RCA Agent Service using LangChain with configurable LLM
 
 Updated to use capability-based tool filtering:
 - Tools are selected based on workspace integrations
 - Only healthy integrations contribute tools
 - Uses IntegrationCapabilityResolver and AgentExecutorBuilder
+
+BYOLLM (Bring Your Own LLM) Support:
+- Workspace-specific LLM selection based on llm_provider_configs table
+- Supports OpenAI, Azure OpenAI, Google Gemini, and default Groq
+- Falls back to VibeMonitor default (Groq) if no custom config
 """
 
 import logging
@@ -12,9 +17,11 @@ import re
 from typing import Dict, Any, Optional
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.llm.providers import get_llm_for_workspace
 from .prompts import RCA_SYSTEM_PROMPT
 from .capabilities import IntegrationCapabilityResolver
 from .builder import AgentExecutorBuilder
@@ -38,49 +45,101 @@ class RCAAgentService:
     - Resolves workspace integrations to capabilities
     - Only loads tools for available, healthy integrations
     - Uses AgentExecutorBuilder for clean construction
+
+    BYOLLM Support:
+    - Uses workspace-specific LLM based on llm_provider_configs table
+    - Falls back to VibeMonitor default (Groq) if no custom config
+    - Supports OpenAI, Azure OpenAI, Google Gemini providers
     """
 
     def __init__(self):
-        """Initialize the RCA agent with Groq LLM (shared across all requests)"""
-        self.llm = None
+        """Initialize the RCA agent with default Groq LLM as fallback"""
+        self.default_llm = None
         self.prompt = None
         self.capability_resolver = IntegrationCapabilityResolver(only_healthy=True)
-        self._initialize_llm()
+        self._initialize_prompt()
+        self._initialize_default_llm()
 
-    def _initialize_llm(self):
-        """Initialize the shared LLM and prompt template"""
+    def _initialize_prompt(self):
+        """Initialize the shared prompt template"""
+        # Create chat prompt template with system message, service mapping, and thread history
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    RCA_SYSTEM_PROMPT
+                    + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}",
+                ),
+                ("human", "{input}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ]
+        )
+
+    def _initialize_default_llm(self):
+        """Initialize the default Groq LLM as fallback for workspaces without BYOLLM config"""
         try:
-            # Initialize Groq LLM (stateless, can be shared)
             if not settings.GROQ_API_KEY:
-                raise ValueError("GROQ_API_KEY not configured in environment")
+                logger.warning(
+                    "GROQ_API_KEY not configured - default LLM not available. "
+                    "Workspaces must configure BYOLLM."
+                )
+                return
 
-            self.llm = ChatGroq(
+            self.default_llm = ChatGroq(
                 api_key=settings.GROQ_API_KEY,
                 model=settings.GROQ_LLM_MODEL,  # Groq's best model for reasoning
                 temperature=settings.RCA_AGENT_TEMPERATURE,
                 max_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
 
-            # Create chat prompt template with system message, service mapping, and thread history
-            self.prompt = ChatPromptTemplate.from_messages(
-                [
-                    (
-                        "system",
-                        RCA_SYSTEM_PROMPT
-                        + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}",
-                    ),
-                    ("human", "{input}"),
-                    ("placeholder", "{agent_scratchpad}"),
-                ]
-            )
-
             logger.info(
-                f"RCA Agent for text analysis initialised successfully with Groq model: {settings.GROQ_LLM_MODEL}"
+                f"RCA Agent default LLM initialized with Groq model: {settings.GROQ_LLM_MODEL}"
             )
 
         except Exception as e:
-            logger.error(f"Failed to initialize RCA agent LLM: {e}")
-            raise
+            logger.error(f"Failed to initialize default RCA agent LLM: {e}")
+            # Don't raise - workspaces with BYOLLM can still work
+
+    async def _get_llm_for_workspace(
+        self,
+        workspace_id: str,
+        db: AsyncSession,
+    ) -> BaseChatModel:
+        """
+        Get the appropriate LLM for a workspace.
+
+        Uses workspace-specific LLM config if available (BYOLLM),
+        otherwise falls back to the default Groq LLM.
+
+        Args:
+            workspace_id: The workspace ID
+            db: Database session
+
+        Returns:
+            BaseChatModel: The LLM instance to use
+        """
+        try:
+            # Try to get workspace-specific LLM
+            llm = await get_llm_for_workspace(
+                workspace_id=workspace_id,
+                db=db,
+                temperature=settings.RCA_AGENT_TEMPERATURE,
+                max_tokens=settings.RCA_AGENT_MAX_TOKENS,
+            )
+            return llm
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to get workspace-specific LLM for {workspace_id}: {e}. "
+                f"Falling back to default LLM."
+            )
+
+            # Fall back to default LLM
+            if self.default_llm:
+                return self.default_llm
+
+            # If no default LLM, raise error
+            raise ValueError("No LLM available. Configure BYOLLM or set GROQ_API_KEY.")
 
     async def _create_agent_executor_for_workspace(
         self,
@@ -93,10 +152,11 @@ class RCAAgentService:
         Create a workspace-specific agent executor with capability-filtered tools.
 
         This method:
-        1. Resolves workspace integrations to capabilities
-        2. Filters tools based on available capabilities
-        3. Binds workspace_id to selected tools
-        4. Creates the agent executor
+        1. Gets workspace-specific LLM (BYOLLM or default Groq)
+        2. Resolves workspace integrations to capabilities
+        3. Filters tools based on available capabilities
+        4. Binds workspace_id to selected tools
+        5. Creates the agent executor
 
         Args:
             workspace_id: The workspace ID
@@ -105,8 +165,11 @@ class RCAAgentService:
             thread_history: Optional thread history
 
         Returns:
-            AgentExecutor configured with capability-filtered tools
+            AgentExecutor configured with workspace-specific LLM and capability-filtered tools
         """
+        # Get workspace-specific LLM (BYOLLM or fallback to default Groq)
+        workspace_llm = await self._get_llm_for_workspace(workspace_id, db)
+
         # Resolve capabilities from workspace integrations
         execution_context = await self.capability_resolver.resolve(
             workspace_id=workspace_id,
@@ -137,13 +200,14 @@ class RCAAgentService:
                 "No healthy integrations available for RCA analysis"
             )
 
-        # Build agent executor with filtered tools
-        builder = AgentExecutorBuilder(self.llm, self.prompt)
+        # Build agent executor with workspace-specific LLM and filtered tools
+        builder = AgentExecutorBuilder(workspace_llm, self.prompt)
         executor = builder.with_context(execution_context).build()
 
         logger.info(
             f"Created agent executor for workspace {workspace_id} "
-            f"with {len(executor.tools)} tools (capability-filtered)"
+            f"with {len(executor.tools)} tools (capability-filtered), "
+            f"LLM: {type(workspace_llm).__name__}"
         )
 
         return executor
