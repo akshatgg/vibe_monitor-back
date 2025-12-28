@@ -40,6 +40,7 @@ from app.datadog.Metrics.router import router as datadog_metrics_router
 from app.integrations.router import router as integrations_router
 from app.chat.router import router as chat_router
 from app.llm.router import router as llm_router
+from app.environments.router import router as environments_router
 
 # Create main API router
 api_router = APIRouter()
@@ -68,6 +69,7 @@ api_router.include_router(newrelic_router, tags=["newrelic-integration"])
 api_router.include_router(datadog_router, tags=["datadog-integration"])
 api_router.include_router(chat_router, tags=["chat"])
 api_router.include_router(llm_router, tags=["llm-config"])
+api_router.include_router(environments_router, tags=["environments"])
 
 
 # CloudWatch/NewRelic/Datadog routers only in local (for testing via Postman/Swagger)
