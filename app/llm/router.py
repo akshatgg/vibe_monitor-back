@@ -2,10 +2,10 @@
 BYOLLM (Bring Your Own LLM) API Router
 
 Provides endpoints for managing workspace LLM configurations:
-1. GET  /llm-config          - Get current LLM config for workspace
-2. PUT  /llm-config          - Create or update LLM config
-3. DELETE /llm-config        - Reset to VibeMonitor default
-4. POST /llm-config/verify   - Verify LLM provider credentials
+1. GET  /workspaces/{workspace_id}/llm-config          - Get current LLM config
+2. PUT  /workspaces/{workspace_id}/llm-config          - Create or update LLM config
+3. DELETE /workspaces/{workspace_id}/llm-config        - Reset to VibeMonitor default
+4. POST /workspaces/{workspace_id}/llm-config/verify   - Verify LLM provider credentials
 
 All endpoints require workspace OWNER role.
 """
@@ -26,7 +26,7 @@ from .schemas import (
 from .service import LLMConfigService
 
 
-router = APIRouter(prefix="/llm", tags=["llm-config"])
+router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["llm-config"])
 auth_service = AuthService()
 
 
@@ -69,7 +69,7 @@ async def require_workspace_owner(
         )
 
 
-@router.get("/config", response_model=LLMConfigResponse)
+@router.get("/llm-config", response_model=LLMConfigResponse)
 async def get_llm_config(
     workspace_id: str,
     user: User = Depends(auth_service.get_current_user),
@@ -98,7 +98,7 @@ async def get_llm_config(
         )
 
 
-@router.put("/config", response_model=LLMConfigResponse, status_code=200)
+@router.put("/llm-config", response_model=LLMConfigResponse, status_code=200)
 async def update_llm_config(
     workspace_id: str,
     request: LLMConfigCreate,
@@ -169,7 +169,7 @@ async def update_llm_config(
         )
 
 
-@router.delete("/config")
+@router.delete("/llm-config")
 async def delete_llm_config(
     workspace_id: str,
     user: User = Depends(auth_service.get_current_user),
@@ -207,7 +207,7 @@ async def delete_llm_config(
         )
 
 
-@router.post("/config/verify", response_model=LLMVerifyResponse)
+@router.post("/llm-config/verify", response_model=LLMVerifyResponse)
 async def verify_llm_config(
     workspace_id: str,
     request: LLMVerifyRequest,
