@@ -4,7 +4,7 @@ Tests CRUD operations, authorization, and service limits.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 
 from app.billing.schemas import (
@@ -153,11 +153,18 @@ class TestServiceServiceCount:
         count_result = MagicMock()
         count_result.scalar.return_value = 3
 
-        # Mock workspace query
+        # Mock workspace query (called twice: once in get_service_count, once in _get_service_limit)
         workspace_result = MagicMock()
         workspace_result.scalar_one_or_none.return_value = sample_workspace
 
-        mock_db.execute.side_effect = [count_result, workspace_result]
+        workspace_result2 = MagicMock()
+        workspace_result2.scalar_one_or_none.return_value = sample_workspace
+
+        mock_db.execute.side_effect = [
+            count_result,
+            workspace_result,
+            workspace_result2,
+        ]
 
         result = await service_service.get_service_count(sample_workspace.id, mock_db)
 
@@ -174,10 +181,18 @@ class TestServiceServiceCount:
         count_result = MagicMock()
         count_result.scalar.return_value = FREE_TIER_SERVICE_LIMIT
 
+        # Mock workspace query (called twice)
         workspace_result = MagicMock()
         workspace_result.scalar_one_or_none.return_value = sample_workspace
 
-        mock_db.execute.side_effect = [count_result, workspace_result]
+        workspace_result2 = MagicMock()
+        workspace_result2.scalar_one_or_none.return_value = sample_workspace
+
+        mock_db.execute.side_effect = [
+            count_result,
+            workspace_result,
+            workspace_result2,
+        ]
 
         result = await service_service.get_service_count(sample_workspace.id, mock_db)
 
@@ -192,10 +207,18 @@ class TestServiceServiceCount:
         count_result = MagicMock()
         count_result.scalar.return_value = 2
 
+        # Mock workspace query (called twice)
         workspace_result = MagicMock()
         workspace_result.scalar_one_or_none.return_value = sample_workspace
 
-        mock_db.execute.side_effect = [count_result, workspace_result]
+        workspace_result2 = MagicMock()
+        workspace_result2.scalar_one_or_none.return_value = sample_workspace
+
+        mock_db.execute.side_effect = [
+            count_result,
+            workspace_result,
+            workspace_result2,
+        ]
 
         can_add, current, limit = await service_service.validate_service_limit(
             sample_workspace.id, mock_db
@@ -210,20 +233,22 @@ class TestServiceServiceCreate:
     """Tests for service creation."""
 
     @pytest.mark.asyncio
+    @patch("app.billing.services.service_service.limit_service")
     async def test_create_service_success(
-        self, service_service, mock_db, sample_membership, sample_workspace
+        self,
+        mock_limit_service,
+        service_service,
+        mock_db,
+        sample_membership,
+        sample_workspace,
     ):
         """Should successfully create a service."""
+        # Mock limit_service.enforce_service_limit to do nothing (allows creation)
+        mock_limit_service.enforce_service_limit = AsyncMock()
+
         # Mock owner verification
         owner_result = MagicMock()
         owner_result.scalar_one_or_none.return_value = sample_membership
-
-        # Mock limit check (count + workspace)
-        count_result = MagicMock()
-        count_result.scalar.return_value = 2
-
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
 
         # Mock uniqueness check
         unique_result = MagicMock()
@@ -235,8 +260,6 @@ class TestServiceServiceCreate:
 
         mock_db.execute.side_effect = [
             owner_result,
-            count_result,
-            workspace_result,
             unique_result,
             github_result,
         ]
@@ -254,6 +277,7 @@ class TestServiceServiceCreate:
         assert result.name == "api-gateway"
         mock_db.add.assert_called_once()
         mock_db.commit.assert_called_once()
+        mock_limit_service.enforce_service_limit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_service_limit_exceeded(
@@ -296,8 +320,10 @@ class TestServiceServiceCreate:
         assert exc_info.value.detail["upgrade_available"] is True
 
     @pytest.mark.asyncio
+    @patch("app.billing.services.service_service.limit_service")
     async def test_create_service_duplicate_name(
         self,
+        mock_limit_service,
         service_service,
         mock_db,
         sample_membership,
@@ -307,16 +333,12 @@ class TestServiceServiceCreate:
         """Should fail when service name already exists in workspace."""
         from fastapi import HTTPException
 
+        # Mock limit_service.enforce_service_limit to do nothing
+        mock_limit_service.enforce_service_limit = AsyncMock()
+
         # Mock owner verification
         owner_result = MagicMock()
         owner_result.scalar_one_or_none.return_value = sample_membership
-
-        # Mock limit check
-        count_result = MagicMock()
-        count_result.scalar.return_value = 2
-
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
 
         # Mock uniqueness check - service exists
         unique_result = MagicMock()
@@ -324,8 +346,6 @@ class TestServiceServiceCreate:
 
         mock_db.execute.side_effect = [
             owner_result,
-            count_result,
-            workspace_result,
             unique_result,
         ]
 

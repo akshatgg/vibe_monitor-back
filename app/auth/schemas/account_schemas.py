@@ -18,7 +18,7 @@ class Role(str, Enum):
     """Role of user in a workspace"""
 
     OWNER = "owner"
-    MEMBER = "member"
+    USER = "user"
 
 
 class BlockingWorkspace(BaseModel):

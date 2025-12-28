@@ -63,7 +63,7 @@ class TestRequireWorkspaceOwner:
         self, mock_db, sample_user, sample_membership, sample_workspace
     ):
         """Member (non-owner) should be denied access."""
-        sample_membership.role = Role.MEMBER
+        sample_membership.role = Role.USER
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = sample_membership
