@@ -364,3 +364,34 @@ async def github_app_installation_callback_endpoint(
         raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/repositories/{repo_full_name:path}/branches")
+async def get_repository_branches_endpoint(
+    repo_full_name: str,
+    workspace_id: str = Query(..., description="Workspace ID"),
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of branches for a repository.
+
+    The repo_full_name should be in format 'owner/repo'.
+
+    Requires membership in the workspace (Owner or Member).
+    Requires GitHub integration to be configured.
+    """
+    from app.environments.service import EnvironmentService
+
+    try:
+        service = EnvironmentService(db)
+        branches = await service.get_repository_branches(
+            workspace_id=workspace_id,
+            repo_full_name=repo_full_name,
+            user_id=user.id,
+        )
+        return {"branches": branches}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

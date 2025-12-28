@@ -107,16 +107,16 @@ class EnvironmentService:
         )
 
     async def create_environment(
-        self, data: EnvironmentCreate, user_id: str
+        self, workspace_id: str, data: EnvironmentCreate, user_id: str
     ) -> Environment:
         """Create a new environment."""
         # Verify user is owner
-        await self._verify_owner(data.workspace_id, user_id)
+        await self._verify_owner(workspace_id, user_id)
 
         # Check for duplicate name
         existing = await self.db.execute(
             select(Environment).where(
-                Environment.workspace_id == data.workspace_id,
+                Environment.workspace_id == workspace_id,
                 Environment.name == data.name,
             )
         )
@@ -128,12 +128,12 @@ class EnvironmentService:
 
         # If this is set as default, unset any existing default
         if data.is_default:
-            await self._unset_default_environment(data.workspace_id)
+            await self._unset_default_environment(workspace_id)
 
         # Create environment
         environment = Environment(
             id=str(uuid.uuid4()),
-            workspace_id=data.workspace_id,
+            workspace_id=workspace_id,
             name=data.name,
             is_default=data.is_default,
             auto_discovery_enabled=data.auto_discovery_enabled,
@@ -142,9 +142,7 @@ class EnvironmentService:
         self.db.add(environment)
         await self.db.flush()
 
-        logger.info(
-            f"Created environment '{data.name}' in workspace {data.workspace_id}"
-        )
+        logger.info(f"Created environment '{data.name}' in workspace {workspace_id}")
         return environment
 
     async def update_environment(

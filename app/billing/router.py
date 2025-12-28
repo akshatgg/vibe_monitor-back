@@ -64,14 +64,12 @@ async def get_workspace_with_owner_check(
     """
     Get workspace and verify user has access (optionally require owner role).
     """
-    # Get workspace
     result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
     workspace = result.scalar_one_or_none()
 
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    # Check membership
     result = await db.execute(
         select(Membership).where(
             Membership.workspace_id == workspace_id,
@@ -92,7 +90,7 @@ async def get_workspace_with_owner_check(
 
 
 # ============================================================================
-# Service Router (VIB-289)
+# Service Router
 # ============================================================================
 
 service_router = APIRouter(
@@ -109,9 +107,6 @@ async def create_service(
 ):
     """
     Create a new service in the workspace.
-
-    - **name**: Service name (should match what appears in observability logs)
-    - **repository_name**: Optional repository to link (format: owner/repo)
 
     Only workspace owners can create services.
     Free tier limit: 5 services per workspace.
@@ -137,11 +132,7 @@ async def list_services(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    List all services in the workspace.
-
-    Any workspace member can view services.
-    """
+    """List all services in the workspace."""
     try:
         return await service_service.list_services(
             workspace_id=workspace_id,
@@ -162,17 +153,8 @@ async def get_service_count(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get service count and limit information for the workspace.
-
-    Returns:
-    - current_count: Number of services in workspace
-    - limit: Maximum services allowed in current tier
-    - can_add_more: Whether more services can be added
-    - is_paid: Whether workspace is on paid tier
-    """
+    """Get service count and limit information for the workspace."""
     try:
-        # Verify user is a member first
         membership_query = select(Membership).where(
             Membership.workspace_id == workspace_id,
             Membership.user_id == current_user.id,
@@ -202,11 +184,7 @@ async def get_service(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get a single service by ID.
-
-    Any workspace member can view.
-    """
+    """Get a single service by ID."""
     try:
         return await service_service.get_service(
             workspace_id=workspace_id,
@@ -228,15 +206,7 @@ async def update_service(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Update an existing service.
-
-    - **name**: New service name (optional)
-    - **repository_name**: New repository link (optional)
-    - **enabled**: Enable/disable the service (optional)
-
-    Only workspace owners can update services.
-    """
+    """Update an existing service. Only workspace owners can update."""
     try:
         return await service_service.update_service(
             workspace_id=workspace_id,
@@ -260,11 +230,7 @@ async def delete_service(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Delete a service.
-
-    Only workspace owners can delete services.
-    """
+    """Delete a service. Only workspace owners can delete."""
     try:
         await service_service.delete_service(
             workspace_id=workspace_id,
@@ -282,13 +248,10 @@ async def delete_service(
 
 
 # ============================================================================
-# Billing Router (VIB-290)
+# Billing Router - Global Endpoints (Plans)
 # ============================================================================
 
 billing_router = APIRouter(prefix="/billing", tags=["billing"])
-
-
-# Plan endpoints
 
 
 @billing_router.get("/plans", response_model=PlansListResponse)
@@ -296,11 +259,7 @@ async def list_plans(
     db: AsyncSession = Depends(get_db),
     active_only: bool = Query(default=True, description="Only show active plans"),
 ):
-    """
-    List all available billing plans.
-
-    Returns the Free and Pro plans with their pricing and limits.
-    """
+    """List all available billing plans."""
     plans = await subscription_service.get_all_plans(db, active_only=active_only)
     return PlansListResponse(
         plans=[PlanResponse.model_validate(plan) for plan in plans]
@@ -319,22 +278,22 @@ async def get_plan(
     return PlanResponse.model_validate(plan)
 
 
-# Subscription endpoints
+# ============================================================================
+# Workspace Billing Router - Workspace-scoped Endpoints
+# ============================================================================
 
-
-@billing_router.get(
-    "/workspaces/{workspace_id}/subscription", response_model=SubscriptionResponse
+workspace_billing_router = APIRouter(
+    prefix="/workspaces/{workspace_id}/billing", tags=["billing"]
 )
+
+
+@workspace_billing_router.get("/subscription", response_model=SubscriptionResponse)
 async def get_workspace_subscription(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get the current subscription for a workspace.
-
-    Any workspace member can view the subscription status.
-    """
+    """Get the current subscription for a workspace."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=False
     )
@@ -350,8 +309,8 @@ async def get_workspace_subscription(
     return SubscriptionResponse.model_validate(subscription)
 
 
-@billing_router.post(
-    "/workspaces/{workspace_id}/subscribe/pro",
+@workspace_billing_router.post(
+    "/subscribe/pro",
     response_model=CheckoutSessionResponse,
 )
 async def subscribe_to_pro(
@@ -362,18 +321,12 @@ async def subscribe_to_pro(
 ):
     """
     Initiate subscription to the Pro plan.
-
     Creates a Stripe Checkout session and returns the URL.
-    Only workspace owners can subscribe.
-
-    The user should be redirected to the checkout_url to complete payment.
-    After payment, they will be redirected to success_url or cancel_url.
     """
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
 
-    # Check if already on Pro
     subscription = await subscription_service.get_workspace_subscription(
         db, workspace_id
     )
@@ -398,8 +351,8 @@ async def subscribe_to_pro(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@billing_router.post(
-    "/workspaces/{workspace_id}/subscription/cancel",
+@workspace_billing_router.post(
+    "/subscription/cancel",
     response_model=SubscriptionResponse,
 )
 async def cancel_subscription(
@@ -408,14 +361,7 @@ async def cancel_subscription(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Cancel the workspace subscription.
-
-    By default, cancels at the end of the billing period.
-    Set immediate=true to cancel immediately with proration.
-
-    Only workspace owners can cancel subscriptions.
-    """
+    """Cancel the workspace subscription."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
@@ -431,8 +377,8 @@ async def cancel_subscription(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@billing_router.post(
-    "/workspaces/{workspace_id}/billing-portal",
+@workspace_billing_router.post(
+    "/portal",
     response_model=BillingPortalResponse,
 )
 async def create_billing_portal_session(
@@ -441,16 +387,7 @@ async def create_billing_portal_session(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Create a Stripe Customer Portal session for self-service billing.
-
-    The portal allows users to:
-    - Update payment methods
-    - View invoice history
-    - Cancel subscription
-
-    Only workspace owners can access the billing portal.
-    """
+    """Create a Stripe Customer Portal session for self-service billing."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
@@ -466,8 +403,8 @@ async def create_billing_portal_session(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@billing_router.put(
-    "/workspaces/{workspace_id}/subscription/services",
+@workspace_billing_router.put(
+    "/subscription/services",
     response_model=SubscriptionResponse,
 )
 async def update_service_count(
@@ -476,15 +413,7 @@ async def update_service_count(
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Update the service count for billing purposes.
-
-    This endpoint is typically called automatically when services
-    are added or removed from a workspace. It updates the billable
-    service count and triggers prorated billing in Stripe.
-
-    Only workspace owners can update service counts.
-    """
+    """Update the service count for billing purposes."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
@@ -500,21 +429,14 @@ async def update_service_count(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@billing_router.get(
-    "/workspaces/{workspace_id}/invoices", response_model=InvoicesListResponse
-)
+@workspace_billing_router.get("/invoices", response_model=InvoicesListResponse)
 async def list_invoices(
     workspace_id: str,
     limit: int = Query(default=10, ge=1, le=100),
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    List invoices for a workspace.
-
-    Returns the most recent invoices from Stripe.
-    Only workspace owners can view invoices.
-    """
+    """List invoices for a workspace."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
@@ -551,22 +473,13 @@ async def list_invoices(
         raise HTTPException(status_code=500, detail="Failed to fetch invoices")
 
 
-@billing_router.get("/workspaces/{workspace_id}/usage", response_model=UsageResponse)
+@workspace_billing_router.get("/usage", response_model=UsageResponse)
 async def get_workspace_usage(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get current usage stats for a workspace.
-
-    Returns:
-    - Service count vs limit
-    - RCA sessions used today vs daily limit
-    - Plan information and upgrade availability
-
-    Any workspace member can view usage.
-    """
+    """Get current usage stats for a workspace."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=False
     )
@@ -579,20 +492,13 @@ async def get_workspace_usage(
         raise HTTPException(status_code=500, detail="Failed to get usage stats")
 
 
-@billing_router.post("/workspaces/{workspace_id}/subscription/sync")
+@workspace_billing_router.post("/subscription/sync")
 async def sync_subscription(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Sync subscription state from Stripe.
-
-    Forces a refresh of the subscription data from Stripe.
-    Useful if webhook events were missed.
-
-    Only workspace owners can trigger a sync.
-    """
+    """Sync subscription state from Stripe."""
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )

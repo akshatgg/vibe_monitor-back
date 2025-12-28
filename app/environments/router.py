@@ -22,16 +22,17 @@ from app.environments.schemas import (
     EnvironmentRepositoryResponse,
     EnvironmentRepositoryListResponse,
     AvailableRepositoriesResponse,
-    BranchListResponse,
 )
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
 
-router = APIRouter(prefix="/environments", tags=["environments"])
+router = APIRouter(
+    prefix="/workspaces/{workspace_id}/environments", tags=["environments"]
+)
 
 
-@router.get("/workspace/{workspace_id}", response_model=EnvironmentListResponse)
+@router.get("", response_model=EnvironmentListResponse)
 async def list_environments(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
@@ -56,6 +57,7 @@ async def list_environments(
 
 @router.get("/{environment_id}", response_model=EnvironmentResponse)
 async def get_environment(
+    workspace_id: str,
     environment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -77,6 +79,7 @@ async def get_environment(
     "", response_model=EnvironmentResponse, status_code=status.HTTP_201_CREATED
 )
 async def create_environment(
+    workspace_id: str,
     request: EnvironmentCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -88,6 +91,7 @@ async def create_environment(
     """
     service = EnvironmentService(db)
     environment = await service.create_environment(
+        workspace_id=workspace_id,
         data=request,
         user_id=current_user.id,
     )
@@ -98,6 +102,7 @@ async def create_environment(
 
 @router.patch("/{environment_id}", response_model=EnvironmentResponse)
 async def update_environment(
+    workspace_id: str,
     environment_id: str,
     request: EnvironmentUpdate,
     db: AsyncSession = Depends(get_db),
@@ -120,6 +125,7 @@ async def update_environment(
 
 @router.delete("/{environment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment(
+    workspace_id: str,
     environment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -139,6 +145,7 @@ async def delete_environment(
 
 @router.post("/{environment_id}/set-default", response_model=EnvironmentResponse)
 async def set_default_environment(
+    workspace_id: str,
     environment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -167,6 +174,7 @@ async def set_default_environment(
     "/{environment_id}/repositories", response_model=EnvironmentRepositoryListResponse
 )
 async def list_environment_repositories(
+    workspace_id: str,
     environment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -194,6 +202,7 @@ async def list_environment_repositories(
     status_code=status.HTTP_201_CREATED,
 )
 async def add_repository_to_environment(
+    workspace_id: str,
     environment_id: str,
     request: EnvironmentRepositoryCreate,
     db: AsyncSession = Depends(get_db),
@@ -220,6 +229,7 @@ async def add_repository_to_environment(
     response_model=EnvironmentRepositoryResponse,
 )
 async def update_environment_repository(
+    workspace_id: str,
     environment_id: str,
     repo_config_id: str,
     request: EnvironmentRepositoryUpdate,
@@ -248,6 +258,7 @@ async def update_environment_repository(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_repository_from_environment(
+    workspace_id: str,
     environment_id: str,
     repo_config_id: str,
     db: AsyncSession = Depends(get_db),
@@ -272,6 +283,7 @@ async def remove_repository_from_environment(
     response_model=AvailableRepositoriesResponse,
 )
 async def get_available_repositories(
+    workspace_id: str,
     environment_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -288,30 +300,3 @@ async def get_available_repositories(
         user_id=current_user.id,
     )
     return AvailableRepositoriesResponse(repositories=available)
-
-
-@router.get(
-    "/workspace/{workspace_id}/repositories/{repo_full_name:path}/branches",
-    response_model=BranchListResponse,
-)
-async def get_repository_branches(
-    workspace_id: str,
-    repo_full_name: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(auth_service.get_current_user),
-):
-    """
-    Get list of branches for a repository.
-
-    The repo_full_name should be in format 'owner/repo'.
-
-    Requires membership in the workspace (Owner or Member).
-    Requires GitHub integration to be configured.
-    """
-    service = EnvironmentService(db)
-    branches = await service.get_repository_branches(
-        workspace_id=workspace_id,
-        repo_full_name=repo_full_name,
-        user_id=current_user.id,
-    )
-    return BranchListResponse(branches=branches)

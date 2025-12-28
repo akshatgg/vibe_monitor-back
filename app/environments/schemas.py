@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 class EnvironmentCreate(BaseModel):
     """Request to create a new environment."""
 
-    workspace_id: str = Field(..., description="Workspace ID")
     name: str = Field(..., min_length=1, max_length=255, description="Environment name")
     is_default: bool = Field(
         default=False, description="Whether this is the default environment for RCA"

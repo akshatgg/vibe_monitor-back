@@ -10,7 +10,6 @@ from typing import Optional
 class GrafanaConnectRequest(BaseModel):
     """Request model for connecting Grafana"""
 
-    workspace_id: str = Field(..., description="VibeMonitor workspace ID")
     grafana_url: str = Field(
         ...,
         description="Grafana instance URL",

@@ -28,11 +28,13 @@ from app.integrations.utils import get_allowed_integrations, ALL_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
+router = APIRouter(
+    prefix="/workspaces/{workspace_id}/integrations", tags=["integrations"]
+)
 auth_service = AuthService()
 
 
-@router.get("/workspace/{workspace_id}", response_model=IntegrationListResponse)
+@router.get("", response_model=IntegrationListResponse)
 async def list_workspace_integrations(
     workspace_id: str,
     integration_type: str | None = None,
@@ -85,6 +87,7 @@ async def list_workspace_integrations(
 
 @router.get("/{integration_id}", response_model=IntegrationResponse)
 async def get_integration(
+    workspace_id: str,
     integration_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -127,6 +130,7 @@ async def get_integration(
 
 @router.post("/{integration_id}/health-check", response_model=HealthCheckResponse)
 async def check_single_integration_health(
+    workspace_id: str,
     integration_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -176,9 +180,7 @@ async def check_single_integration_health(
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
-@router.post(
-    "/workspace/{workspace_id}/health-check", response_model=List[HealthCheckResponse]
-)
+@router.post("/health-check", response_model=List[HealthCheckResponse])
 async def check_workspace_integrations_health(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
@@ -200,7 +202,6 @@ async def check_workspace_integrations_health(
     try:
         integrations = await check_all_workspace_integrations_health(workspace_id, db)
 
-        # Log summary for Grafana queries
         healthy = sum(1 for i in integrations if i.health_status == "healthy")
         failed = sum(1 for i in integrations if i.health_status == "failed")
 
@@ -229,9 +230,7 @@ async def check_workspace_integrations_health(
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
-@router.get(
-    "/workspace/{workspace_id}/available", response_model=AvailableIntegrationsResponse
-)
+@router.get("/available", response_model=AvailableIntegrationsResponse)
 async def get_available_integrations(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
@@ -254,7 +253,6 @@ async def get_available_integrations(
     )
 
     try:
-        # Verify user has access to the workspace
         membership_result = await db.execute(
             select(Membership).where(
                 Membership.user_id == current_user.id,
@@ -268,7 +266,6 @@ async def get_available_integrations(
                 status_code=403, detail="User does not have access to this workspace"
             )
 
-        # Get workspace to check type
         workspace_result = await db.execute(
             select(Workspace).where(Workspace.id == workspace_id)
         )
@@ -278,11 +275,8 @@ async def get_available_integrations(
             raise HTTPException(status_code=404, detail="Workspace not found")
 
         allowed = get_allowed_integrations(workspace.type)
-
-        # Build restrictions dict (True = blocked)
         restrictions = {provider: provider not in allowed for provider in ALL_PROVIDERS}
 
-        # Upgrade message only for personal workspaces
         upgrade_message = (
             "Create a team workspace to access all integrations."
             if workspace.type == WorkspaceType.PERSONAL
