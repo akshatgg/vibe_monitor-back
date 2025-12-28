@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.auth.services.google_auth_service import AuthService
 from app.models import User, TurnStatus, JobStatus
 from app.chat.service import ChatService
+from app.billing.services.limit_service import limit_service
 from app.chat.schemas import (
     SendMessageRequest,
     SendMessageResponse,
@@ -47,8 +48,13 @@ async def send_message(
     Returns turn_id for SSE streaming.
 
     Connect to GET /turns/{turn_id}/stream to receive real-time updates.
+
+    Returns 402 Payment Required if daily RCA session limit is exceeded.
     """
     service = ChatService(db)
+
+    # Check RCA session limit - raises 402 if exceeded
+    await limit_service.enforce_rca_limit(db, workspace_id)
 
     try:
         # Get or create session
