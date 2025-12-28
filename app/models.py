@@ -185,7 +185,11 @@ class Membership(Base):
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    role = Column(Enum(Role), nullable=False, default=Role.USER)
+    role = Column(
+        Enum(Role, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=Role.USER,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -211,7 +215,11 @@ class WorkspaceInvitation(Base):
     invitee_id = Column(
         String, ForeignKey("users.id"), nullable=True
     )  # Null if user doesn't exist yet
-    role = Column(Enum(Role), nullable=False, default=Role.USER)
+    role = Column(
+        Enum(Role, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=Role.USER,
+    )
     status = Column(
         Enum(InvitationStatus, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
@@ -450,7 +458,11 @@ class Job(Base):
     )  # Message timestamp that triggered bot
 
     # Lifecycle
-    status = Column(Enum(JobStatus), nullable=False, default=JobStatus.QUEUED)
+    status = Column(
+        Enum(JobStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=JobStatus.QUEUED,
+    )
     priority = Column(Integer, default=0)  # Higher = more important
     retries = Column(Integer, default=0)  # Number of retry attempts
     max_retries = Column(
@@ -701,7 +713,10 @@ class SecurityEvent(Base):
     id = Column(String, primary_key=True)
 
     # Event classification
-    event_type = Column(Enum(SecurityEventType), nullable=False)
+    event_type = Column(
+        Enum(SecurityEventType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
     severity = Column(
         String, nullable=False
     )  # e.g., 'low', 'medium', 'high', 'critical'

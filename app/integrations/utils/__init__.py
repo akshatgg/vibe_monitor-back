@@ -8,6 +8,7 @@ from .permissions import (
     get_blocked_integration_message,
     check_integration_permission,
     ALLOWED_INTEGRATIONS,
+    ALL_PROVIDERS,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "get_blocked_integration_message",
     "check_integration_permission",
     "ALLOWED_INTEGRATIONS",
+    "ALL_PROVIDERS",
 ]

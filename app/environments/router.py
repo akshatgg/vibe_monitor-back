@@ -92,6 +92,7 @@ async def create_environment(
         user_id=current_user.id,
     )
     await db.commit()
+    await db.refresh(environment, ["repository_configs"])
     return EnvironmentResponse.model_validate(environment)
 
 
