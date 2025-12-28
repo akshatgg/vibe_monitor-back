@@ -147,6 +147,9 @@ class Workspace(Base):
     services = relationship(
         "Service", back_populates="workspace", cascade="all, delete-orphan"
     )
+    subscription = relationship(
+        "Subscription", back_populates="workspace", uselist=False
+    )
 
 
 class Membership(Base):
@@ -643,6 +646,23 @@ class SecurityEventType(enum.Enum):
     GUARD_DEGRADED = "guard_degraded"
 
 
+class PlanType(enum.Enum):
+    """Billing plan types"""
+
+    FREE = "free"
+    PRO = "pro"
+
+
+class SubscriptionStatus(enum.Enum):
+    """Subscription status mirroring Stripe's subscription states"""
+
+    ACTIVE = "active"
+    PAST_DUE = "past_due"
+    CANCELED = "canceled"
+    INCOMPLETE = "incomplete"
+    TRIALING = "trialing"
+
+
 class SecurityEvent(Base):
     """
     Tracks security events such as prompt injection attempts and guard degradation.
@@ -905,4 +925,86 @@ class Service(Base):
         Index("idx_services_workspace", "workspace_id"),
         Index("idx_services_repository", "repository_id"),
         Index("idx_services_enabled", "enabled"),
+    )
+
+
+class Plan(Base):
+    """
+    Billing plans - seeded data, rarely changes.
+    Defines the pricing tiers for VibeMonitor.
+    """
+
+    __tablename__ = "plans"
+
+    id = Column(String, primary_key=True)  # UUID
+    name = Column(String(50), unique=True, nullable=False)  # "Free", "Pro"
+    plan_type = Column(
+        Enum(PlanType, values_callable=lambda x: [e.value for e in x]), nullable=False
+    )
+    stripe_price_id = Column(String(255), nullable=True)  # Null for free plan
+    base_service_count = Column(Integer, default=5, nullable=False)  # Included services
+    base_price_cents = Column(Integer, default=0, nullable=False)  # 3000 = $30.00
+    additional_service_price_cents = Column(
+        Integer, default=500, nullable=False
+    )  # 500 = $5.00 per additional service
+    rca_session_limit_daily = Column(
+        Integer, default=10, nullable=False
+    )  # Daily RCA session limit
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    subscriptions = relationship("Subscription", back_populates="plan")
+
+
+class Subscription(Base):
+    """
+    Workspace subscriptions - one per workspace.
+    Tracks the billing relationship between a workspace and Stripe.
+    """
+
+    __tablename__ = "subscriptions"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    plan_id = Column(String, ForeignKey("plans.id"), nullable=False)
+
+    # Stripe identifiers
+    stripe_customer_id = Column(String(255), nullable=True)
+    stripe_subscription_id = Column(String(255), nullable=True)
+
+    # Subscription state
+    status = Column(
+        Enum(SubscriptionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SubscriptionStatus.ACTIVE,
+    )
+    current_period_start = Column(DateTime(timezone=True), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    canceled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Service tracking for billing
+    billable_service_count = Column(
+        Integer, default=0, nullable=False
+    )  # Services above base
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="subscription")
+    plan = relationship("Plan", back_populates="subscriptions")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_subscriptions_workspace", "workspace_id"),
+        Index("idx_subscriptions_stripe_customer", "stripe_customer_id"),
+        Index("idx_subscriptions_stripe_subscription", "stripe_subscription_id"),
+        Index("idx_subscriptions_status", "status"),
     )

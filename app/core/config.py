@@ -255,6 +255,15 @@ class Settings(BaseSettings):
         6  # Frame depth for finding logging call origin in stack trace
     )
 
+    # Stripe Configuration
+    STRIPE_SECRET_KEY: Optional[str] = None  # sk_test_... or sk_live_...
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None  # pk_test_... or pk_live_...
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None  # whsec_... for webhook verification
+    STRIPE_PRO_PLAN_PRICE_ID: Optional[str] = None  # price_... for Pro plan
+    STRIPE_ADDITIONAL_SERVICE_PRICE_ID: Optional[str] = (
+        None  # price_... for additional services beyond base
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = True
