@@ -11,8 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Environment, Membership, Role
-from app.environments.schemas import EnvironmentCreate, EnvironmentUpdate
+from app.models import Environment, EnvironmentRepository, Membership, Role
+from app.environments.schemas import (
+    EnvironmentCreate,
+    EnvironmentUpdate,
+    EnvironmentRepositoryCreate,
+    EnvironmentRepositoryUpdate,
+    AvailableRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +220,267 @@ class EnvironmentService:
             f"Set environment {environment_id} as default for workspace {environment.workspace_id}"
         )
         return environment
+
+    # ==================== Repository Configuration Methods ====================
+
+    async def list_environment_repositories(
+        self, environment_id: str, user_id: str
+    ) -> List[EnvironmentRepository]:
+        """List all repository configurations for an environment."""
+        environment = await self._get_environment_with_workspace_check(
+            environment_id, user_id, require_owner=False
+        )
+        return environment.repository_configs
+
+    async def add_repository_to_environment(
+        self, environment_id: str, data: EnvironmentRepositoryCreate, user_id: str
+    ) -> EnvironmentRepository:
+        """Add a repository to an environment."""
+        # Verify environment access (owner required)
+        await self._get_environment_with_workspace_check(
+            environment_id, user_id, require_owner=True
+        )
+
+        # Check for duplicate repo in this environment
+        existing = await self.db.execute(
+            select(EnvironmentRepository).where(
+                EnvironmentRepository.environment_id == environment_id,
+                EnvironmentRepository.repo_full_name == data.repo_full_name,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Repository '{data.repo_full_name}' already exists in this environment",
+            )
+
+        # Validate: cannot enable without branch
+        if data.is_enabled and not data.branch_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot enable repository without a configured branch",
+            )
+
+        # Create repository configuration
+        repo_config = EnvironmentRepository(
+            id=str(uuid.uuid4()),
+            environment_id=environment_id,
+            repo_full_name=data.repo_full_name,
+            branch_name=data.branch_name,
+            is_enabled=data.is_enabled,
+        )
+
+        self.db.add(repo_config)
+        await self.db.flush()
+
+        logger.info(
+            f"Added repository '{data.repo_full_name}' to environment {environment_id}"
+        )
+        return repo_config
+
+    async def update_environment_repository(
+        self,
+        environment_id: str,
+        repo_config_id: str,
+        data: EnvironmentRepositoryUpdate,
+        user_id: str,
+    ) -> EnvironmentRepository:
+        """Update a repository configuration."""
+        # Verify environment access (owner required)
+        await self._get_environment_with_workspace_check(
+            environment_id, user_id, require_owner=True
+        )
+
+        # Get the repository configuration
+        result = await self.db.execute(
+            select(EnvironmentRepository).where(
+                EnvironmentRepository.id == repo_config_id,
+                EnvironmentRepository.environment_id == environment_id,
+            )
+        )
+        repo_config = result.scalar_one_or_none()
+
+        if not repo_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository configuration not found",
+            )
+
+        # Update fields
+        if data.branch_name is not None:
+            repo_config.branch_name = data.branch_name
+
+        if data.is_enabled is not None:
+            # Validate: cannot enable without branch
+            effective_branch = (
+                data.branch_name
+                if data.branch_name is not None
+                else repo_config.branch_name
+            )
+            if data.is_enabled and not effective_branch:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot enable repository without a configured branch",
+                )
+            repo_config.is_enabled = data.is_enabled
+
+        await self.db.flush()
+        logger.info(f"Updated repository configuration {repo_config_id}")
+        return repo_config
+
+    async def remove_repository_from_environment(
+        self, environment_id: str, repo_config_id: str, user_id: str
+    ) -> None:
+        """Remove a repository from an environment."""
+        # Verify environment access (owner required)
+        await self._get_environment_with_workspace_check(
+            environment_id, user_id, require_owner=True
+        )
+
+        # Get the repository configuration
+        result = await self.db.execute(
+            select(EnvironmentRepository).where(
+                EnvironmentRepository.id == repo_config_id,
+                EnvironmentRepository.environment_id == environment_id,
+            )
+        )
+        repo_config = result.scalar_one_or_none()
+
+        if not repo_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository configuration not found",
+            )
+
+        await self.db.delete(repo_config)
+        await self.db.flush()
+        logger.info(f"Removed repository configuration {repo_config_id}")
+
+    async def get_available_repositories(
+        self, environment_id: str, user_id: str
+    ) -> List[AvailableRepository]:
+        """
+        List GitHub repositories accessible to workspace but not yet in this environment.
+
+        Note: This requires GitHub tools service which needs workspace context.
+        """
+        environment = await self._get_environment_with_workspace_check(
+            environment_id, user_id, require_owner=False
+        )
+
+        # Import here to avoid circular imports
+        from app.github.tools.router import list_repositories_graphql
+
+        # Get all repos from GitHub
+        try:
+            github_response = await list_repositories_graphql(
+                workspace_id=environment.workspace_id,
+                first=100,
+                after=None,
+                user_id=user_id,
+                db=self.db,
+            )
+        except HTTPException as e:
+            if e.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_424_FAILED_DEPENDENCY,
+                    detail="GitHub integration not configured for this workspace",
+                )
+            raise
+
+        # Get repos already in this environment
+        existing_repos = {r.repo_full_name for r in environment.repository_configs}
+
+        # Filter out repos that are already in the environment
+        available = []
+        repos_data = github_response.get("repositories", [])
+        for repo in repos_data:
+            full_name = repo.get("nameWithOwner")
+            if full_name and full_name not in existing_repos:
+                available.append(
+                    AvailableRepository(
+                        full_name=full_name,
+                        default_branch=None,  # Would need separate API call
+                        is_private=repo.get("isPrivate", False),
+                    )
+                )
+
+        return available
+
+    async def get_repository_branches(
+        self, workspace_id: str, repo_full_name: str, user_id: str
+    ) -> List[str]:
+        """
+        Get list of branches for a repository.
+
+        Args:
+            workspace_id: Workspace ID
+            repo_full_name: Repository full name (owner/repo)
+            user_id: User ID for authorization
+
+        Returns:
+            List of branch names
+        """
+        # Verify membership
+        await self._verify_membership(workspace_id, user_id)
+
+        # Import here to avoid circular imports
+        from app.github.tools.service import (
+            get_github_integration_with_token,
+            execute_github_graphql,
+        )
+
+        # Get GitHub integration
+        try:
+            _, access_token = await get_github_integration_with_token(
+                workspace_id, self.db
+            )
+        except HTTPException as e:
+            if e.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_424_FAILED_DEPENDENCY,
+                    detail="GitHub integration not configured for this workspace",
+                )
+            raise
+
+        # Parse owner and repo from full name
+        parts = repo_full_name.split("/")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid repository name format. Expected 'owner/repo'",
+            )
+        owner, repo = parts
+
+        # GraphQL query to get branches
+        query = """
+        query GetBranches($owner: String!, $name: String!, $first: Int!) {
+          repository(owner: $owner, name: $name) {
+            refs(refPrefix: "refs/heads/", first: $first, orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+        """
+
+        variables = {"owner": owner, "name": repo, "first": 100}
+
+        try:
+            data = await execute_github_graphql(query, variables, access_token)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to fetch branches for {repo_full_name}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to fetch branches from GitHub",
+            )
+
+        repository_data = data.get("data", {}).get("repository", {})
+        refs_data = repository_data.get("refs", {})
+        nodes = refs_data.get("nodes", [])
+
+        branches = [node.get("name") for node in nodes if node.get("name")]
+        return branches

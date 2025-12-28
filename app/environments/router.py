@@ -17,6 +17,12 @@ from app.environments.schemas import (
     EnvironmentResponse,
     EnvironmentListResponse,
     EnvironmentSummaryResponse,
+    EnvironmentRepositoryCreate,
+    EnvironmentRepositoryUpdate,
+    EnvironmentRepositoryResponse,
+    EnvironmentRepositoryListResponse,
+    AvailableRepositoriesResponse,
+    BranchListResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,3 +157,160 @@ async def set_default_environment(
     )
     await db.commit()
     return EnvironmentResponse.model_validate(environment)
+
+
+# ==================== Repository Configuration Endpoints ====================
+
+
+@router.get(
+    "/{environment_id}/repositories", response_model=EnvironmentRepositoryListResponse
+)
+async def list_environment_repositories(
+    environment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    List all repository configurations for an environment.
+
+    Requires membership in the workspace (Owner or Member).
+    """
+    service = EnvironmentService(db)
+    repositories = await service.list_environment_repositories(
+        environment_id=environment_id,
+        user_id=current_user.id,
+    )
+    return EnvironmentRepositoryListResponse(
+        repositories=[
+            EnvironmentRepositoryResponse.model_validate(repo) for repo in repositories
+        ]
+    )
+
+
+@router.post(
+    "/{environment_id}/repositories",
+    response_model=EnvironmentRepositoryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_repository_to_environment(
+    environment_id: str,
+    request: EnvironmentRepositoryCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Add a repository to an environment.
+
+    Requires Owner role in the workspace.
+    Note: Cannot enable repository without a configured branch.
+    """
+    service = EnvironmentService(db)
+    repo_config = await service.add_repository_to_environment(
+        environment_id=environment_id,
+        data=request,
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return EnvironmentRepositoryResponse.model_validate(repo_config)
+
+
+@router.patch(
+    "/{environment_id}/repositories/{repo_config_id}",
+    response_model=EnvironmentRepositoryResponse,
+)
+async def update_environment_repository(
+    environment_id: str,
+    repo_config_id: str,
+    request: EnvironmentRepositoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Update a repository configuration (branch, enabled status).
+
+    Requires Owner role in the workspace.
+    Note: Cannot enable repository without a configured branch.
+    """
+    service = EnvironmentService(db)
+    repo_config = await service.update_environment_repository(
+        environment_id=environment_id,
+        repo_config_id=repo_config_id,
+        data=request,
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return EnvironmentRepositoryResponse.model_validate(repo_config)
+
+
+@router.delete(
+    "/{environment_id}/repositories/{repo_config_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_repository_from_environment(
+    environment_id: str,
+    repo_config_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Remove a repository from an environment.
+
+    Requires Owner role in the workspace.
+    """
+    service = EnvironmentService(db)
+    await service.remove_repository_from_environment(
+        environment_id=environment_id,
+        repo_config_id=repo_config_id,
+        user_id=current_user.id,
+    )
+    await db.commit()
+
+
+@router.get(
+    "/{environment_id}/available-repositories",
+    response_model=AvailableRepositoriesResponse,
+)
+async def get_available_repositories(
+    environment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    List GitHub repositories accessible to workspace but not yet in this environment.
+
+    Requires membership in the workspace (Owner or Member).
+    Requires GitHub integration to be configured.
+    """
+    service = EnvironmentService(db)
+    available = await service.get_available_repositories(
+        environment_id=environment_id,
+        user_id=current_user.id,
+    )
+    return AvailableRepositoriesResponse(repositories=available)
+
+
+@router.get(
+    "/workspace/{workspace_id}/repositories/{repo_full_name:path}/branches",
+    response_model=BranchListResponse,
+)
+async def get_repository_branches(
+    workspace_id: str,
+    repo_full_name: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Get list of branches for a repository.
+
+    The repo_full_name should be in format 'owner/repo'.
+
+    Requires membership in the workspace (Owner or Member).
+    Requires GitHub integration to be configured.
+    """
+    service = EnvironmentService(db)
+    branches = await service.get_repository_branches(
+        workspace_id=workspace_id,
+        repo_full_name=repo_full_name,
+        user_id=current_user.id,
+    )
+    return BranchListResponse(branches=branches)

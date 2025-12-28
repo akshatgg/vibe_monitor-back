@@ -82,3 +82,57 @@ class EnvironmentListResponse(BaseModel):
     """Response for listing environments."""
 
     environments: List[EnvironmentSummaryResponse]
+
+
+# Repository configuration schemas
+class EnvironmentRepositoryCreate(BaseModel):
+    """Request to add a repository to an environment."""
+
+    repo_full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Repository full name (owner/repo)",
+    )
+    branch_name: Optional[str] = Field(
+        None, max_length=255, description="Branch name (can be set later)"
+    )
+    is_enabled: bool = Field(
+        default=False, description="Whether the repository is enabled (requires branch)"
+    )
+
+
+class EnvironmentRepositoryUpdate(BaseModel):
+    """Request to update a repository configuration."""
+
+    branch_name: Optional[str] = Field(None, max_length=255, description="Branch name")
+    is_enabled: Optional[bool] = Field(
+        None, description="Whether the repository is enabled"
+    )
+
+
+class EnvironmentRepositoryListResponse(BaseModel):
+    """Response for listing repository configurations."""
+
+    repositories: List[EnvironmentRepositoryResponse]
+
+
+# GitHub helper schemas
+class AvailableRepository(BaseModel):
+    """A repository available from GitHub that can be added to an environment."""
+
+    full_name: str
+    default_branch: Optional[str] = None
+    is_private: bool
+
+
+class AvailableRepositoriesResponse(BaseModel):
+    """Response for listing available repositories."""
+
+    repositories: List[AvailableRepository]
+
+
+class BranchListResponse(BaseModel):
+    """Response for listing branches of a repository."""
+
+    branches: List[str]
