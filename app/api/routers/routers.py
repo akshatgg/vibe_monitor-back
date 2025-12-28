@@ -43,6 +43,8 @@ from app.integrations.router import router as integrations_router
 from app.chat.router import router as chat_router
 from app.billing.router import service_router, billing_router
 from app.billing.webhooks import router as billing_webhooks_router
+from app.llm.router import router as llm_router
+from app.environments.router import router as environments_router
 
 # Create main API router
 api_router = APIRouter()
@@ -75,6 +77,8 @@ api_router.include_router(chat_router, tags=["chat"])
 api_router.include_router(service_router, tags=["services"])
 api_router.include_router(billing_router, tags=["billing"])
 api_router.include_router(billing_webhooks_router)
+api_router.include_router(llm_router, tags=["llm-config"])
+api_router.include_router(environments_router, tags=["environments"])
 
 
 # CloudWatch/NewRelic/Datadog routers only in local (for testing via Postman/Swagger)

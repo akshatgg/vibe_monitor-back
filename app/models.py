@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Text,
     Index,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSON
@@ -90,6 +91,23 @@ class InvitationStatus(enum.Enum):
     EXPIRED = "expired"
 
 
+class LLMProvider(enum.Enum):
+    """Available LLM providers for BYOLLM"""
+
+    VIBEMONITOR = "vibemonitor"  # Default (uses Groq)
+    OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
+    GEMINI = "gemini"
+
+
+class LLMConfigStatus(enum.Enum):
+    """Status of LLM provider configuration"""
+
+    ACTIVE = "active"
+    ERROR = "error"
+    UNCONFIGURED = "unconfigured"
+
+
 # User and Workspace Models
 class User(Base):
     __tablename__ = "users"
@@ -149,6 +167,15 @@ class Workspace(Base):
     )
     subscription = relationship(
         "Subscription", back_populates="workspace", uselist=False
+    )
+    llm_config = relationship(
+        "LLMProviderConfig",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    environments = relationship(
+        "Environment", back_populates="workspace", cascade="all, delete-orphan"
     )
 
 
@@ -1007,4 +1034,158 @@ class Subscription(Base):
         Index("idx_subscriptions_stripe_customer", "stripe_customer_id"),
         Index("idx_subscriptions_stripe_subscription", "stripe_subscription_id"),
         Index("idx_subscriptions_status", "status"),
+    )
+
+
+class LLMProviderConfig(Base):
+    """
+    Workspace-level LLM provider configuration for BYOLLM (Bring Your Own LLM).
+
+    Allows workspace owners to configure their own LLM provider (OpenAI, Azure OpenAI,
+    Google Gemini) instead of using VibeMonitor's default AI (Groq).
+
+    Benefits:
+    - BYOLLM users: No rate limits on AI sessions
+    - VibeMonitor AI users: Subject to workspace.daily_request_limit
+
+    API keys are encrypted using Fernet symmetric encryption (TokenProcessor).
+    """
+
+    __tablename__ = "llm_provider_configs"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # One config per workspace
+    )
+
+    # Provider: 'vibemonitor' | 'openai' | 'azure_openai' | 'gemini'
+    provider = Column(
+        Enum(LLMProvider, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LLMProvider.VIBEMONITOR,
+    )
+
+    # Model name (e.g., "gpt-4-turbo", "gemini-1.5-pro")
+    # Null means use default model for the provider
+    model_name = Column(String(100), nullable=True)
+
+    # Encrypted JSON config blob containing API keys and provider-specific settings
+    # Use TokenProcessor.encrypt() before storing, TokenProcessor.decrypt() when reading
+    # Structure varies by provider:
+    # - OpenAI: {"api_key": "sk-..."}
+    # - Azure OpenAI: {"api_key": "...", "endpoint": "https://xxx.openai.azure.com/",
+    #                  "api_version": "2024-02-01", "deployment_name": "gpt-4"}
+    # - Gemini: {"api_key": "AIza..."}
+    # - VibeMonitor: {} (no config needed, uses global settings)
+    config_encrypted = Column(Text, nullable=True)
+
+    # Status: 'active' | 'error' | 'unconfigured'
+    status = Column(
+        Enum(LLMConfigStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LLMConfigStatus.ACTIVE,
+    )
+
+    # Verification tracking
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="llm_config")
+
+    # Indexes for query performance
+    __table_args__ = (
+        Index("idx_llm_provider_config_workspace", "workspace_id"),
+        Index("idx_llm_provider_config_provider", "provider"),
+    )
+
+
+# Environment Models
+class Environment(Base):
+    """
+    Deployment environment configuration for a workspace.
+    Examples: Production, Staging, Development.
+
+    Environments allow workspace owners to define deployment contexts that map
+    to specific branches in their GitHub repositories. This enables the RCA bot
+    to query the correct code version based on the environment context from logs.
+    """
+
+    __tablename__ = "environments"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(
+        String(255), nullable=False
+    )  # e.g., "Production", "Staging", "Development"
+    is_default = Column(
+        Boolean, default=False, nullable=False
+    )  # Only one per workspace can be default
+    auto_discovery_enabled = Column(
+        Boolean, default=True, nullable=False
+    )  # Auto-add new repos when discovered
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="environments")
+    repository_configs = relationship(
+        "EnvironmentRepository",
+        back_populates="environment",
+        cascade="all, delete-orphan",
+    )
+
+    # Constraints and Indexes
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_environment_workspace_name"),
+        Index("ix_environments_workspace_id", "workspace_id"),
+    )
+
+
+class EnvironmentRepository(Base):
+    """
+    Repository configuration within an environment.
+    Maps a repository to a specific branch for that environment.
+
+    Repositories are disabled by default until a branch is configured.
+    When auto_discovery_enabled is true on the parent Environment,
+    new repositories are automatically added here when discovered.
+    """
+
+    __tablename__ = "environment_repositories"
+
+    id = Column(String, primary_key=True)  # UUID
+    environment_id = Column(
+        String, ForeignKey("environments.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
+    branch_name = Column(
+        String(255), nullable=True
+    )  # e.g., "main", "develop" - nullable until configured
+    is_enabled = Column(
+        Boolean, default=False, nullable=False
+    )  # Disabled until branch configured
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    environment = relationship("Environment", back_populates="repository_configs")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        UniqueConstraint("environment_id", "repo_full_name", name="uq_env_repo"),
+        Index("ix_environment_repositories_environment_id", "environment_id"),
     )

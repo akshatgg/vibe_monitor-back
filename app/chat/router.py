@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.auth.services.google_auth_service import AuthService
 from app.models import User, TurnStatus, JobStatus
 from app.chat.service import ChatService
-from app.billing.services.limit_service import limit_service
+from app.utils.rate_limiter import check_rate_limit_with_byollm_bypass, ResourceType
 from app.chat.schemas import (
     SendMessageRequest,
     SendMessageResponse,
@@ -49,12 +49,59 @@ async def send_message(
 
     Connect to GET /turns/{turn_id}/stream to receive real-time updates.
 
-    Returns 402 Payment Required if daily RCA session limit is exceeded.
+    **Rate Limiting:**
+    - VibeMonitor AI users are subject to workspace daily limits
+    - BYOLLM users (OpenAI, Azure, Gemini) have NO rate limits
     """
-    service = ChatService(db)
+    # Check rate limit before processing (BYOLLM users bypass rate limiting)
+    try:
+        allowed, current_count, limit = await check_rate_limit_with_byollm_bypass(
+            session=db,
+            workspace_id=workspace_id,
+            resource_type=ResourceType.RCA_REQUEST,
+        )
 
-    # Check RCA session limit - raises 402 if exceeded
-    await limit_service.enforce_rca_limit(db, workspace_id)
+        if not allowed:
+            logger.warning(
+                f"RCA rate limit exceeded for workspace {workspace_id}: "
+                f"{current_count}/{limit}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "message": "Daily RCA request limit reached",
+                    "current_count": current_count,
+                    "limit": limit,
+                    "tip": "Configure your own LLM (OpenAI, Azure, or Gemini) to remove limits",
+                },
+            )
+
+        # Log BYOLLM status (limit=-1 indicates unlimited)
+        if limit == -1:
+            logger.info(f"BYOLLM workspace {workspace_id} - unlimited RCA requests")
+        else:
+            logger.debug(
+                f"RCA rate limit check passed for workspace {workspace_id}: "
+                f"{current_count}/{limit}"
+            )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Rate limit check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Rate limit check failed: {str(e)}",
+        )
+    except Exception as e:
+        # Fail open: allow the request but log the error
+        logger.exception(f"Unexpected error in rate limit check: {e}")
+        logger.warning(
+            f"Rate limit check failed for workspace {workspace_id}, "
+            f"allowing request to proceed"
+        )
+
+    service = ChatService(db)
 
     try:
         # Get or create session
