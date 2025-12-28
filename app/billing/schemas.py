@@ -290,3 +290,27 @@ class UsageLimitsResponse(BaseModel):
     def estimated_monthly_cost_dollars(self) -> float:
         """Estimated monthly cost in dollars."""
         return self.estimated_monthly_cost_cents / 100
+
+
+class UsageResponse(BaseModel):
+    """Current usage stats for a workspace."""
+
+    plan_name: str
+    plan_type: str  # "free" or "pro"
+    is_paid: bool
+
+    # Service usage
+    service_count: int
+    service_limit: Optional[int] = None  # None means unlimited (Pro)
+    services_remaining: Optional[int] = None  # None if unlimited
+    can_add_service: bool
+
+    # RCA session usage
+    rca_sessions_today: int
+    rca_session_limit_daily: int
+    rca_sessions_remaining: int
+    can_start_rca: bool
+
+    # Subscription info
+    subscription_status: Optional[str] = None
+    current_period_end: Optional[datetime] = None

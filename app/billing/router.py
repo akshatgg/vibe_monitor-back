@@ -37,10 +37,12 @@ from app.billing.schemas import (
     SubscribeToProRequest,
     SubscriptionResponse,
     UpdateServiceCountRequest,
+    UsageResponse,
 )
 from app.billing.services.service_service import ServiceService
 from app.billing.services.subscription_service import subscription_service
 from app.billing.services.stripe_service import stripe_service
+from app.billing.services.limit_service import limit_service
 
 logger = logging.getLogger(__name__)
 
@@ -547,6 +549,34 @@ async def list_invoices(
     except Exception as e:
         logger.error(f"Failed to fetch invoices: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch invoices")
+
+
+@billing_router.get("/workspaces/{workspace_id}/usage", response_model=UsageResponse)
+async def get_workspace_usage(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get current usage stats for a workspace.
+
+    Returns:
+    - Service count vs limit
+    - RCA sessions used today vs daily limit
+    - Plan information and upgrade availability
+
+    Any workspace member can view usage.
+    """
+    await get_workspace_with_owner_check(
+        workspace_id, current_user, db, require_owner=False
+    )
+
+    try:
+        usage_stats = await limit_service.get_usage_stats(db, workspace_id)
+        return UsageResponse(**usage_stats)
+    except Exception as e:
+        logger.error(f"Failed to get usage stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get usage stats")
 
 
 @billing_router.post("/workspaces/{workspace_id}/subscription/sync")
