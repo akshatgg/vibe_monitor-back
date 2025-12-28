@@ -90,15 +90,13 @@ class ServiceService:
         return FREE_TIER_SERVICE_LIMIT
 
     async def _resolve_repository(
-        self, workspace_id: str, repository_name: Optional[str], db: AsyncSession
-    ) -> Tuple[Optional[str], Optional[str]]:
+        self, workspace_id: str, repository_name: str, db: AsyncSession
+    ) -> Tuple[Optional[str], str]:
         """
         Resolve repository name to repository_id.
         Returns (repository_id, repository_name) tuple.
+        Repository name is required; repository_id may be None if not linked to GitHub integration.
         """
-        if not repository_name:
-            return None, None
-
         # For now, just store the repository_name as-is without validation.
         # A future enhancement could validate against repos accessible via
         # the GitHub integration for this workspace.

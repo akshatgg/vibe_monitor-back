@@ -28,10 +28,11 @@ class ServiceCreate(BaseModel):
         max_length=255,
         description="Service name (should match what appears in observability logs)",
     )
-    repository_name: Optional[str] = Field(
-        None,
+    repository_name: str = Field(
+        ...,
+        min_length=1,
         max_length=255,
-        description="Optional repository name to link (format: owner/repo)",
+        description="Repository name to link (format: owner/repo)",
     )
 
 
