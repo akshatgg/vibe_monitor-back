@@ -350,7 +350,23 @@ class GitHubAppService:
                 with attempt:
                     response = await client.get(url, headers=headers)
                     response.raise_for_status()
-                    return response.json()
+                    data = response.json()
+                    # Return only essential fields to reduce payload size
+                    return {
+                        "total_count": data.get("total_count", 0),
+                        "repositories": [
+                            {
+                                "id": repo["id"],
+                                "name": repo["name"],
+                                "full_name": repo["full_name"],
+                                "private": repo["private"],
+                                "description": repo.get("description"),
+                                "default_branch": repo.get("default_branch"),
+                                "html_url": repo["html_url"],
+                            }
+                            for repo in data.get("repositories", [])
+                        ],
+                    }
 
     async def uninstall_github_app(self, installation_id: str) -> bool:
         """Uninstall GitHub App from user's account via API
