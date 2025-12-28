@@ -259,21 +259,26 @@ class TestServiceServiceCreate:
     async def test_create_service_limit_exceeded(
         self, service_service, mock_db, sample_membership, sample_workspace
     ):
-        """Should fail when service limit is exceeded."""
+        """Should fail with 402 when service limit is exceeded."""
         from fastapi import HTTPException
 
         # Mock owner verification
         owner_result = MagicMock()
         owner_result.scalar_one_or_none.return_value = sample_membership
 
-        # Mock limit check - at limit
+        # Mock subscription query (no subscription = free plan)
+        subscription_result = MagicMock()
+        subscription_result.scalar_one_or_none.return_value = None
+
+        # Mock service count at limit
         count_result = MagicMock()
         count_result.scalar.return_value = FREE_TIER_SERVICE_LIMIT
 
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
-
-        mock_db.execute.side_effect = [owner_result, count_result, workspace_result]
+        mock_db.execute.side_effect = [
+            owner_result,
+            subscription_result,  # For limit_service.get_workspace_plan
+            count_result,  # For limit_service.get_service_count
+        ]
 
         service_data = ServiceCreate(name="api-gateway")
 
@@ -285,8 +290,10 @@ class TestServiceServiceCreate:
                 db=mock_db,
             )
 
-        assert exc_info.value.status_code == 400
-        assert "limit reached" in exc_info.value.detail
+        # Now returns 402 Payment Required instead of 400
+        assert exc_info.value.status_code == 402
+        assert exc_info.value.detail["limit_type"] == "service"
+        assert exc_info.value.detail["upgrade_available"] is True
 
     @pytest.mark.asyncio
     async def test_create_service_duplicate_name(

@@ -18,6 +18,7 @@ from ..schemas import (
     ServiceCountResponse,
     FREE_TIER_SERVICE_LIMIT,
 )
+from .limit_service import limit_service
 
 
 class ServiceService:
@@ -161,16 +162,8 @@ class ServiceService:
         # Verify user is owner
         await self._verify_owner(workspace_id, user_id, db)
 
-        # Check service limit
-        can_add, current_count, limit = await self.validate_service_limit(
-            workspace_id, db
-        )
-        if not can_add:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Service limit reached ({current_count}/{limit}). "
-                "Upgrade to paid tier to add more services.",
-            )
+        # Check service limit - raises 402 if exceeded
+        await limit_service.enforce_service_limit(db, workspace_id)
 
         # Check name uniqueness within workspace
         existing_query = select(Service).where(
