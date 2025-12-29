@@ -171,7 +171,7 @@ class ServiceService:
         result = await db.execute(existing_query)
         if result.scalar_one_or_none():
             raise HTTPException(
-                status_code=400,
+                status_code=409,
                 detail=f"A service named '{service_data.name}' already exists in this workspace",
             )
 
@@ -287,7 +287,7 @@ class ServiceService:
             existing_result = await db.execute(existing_query)
             if existing_result.scalar_one_or_none():
                 raise HTTPException(
-                    status_code=400,
+                    status_code=409,
                     detail=f"A service named '{service_data.name}' already exists in this workspace",
                 )
             service.name = service_data.name

@@ -359,7 +359,7 @@ class TestServiceServiceCreate:
                 db=mock_db,
             )
 
-        assert exc_info.value.status_code == 400
+        assert exc_info.value.status_code == 409
         assert "already exists" in exc_info.value.detail
 
 
