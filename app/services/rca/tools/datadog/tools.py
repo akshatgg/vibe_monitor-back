@@ -3,23 +3,24 @@ LangChain tools for RCA agent to interact with Datadog Logs, Metrics, and Events
 """
 
 import logging
-from typing import Optional
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from langchain.tools import tool
 
-from app.datadog.Logs.service import datadog_logs_service
+from app.core.database import AsyncSessionLocal
 from app.datadog.Logs.schemas import (
-    SearchLogsRequest,
     ListLogsRequest,
     ListServicesRequest,
+    SearchLogsRequest,
+)
+from app.datadog.Logs.service import datadog_logs_service
+from app.datadog.Metrics.schemas import (
+    EventsSearchRequest,
+    QueryTimeseriesRequest,
+    SimpleQueryRequest,
 )
 from app.datadog.Metrics.service import datadog_metrics_service
-from app.datadog.Metrics.schemas import (
-    SimpleQueryRequest,
-    QueryTimeseriesRequest,
-    EventsSearchRequest,
-)
-from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 

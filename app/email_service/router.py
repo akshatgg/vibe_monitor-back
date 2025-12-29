@@ -3,17 +3,18 @@ Email API routes.
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.config import settings
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.models import User, Email, SlackInstallation, Membership, RefreshToken
-from app.email.service import email_service, verify_scheduler_token
-from app.email.schemas import EmailResponse, ContactFormRequest
+from app.email_service.schemas import ContactFormRequest, EmailResponse
+from app.email_service.service import email_service, verify_scheduler_token
+from app.models import Email, Membership, RefreshToken, SlackInstallation, User
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()

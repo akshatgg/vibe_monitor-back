@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 import aioboto3
 from botocore.exceptions import (
     BotoCoreError,
@@ -8,6 +9,7 @@ from botocore.exceptions import (
     EndpointConnectionError,
     NoCredentialsError,
 )
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)

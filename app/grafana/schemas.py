@@ -2,9 +2,10 @@
 Pydantic schemas for Grafana integration API
 """
 
-from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class GrafanaConnectRequest(BaseModel):
@@ -37,3 +38,14 @@ class GrafanaDisconnectResponse(BaseModel):
 
     message: str
     workspace_id: str
+
+
+class GrafanaStatusResponse(BaseModel):
+    """Response model for Grafana integration status check"""
+
+    connected: bool = Field(
+        ..., description="Whether the workspace is connected to Grafana"
+    )
+    integration: Optional[GrafanaConnectionResponse] = Field(
+        None, description="Integration details if connected"
+    )

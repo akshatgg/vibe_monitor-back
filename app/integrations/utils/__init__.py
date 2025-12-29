@@ -3,12 +3,12 @@ Integration utilities module.
 """
 
 from .permissions import (
-    is_integration_allowed,
+    ALL_PROVIDERS,
+    ALLOWED_INTEGRATIONS,
+    check_integration_permission,
     get_allowed_integrations,
     get_blocked_integration_message,
-    check_integration_permission,
-    ALLOWED_INTEGRATIONS,
-    ALL_PROVIDERS,
+    is_integration_allowed,
 )
 
 __all__ = [

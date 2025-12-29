@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import PlanType, SubscriptionStatus
 
-
 # Constants
 FREE_TIER_SERVICE_LIMIT = 5
 

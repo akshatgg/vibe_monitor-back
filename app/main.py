@@ -1,7 +1,8 @@
-from contextlib import asynccontextmanager
-from dotenv import load_dotenv
 import logging
+from contextlib import asynccontextmanager
+
 import sentry_sdk
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,15 +13,13 @@ from app.api.routers.routers import api_router
 from app.core.config import settings
 from app.core.database import init_database
 from app.core.logging_config import configure_logging
-from app.middleware import RequestIDMiddleware
-from app.github.webhook.router import limiter
-from app.core.otel_config import setup_otel_metrics, setup_otel_logs, shutdown_otel
+from app.core.otel_config import setup_otel_logs, setup_otel_metrics, shutdown_otel
 from app.core.otel_metrics import init_meter
-
-from app.worker import RCAOrchestratorWorker
-from app.services.sqs.client import sqs_client
 from app.core.redis import close_redis, get_redis
-
+from app.github.webhook.router import limiter
+from app.middleware import RequestIDMiddleware
+from app.services.sqs.client import sqs_client
+from app.worker import RCAOrchestratorWorker
 
 # Load environment variables
 load_dotenv()

@@ -2,9 +2,9 @@
 Pydantic schemas for New Relic Logs API
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List, Any, Dict
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
 
 # ===== Log Query Schemas =====
 

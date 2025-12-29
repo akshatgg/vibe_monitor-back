@@ -7,11 +7,10 @@ Defines which integrations are allowed for each workspace type:
 """
 
 from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import WorkspaceType, Workspace
-
+from app.models import Workspace, WorkspaceType
 
 # Define allowed integrations per workspace type
 ALLOWED_INTEGRATIONS: dict[WorkspaceType, set[str]] = {

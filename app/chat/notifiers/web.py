@@ -11,7 +11,7 @@ from app.chat.notifiers.base import BaseNotifier
 from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.redis import publish_event
-from app.models import TurnStatus, StepType, StepStatus
+from app.models import StepStatus, StepType, TurnStatus
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +104,14 @@ class WebNotifier(BaseNotifier):
         if step_id:
             await self.service.update_step_status(
                 step_id=step_id,
-                status=StepStatus.COMPLETED
-                if status == "completed"
-                else StepStatus.FAILED,
-                content=content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
-                if content
-                else None,
+                status=(
+                    StepStatus.COMPLETED if status == "completed" else StepStatus.FAILED
+                ),
+                content=(
+                    content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
+                    if content
+                    else None
+                ),
             )
             await self.db.commit()
 
@@ -120,9 +122,11 @@ class WebNotifier(BaseNotifier):
                 "event": "tool_end",
                 "tool_name": tool_name,
                 "status": status,
-                "content": content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
-                if content
-                else None,
+                "content": (
+                    content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
+                    if content
+                    else None
+                ),
                 "step_id": step_id,  # For matching with tool_start
             },
         )

@@ -13,17 +13,11 @@ Features:
 
 import logging
 from typing import TypeVar
-import httpx
 
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-    RetryCallState,
-    retry_if_exception as tenacity_retry_if_exception,
-)
+import httpx
+from tenacity import AsyncRetrying, RetryCallState, before_sleep_log
+from tenacity import retry_if_exception as tenacity_retry_if_exception
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
 

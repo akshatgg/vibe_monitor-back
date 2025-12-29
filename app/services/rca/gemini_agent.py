@@ -8,22 +8,23 @@ Updated to use capability-based tool filtering:
 """
 
 import base64
+import io
 import logging
 import re
-import io
-import httpx
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from PIL import Image
-from langchain_google_genai import ChatGoogleGenerativeAI
+
+import httpx
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from .prompts import RCA_SYSTEM_PROMPT
-from .capabilities import IntegrationCapabilityResolver
-from .builder import AgentExecutorBuilder
 
+from .builder import AgentExecutorBuilder
+from .capabilities import IntegrationCapabilityResolver
+from .prompts import RCA_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 

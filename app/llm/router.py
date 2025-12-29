@@ -11,12 +11,13 @@ All endpoints require workspace OWNER role.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User, Membership, Role
-from app.auth.services.google_auth_service import AuthService
+from app.models import Membership, Role, User
+
 from .schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
@@ -24,7 +25,6 @@ from .schemas import (
     LLMVerifyResponse,
 )
 from .service import LLMConfigService
-
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["llm-config"])
 auth_service = AuthService()

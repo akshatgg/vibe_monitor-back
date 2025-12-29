@@ -8,20 +8,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+
 from .schemas import (
-    ListMetricsRequest,
-    ListMetricsResponse,
+    DescribeAnomalyDetectorsRequest,
+    DescribeAnomalyDetectorsResponse,
     GetMetricDataRequest,
     GetMetricDataResponse,
     GetMetricStatisticsRequest,
     GetMetricStatisticsResponse,
-    ListMetricStreamsRequest,
-    ListMetricStreamsResponse,
     GetMetricStreamRequest,
     GetMetricStreamResponse,
+    ListMetricsRequest,
+    ListMetricsResponse,
+    ListMetricStreamsRequest,
+    ListMetricStreamsResponse,
     ListNamespacesResponse,
-    DescribeAnomalyDetectorsRequest,
-    DescribeAnomalyDetectorsResponse,
 )
 from .service import cloudwatch_metrics_service
 

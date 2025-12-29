@@ -1,18 +1,20 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from ..schemas.google_auth_schemas import RefreshTokenRequest, UserResponse
-from ..services.google_auth_service import AuthService
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.oauth_state import oauth_state_manager
 
+from .schemas import UserResponse
+from .service import GitHubAuthService
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
-auth_service = AuthService()
+router = APIRouter(prefix="/auth/github", tags=["github-authentication"])
+github_auth_service = GitHubAuthService()
 
 
 @router.get("/login")
@@ -32,7 +34,7 @@ async def login(
     """
     OAuth 2.0 Authorization Code Flow with PKCE - Login Endpoint
 
-    Returns the Google OAuth URL as JSON (instead of redirecting).
+    Returns the GitHub OAuth URL as JSON (instead of redirecting).
     This avoids CORS issues in Swagger and allows backend testing.
 
     **How to use:**
@@ -49,13 +51,13 @@ async def login(
     4. Use the code from callback with POST /callback
 
     **Parameters:**
-    - redirect_uri: Frontend callback URL (e.g., http://localhost:3000/auth/callback)
+    - redirect_uri: Frontend callback URL (e.g., http://localhost:3000/auth/github/callback)
     - state: CSRF state parameter (optional but recommended)
     - code_challenge: PKCE code challenge (optional, for SPA/mobile apps)
     - code_challenge_method: PKCE method (S256 or plain, default S256)
 
     **Returns:**
-    - auth_url: Complete Google OAuth URL to redirect to
+    - auth_url: Complete GitHub OAuth URL to redirect to
     - state: The state parameter (if provided)
     """
     try:
@@ -66,7 +68,7 @@ async def login(
             )  # 5 minutes expiration
 
         # Generate auth URL with frontend callback URL and PKCE
-        auth_url = auth_service.get_google_auth_url(
+        auth_url = github_auth_service.get_github_auth_url(
             redirect_uri=redirect_uri,
             state=state,
             code_challenge=code_challenge,
@@ -85,13 +87,15 @@ async def login(
 
 
 @router.post("/callback")
-async def callback(
-    code: str = Query(..., description="Authorization code from Google"),
+async def exchange_code(
+    code: str = Query(..., description="Authorization code from GitHub"),
     redirect_uri: str = Query(
         ...,
         description="Frontend callback URI that matches the one used in authorization",
     ),
-    state: Optional[str] = Query(None, description="CSRF state parameter"),
+    state: Optional[str] = Query(
+        None, description="State parameter for CSRF validation"
+    ),
     code_verifier: Optional[str] = Query(
         None, description="PKCE code verifier (if PKCE was used)"
     ),
@@ -102,11 +106,12 @@ async def callback(
 
     This endpoint is called by the frontend after receiving the authorization code.
     It exchanges the code for tokens and returns them as JSON.
+    (Same pattern as Google OAuth)
 
     Parameters:
-    - code: Authorization code from Google
+    - code: Authorization code from GitHub
     - redirect_uri: Must match the URI used in the authorization request
-    - state: CSRF state parameter (optional but recommended)
+    - state: State parameter for CSRF validation (optional but recommended)
     - code_verifier: PKCE code verifier (optional, required if code_challenge was used)
 
     Returns:
@@ -121,32 +126,30 @@ async def callback(
                     status_code=403,
                     detail="Invalid or expired state parameter. Possible CSRF attack.",
                 )
-        # Exchange code for Google tokens with PKCE support
-        token_data = await auth_service.exchange_code_for_tokens(
+        # Exchange code for GitHub tokens with PKCE support
+        token_data = await github_auth_service.exchange_code_for_tokens(
             code=code, redirect_uri=redirect_uri, code_verifier=code_verifier
         )
 
-        # Get user info from Google using access token
-        user_info = await auth_service.get_user_info_from_google(
+        # Get user info from GitHub using access token
+        user_info = await github_auth_service.get_user_info_from_github(
             token_data["access_token"]
         )
 
-        # Validate ID token if present
-        if "id_token" in token_data:
-            await auth_service.validate_id_token(token_data["id_token"])
-
         # Create or get user
-        user = await auth_service.create_or_get_user(google_user_info=user_info, db=db)
+        user = await github_auth_service.create_or_get_user(
+            github_user_info=user_info, db=db
+        )
 
         # Generate our own JWT tokens
-        access_token = auth_service.create_access_token(
+        access_token = github_auth_service.create_access_token(
             data={"sub": user.id, "email": user.email}
         )
-        refresh_token = await auth_service.create_refresh_token(
+        refresh_token = await github_auth_service.create_refresh_token(
             data={"sub": user.id, "email": user.email}, db=db
         )
 
-        # Return tokens as JSON
+        # Return tokens as JSON (same as Google OAuth)
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -159,36 +162,20 @@ async def callback(
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error("OAuth callback failed", exc_info=True)
-        raise HTTPException(status_code=400, detail=f"OAuth callback failed: {str(e)}")
-
-
-@router.post("/refresh")
-async def refresh_token(
-    request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)
-):
-    """
-    Refresh access token endpoint
-
-    Exchanges refresh token for a new access token
-    """
-    try:
-        return await auth_service.refresh_access_token(request.refresh_token, db)
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token refresh failed: {str(e)}")
+        logger.error("OAuth token exchange failed", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {str(e)}")
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_endpoint(user=Depends(auth_service.get_current_user)):
+async def get_current_user_endpoint(user=Depends(github_auth_service.get_current_user)):
     """Get current authenticated user"""
     return UserResponse.model_validate(user)
 
 
 @router.post("/logout")
 async def logout(
-    user=Depends(auth_service.get_current_user), db: AsyncSession = Depends(get_db)
+    user=Depends(github_auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Logout user and revoke refresh tokens
@@ -196,6 +183,7 @@ async def logout(
     try:
         # Revoke all refresh tokens for this user
         from sqlalchemy import delete
+
         from app.models import RefreshToken
 
         await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))

@@ -1,17 +1,18 @@
+import hashlib
+import logging
+import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
-import uuid
-import secrets
-import hashlib
-from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from fastapi import HTTPException, status
-import logging
 
-from app.models import User, EmailVerification, RefreshToken
+from fastapi import HTTPException, status
+from passlib.context import CryptContext
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
-from app.email.service import email_service
+from app.email_service.service import email_service
+from app.models import EmailVerification, RefreshToken, User
 from app.onboarding.services.workspace_service import WorkspaceService
 from app.utils.token_processor import token_processor
 

@@ -4,29 +4,26 @@ Account service for handling account deletion with workspace ownership constrain
 
 import logging
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
-from sqlalchemy.orm import selectinload
+
 from fastapi import HTTPException, status
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import (
+    ChatSession,
+    Email,
+    EmailVerification,
+    Membership,
+    RefreshToken,
+    Role,
     User,
     Workspace,
-    Membership,
-    Role,
-    RefreshToken,
-    EmailVerification,
-    Email,
-    ChatSession,
 )
-from app.auth.schemas.account_schemas import (
-    DeletionPreviewResponse,
-    BlockingWorkspace,
-    WorkspacePreview,
-    AccountDeleteResponse,
-    WorkspaceType,
-    Role as SchemaRole,
-)
+
+from .schemas import AccountDeleteResponse, BlockingWorkspace, DeletionPreviewResponse
+from .schemas import Role as SchemaRole
+from .schemas import WorkspacePreview, WorkspaceType
 
 logger = logging.getLogger(__name__)
 

@@ -10,10 +10,10 @@ Uses ONLY stdlib - no external logging dependencies.
 import json
 import logging
 import sys
-from contextvars import ContextVar
-from typing import Optional, Dict, Any
 import threading
+from contextvars import ContextVar
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
 

@@ -1,6 +1,7 @@
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, validator
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, validator
 
 
 class SlackEventPayload(BaseModel):

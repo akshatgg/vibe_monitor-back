@@ -1,25 +1,27 @@
-from fastapi import HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
 import base64
 import hashlib
-from typing import Dict, Optional
-import uuid
+import logging
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
+from typing import Dict, Optional
 from urllib.parse import urlencode
 
-from app.models import User, RefreshToken
-from ..schemas.schemas import UserResponse
-from ...core.database import get_db
+import httpx
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import RefreshToken, User
+
 from ...core.config import settings
-from ...utils.retry_decorator import retry_external_api
-from .workspace_service import WorkspaceService
+from ...core.database import get_db
 from ...email.service import email_service
-import logging
+from ...utils.retry_decorator import retry_external_api
+from ..schemas.schemas import UserResponse
+from .workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
 

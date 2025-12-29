@@ -3,17 +3,19 @@ New Relic Integration Service
 Handles CRUD operations for New Relic integrations
 """
 
-import uuid
 import logging
-import httpx
-from typing import Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import uuid
 from datetime import datetime, timezone
+from typing import Optional, Tuple
 
-from app.models import NewRelicIntegration, Integration
-from app.utils.token_processor import token_processor
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.integrations.health_checks import check_newrelic_health
+from app.models import Integration, NewRelicIntegration
+from app.utils.token_processor import token_processor
+
 from .schemas import (
     NewRelicIntegrationCreate,
     NewRelicIntegrationResponse,

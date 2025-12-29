@@ -13,9 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Plan, PlanType, Subscription, SubscriptionStatus
-from app.core.config import settings
 from app.billing.services.stripe_service import stripe_service
+from app.core.config import settings
+from app.models import Plan, PlanType, Subscription, SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 

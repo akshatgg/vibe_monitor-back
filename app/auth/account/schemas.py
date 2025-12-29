@@ -3,9 +3,10 @@ Account schemas for profile and deletion.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from enum import Enum
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, Field
 
 
 class AccountProfileResponse(BaseModel):
@@ -16,6 +17,7 @@ class AccountProfileResponse(BaseModel):
     email: str
     is_verified: bool
     newsletter_subscribed: bool = True
+    auth_provider: Literal["google", "credentials"]
     created_at: Optional[datetime] = None
 
     class Config:

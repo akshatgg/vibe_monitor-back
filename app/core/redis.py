@@ -4,9 +4,9 @@ Redis client for pub/sub messaging (SSE streaming).
 Uses ElastiCache Serverless in production.
 """
 
-import logging
-from typing import Optional, AsyncIterator
 import json
+import logging
+from typing import AsyncIterator, Optional
 
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub

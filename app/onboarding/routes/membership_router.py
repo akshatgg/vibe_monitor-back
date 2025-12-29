@@ -14,10 +14,15 @@ Endpoints:
 - POST   /workspaces/{workspace_id}/leave             - Leave workspace voluntarily
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.models import User
+
+from ...core.database import get_db
 from ..schemas.schemas import (
     InvitationCreate,
     InvitationResponse,
@@ -26,10 +31,6 @@ from ..schemas.schemas import (
     WorkspaceWithMembership,
 )
 from ..services.membership_service import MembershipService
-from app.auth.services.google_auth_service import AuthService
-from app.models import User
-from ...core.database import get_db
-
 
 router = APIRouter(tags=["membership"])
 membership_service = MembershipService()

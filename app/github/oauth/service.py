@@ -1,20 +1,21 @@
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
-from jose import jwt
-import time
 import logging
-from typing import Dict
+import time
 import uuid
-from datetime import datetime, timezone, timedelta
-from dateutil import parser as date_parser
+from datetime import datetime, timedelta, timezone
+from typing import Dict
 
-from ...models import GitHubIntegration, Integration
+import httpx
+from dateutil import parser as date_parser
+from fastapi import HTTPException
+from jose import jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...core.config import settings
-from ...utils.token_processor import token_processor
-from ...utils.retry_decorator import retry_external_api
 from ...integrations.health_checks import check_github_health
+from ...models import GitHubIntegration, Integration
+from ...utils.retry_decorator import retry_external_api
+from ...utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 

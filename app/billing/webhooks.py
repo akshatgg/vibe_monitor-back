@@ -8,9 +8,9 @@ import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.billing.services.stripe_service import stripe_service
 from app.billing.services.subscription_service import subscription_service
+from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
 

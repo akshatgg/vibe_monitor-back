@@ -2,24 +2,25 @@ import asyncio
 import logging
 import signal
 from datetime import datetime, timezone
+
 from dotenv import load_dotenv
 
-from app.workers.base_worker import BaseWorker
-from app.services.sqs.client import sqs_client
-from app.services.rca.agent import rca_agent_service
-from app.services.rca.gemini_agent import gemini_rca_agent_service
-from app.services.rca.callbacks import SlackProgressCallback
 from app.chat.notifiers import WebProgressCallback
-from app.integrations.service import get_workspace_integrations
-from app.slack.service import slack_event_service
-from app.core.database import AsyncSessionLocal
-from app.core.config import settings
-from app.core.logging_config import set_job_id, clear_job_id
-from app.models import Job, JobStatus, JobSource, TurnStatus
 from app.chat.service import ChatService
-from app.github.tools.router import list_repositories_graphql
-from app.services.rca.get_service_name.service import extract_service_names_from_repo
+from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.core.logging_config import clear_job_id, set_job_id
 from app.engagement.service import engagement_service
+from app.github.tools.router import list_repositories_graphql
+from app.integrations.service import get_workspace_integrations
+from app.models import Job, JobSource, JobStatus, TurnStatus
+from app.services.rca.agent import rca_agent_service
+from app.services.rca.callbacks import SlackProgressCallback
+from app.services.rca.gemini_agent import gemini_rca_agent_service
+from app.services.rca.get_service_name.service import extract_service_names_from_repo
+from app.services.sqs.client import sqs_client
+from app.slack.service import slack_event_service
+from app.workers.base_worker import BaseWorker
 
 logger = logging.getLogger(__name__)
 

@@ -11,14 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Environment, EnvironmentRepository, Membership, Role
 from app.environments.schemas import (
+    AvailableRepository,
     EnvironmentCreate,
-    EnvironmentUpdate,
     EnvironmentRepositoryCreate,
     EnvironmentRepositoryUpdate,
-    AvailableRepository,
+    EnvironmentUpdate,
 )
+from app.models import Environment, EnvironmentRepository, Membership, Role
 
 logger = logging.getLogger(__name__)
 
@@ -424,8 +424,8 @@ class EnvironmentService:
 
         # Import here to avoid circular imports
         from app.github.tools.service import (
-            get_github_integration_with_token,
             execute_github_graphql,
+            get_github_integration_with_token,
         )
 
         # Get GitHub integration

@@ -7,22 +7,22 @@ import logging
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.models import User
-from app.environments.service import EnvironmentService
 from app.environments.schemas import (
-    EnvironmentCreate,
-    EnvironmentUpdate,
-    EnvironmentResponse,
-    EnvironmentListResponse,
-    EnvironmentSummaryResponse,
-    EnvironmentRepositoryCreate,
-    EnvironmentRepositoryUpdate,
-    EnvironmentRepositoryResponse,
-    EnvironmentRepositoryListResponse,
     AvailableRepositoriesResponse,
+    EnvironmentCreate,
+    EnvironmentListResponse,
+    EnvironmentRepositoryCreate,
+    EnvironmentRepositoryListResponse,
+    EnvironmentRepositoryResponse,
+    EnvironmentRepositoryUpdate,
+    EnvironmentResponse,
+    EnvironmentSummaryResponse,
+    EnvironmentUpdate,
 )
+from app.environments.service import EnvironmentService
+from app.models import User
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()

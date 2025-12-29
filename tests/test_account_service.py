@@ -6,8 +6,8 @@ import pytest
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
-from app.auth.services.account_service import AccountService
-from app.auth.schemas.account_schemas import (
+from app.auth.account.service import AccountService
+from app.auth.account.schemas import (
     WorkspaceType,
     Role as SchemaRole,
 )

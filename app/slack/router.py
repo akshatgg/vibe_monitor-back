@@ -1,26 +1,26 @@
-import logging
 import json
-from typing import Optional
-import httpx
+import logging
 import secrets
-from fastapi import APIRouter, Request, HTTPException, Depends
-from app.utils.retry_decorator import retry_external_api
-from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from typing import Optional
 
-from app.slack.schemas import SlackEventPayload
-from app.slack.service import slack_event_service
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.models import SlackInstallation, Workspace, Membership, Integration
-from app.chat.service import ChatService
-from fastapi.responses import RedirectResponse
 from app.integrations.utils import (
-    is_integration_allowed,
     get_blocked_integration_message,
+    is_integration_allowed,
 )
+from app.models import Integration, Membership, SlackInstallation, Workspace
+from app.slack.schemas import SlackEventPayload
+from app.slack.service import slack_event_service
+from app.utils.retry_decorator import retry_external_api
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
@@ -133,9 +133,11 @@ async def get_slack_connection_status(
                 "team_name": slack_installation.team_name,
                 "bot_user_id": slack_installation.bot_user_id,
                 "workspace_id": workspace_id,
-                "installed_at": slack_installation.installed_at.isoformat()
-                if slack_installation.installed_at
-                else None,
+                "installed_at": (
+                    slack_installation.installed_at.isoformat()
+                    if slack_installation.installed_at
+                    else None
+                ),
             },
         },
     )

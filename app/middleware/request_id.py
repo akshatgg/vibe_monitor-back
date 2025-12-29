@@ -8,13 +8,14 @@ The request_id is:
 - Set in context variables so ALL logs in this request automatically include it
 """
 
-import uuid
 import logging
+import uuid
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.logging_config import set_request_id, clear_request_id
+from app.core.logging_config import clear_request_id, set_request_id
 
 logger = logging.getLogger(__name__)
 

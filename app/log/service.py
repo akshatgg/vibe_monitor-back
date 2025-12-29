@@ -3,24 +3,24 @@ Logs service layer for business logic
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional
 import re
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional
 
-from sqlalchemy import select
 import httpx
+from sqlalchemy import select
 
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
-from ..utils.token_processor import token_processor
 from ..utils.retry_decorator import retry_external_api
+from ..utils.token_processor import token_processor
 from .models import (
-    LogQueryResponse,
     LabelResponse,
-    LogQueryParams,
-    TimeRange,
     LogQueryData,
+    LogQueryParams,
+    LogQueryResponse,
     LogStream,
+    TimeRange,
 )
 from .utils import get_loki_uid_cached
 

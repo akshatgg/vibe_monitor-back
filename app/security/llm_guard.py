@@ -11,9 +11,11 @@ LangChain instance to avoid any interference.
 
 import logging
 import uuid
-from typing import Dict, Any, Optional
-from langchain_groq import ChatGroq
+from typing import Any, Dict, Optional
+
 from langchain_core.messages import HumanMessage
+from langchain_groq import ChatGroq
+
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import SecurityEvent, SecurityEventType
@@ -328,9 +330,11 @@ Your response must be exactly one word: true OR false"""
             return {
                 "is_safe": is_safe,
                 "blocked": not is_safe,
-                "reason": "LLM guard validation"
-                if is_safe
-                else "Prompt injection detected by LLM guard",
+                "reason": (
+                    "LLM guard validation"
+                    if is_safe
+                    else "Prompt injection detected by LLM guard"
+                ),
                 "llm_response": llm_response,
             }
 

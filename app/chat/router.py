@@ -2,33 +2,33 @@
 Chat API routes including SSE streaming.
 """
 
-import logging
 import json
+import logging
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
-from app.core.redis import subscribe_to_channel
-from app.core.config import settings
-from app.auth.services.google_auth_service import AuthService
-from app.models import User, TurnStatus, JobStatus
-from app.chat.service import ChatService
-from app.utils.rate_limiter import check_rate_limit_with_byollm_bypass, ResourceType
+from app.auth.google.service import AuthService
 from app.chat.schemas import (
-    SendMessageRequest,
-    SendMessageResponse,
-    UpdateSessionRequest,
-    SubmitFeedbackRequest,
+    ChatSearchResponse,
+    ChatSearchResult,
     ChatSessionResponse,
     ChatSessionSummary,
     ChatTurnResponse,
     FeedbackResponse,
-    ChatSearchResponse,
-    ChatSearchResult,
+    SendMessageRequest,
+    SendMessageResponse,
+    SubmitFeedbackRequest,
+    UpdateSessionRequest,
 )
+from app.chat.service import ChatService
+from app.core.config import settings
+from app.core.database import get_db
+from app.core.redis import subscribe_to_channel
+from app.models import JobStatus, TurnStatus, User
+from app.utils.rate_limiter import ResourceType, check_rate_limit_with_byollm_bypass
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()

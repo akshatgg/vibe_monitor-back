@@ -7,8 +7,9 @@ This file defines the structure of those webhook payloads.
 Documentation: https://docs.github.com/en/webhooks/webhook-events-and-payloads
 """
 
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
 
 
 class GitHubAccount(BaseModel):

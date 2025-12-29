@@ -1,7 +1,8 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
+
 from app.services.sqs.client import sqs_client
 
 logger = logging.getLogger(__name__)

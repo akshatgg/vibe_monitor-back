@@ -2,16 +2,16 @@
 API endpoints for repository service discovery
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
-from app.auth.services.google_auth_service import AuthService
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from .service import (
-    extract_service_names_from_repo,
-)
+
 from .schemas import ScanRepositoryRequest
+from .service import extract_service_names_from_repo
 
 logger = logging.getLogger(__name__)
 

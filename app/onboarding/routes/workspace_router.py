@@ -1,17 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.models import User
+
+from ...core.database import get_db
 from ..schemas.schemas import (
     WorkspaceCreate,
-    WorkspaceUpdate,
     WorkspaceResponse,
+    WorkspaceUpdate,
     WorkspaceWithMembership,
 )
 from ..services.workspace_service import WorkspaceService
-from app.auth.services.google_auth_service import AuthService
-from app.models import User
-from ...core.database import get_db
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 workspace_service = WorkspaceService()

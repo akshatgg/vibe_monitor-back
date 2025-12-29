@@ -1,32 +1,34 @@
-from fastapi import HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
 import base64
 import hashlib
-from typing import Dict, Optional
-import uuid
+import logging
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
+from typing import Dict, Optional
 from urllib.parse import urlencode
 
-from app.models import User, RefreshToken
-from ..schemas.github_auth_schemas import UserResponse
-from app.core.database import get_db
+import httpx
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
-from app.utils.retry_decorator import retry_external_api
+from app.core.database import get_db
+from app.email_service.service import email_service
+from app.models import RefreshToken, User
 from app.onboarding.services.workspace_service import WorkspaceService
-from app.email.service import email_service
-import logging
+from app.utils.retry_decorator import retry_external_api
+
+from .schemas import UserResponse
 
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
 
-class GitHubAuthService:
+class AuthService:
     def __init__(self):
         # JWT Configuration
         self.SECRET_KEY = settings.JWT_SECRET_KEY
@@ -34,14 +36,13 @@ class GitHubAuthService:
         self.ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
         self.REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
 
-        # GitHub OAuth Configuration
-        self.GITHUB_CLIENT_ID = settings.GITHUB_OAUTH_CLIENT_ID
-        self.GITHUB_CLIENT_SECRET = settings.GITHUB_OAUTH_CLIENT_SECRET
-        self.GITHUB_AUTH_URL = settings.GITHUB_OAUTH_AUTH_URL
-        self.GITHUB_TOKEN_URL = settings.GITHUB_OAUTH_TOKEN_URL
-        self.GITHUB_USER_URL = settings.GITHUB_OAUTH_USER_URL
-        self.GITHUB_USER_EMAIL_URL = settings.GITHUB_OAUTH_USER_EMAIL_URL
-        self.GITHUB_SCOPE = "read:user user:email"
+        # Google OAuth Configuration
+        self.GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
+        self.GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
+        self.GOOGLE_AUTH_URL = settings.GOOGLE_AUTH_URL
+        self.GOOGLE_TOKEN_URL = settings.GOOGLE_TOKEN_URL
+        self.GOOGLE_USERINFO_URL = settings.GOOGLE_USERINFO_URL
+        self.GOOGLE_SCOPE = "openid email profile"
 
     def generate_pkce_pair(self) -> tuple[str, str]:
         """Generate PKCE code_verifier and code_challenge for secure OAuth flow"""
@@ -59,26 +60,27 @@ class GitHubAuthService:
         )
         return code_verifier, code_challenge
 
-    def get_github_auth_url(
+    def get_google_auth_url(
         self,
         redirect_uri: str,
         state: str = None,
         code_challenge: str = None,
         code_challenge_method: str = "S256",
     ) -> str:
-        """Generate GitHub OAuth authorization URL with optional PKCE support"""
-        if not self.GITHUB_CLIENT_ID:
-            raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
+        """Generate Google OAuth authorization URL (Microsoft-style)"""
+        if not self.GOOGLE_CLIENT_ID:
+            raise HTTPException(status_code=500, detail="Google OAuth not configured")
 
         if not state:
             state = secrets.token_urlsafe(32)
 
         params = {
-            "client_id": self.GITHUB_CLIENT_ID,
+            "client_id": self.GOOGLE_CLIENT_ID,
             "redirect_uri": redirect_uri,
-            "scope": self.GITHUB_SCOPE,
+            "scope": self.GOOGLE_SCOPE,
+            "response_type": "code",
             "state": state,
-            "allow_signup": "true",
+            "access_type": "offline",
         }
 
         # Add PKCE parameters if provided
@@ -86,19 +88,20 @@ class GitHubAuthService:
             params["code_challenge"] = code_challenge
             params["code_challenge_method"] = code_challenge_method
 
-        return f"{self.GITHUB_AUTH_URL}?{urlencode(params)}"
+        return f"{self.GOOGLE_AUTH_URL}?{urlencode(params)}"
 
     async def exchange_code_for_tokens(
         self, code: str, redirect_uri: str, code_verifier: str = None
     ) -> Dict[str, str]:
-        """Exchange authorization code for tokens with optional PKCE support"""
-        if not self.GITHUB_CLIENT_ID or not self.GITHUB_CLIENT_SECRET:
-            raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
+        """Exchange authorization code for tokens"""
+        if not self.GOOGLE_CLIENT_ID or not self.GOOGLE_CLIENT_SECRET:
+            raise HTTPException(status_code=500, detail="Google OAuth not configured")
 
         data = {
-            "client_id": self.GITHUB_CLIENT_ID,
-            "client_secret": self.GITHUB_CLIENT_SECRET,
+            "client_id": self.GOOGLE_CLIENT_ID,
+            "client_secret": self.GOOGLE_CLIENT_SECRET,
             "code": code,
+            "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
         }
 
@@ -106,138 +109,118 @@ class GitHubAuthService:
         if code_verifier:
             data["code_verifier"] = code_verifier
 
-        headers = {
-            "Accept": "application/json",
-        }
-
         async with httpx.AsyncClient() as client:
-            async for attempt in retry_external_api("GitHub"):
+            async for attempt in retry_external_api("Google"):
                 with attempt:
-                    response = await client.post(
-                        self.GITHUB_TOKEN_URL, data=data, headers=headers
-                    )
+                    response = await client.post(self.GOOGLE_TOKEN_URL, data=data)
 
                     # If error, log details for debugging
                     if response.status_code != 200:
                         error_detail = response.text
-                        logger.error(f"GitHub token exchange failed: {error_detail}")
+                        logger.error(f"Google token exchange failed: {error_detail}")
                         logger.error(
                             f"Request data: redirect_uri={data['redirect_uri']}"
                         )
 
                     response.raise_for_status()
-                    token_data = response.json()
+                    return response.json()
 
-                    # Check for error in response
-                    if "error" in token_data:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"GitHub OAuth error: {token_data.get('error_description', token_data['error'])}",
-                        )
-
-                    return token_data
-
-    async def get_user_info_from_github(self, access_token: str) -> Dict[str, str]:
-        """Get user information from GitHub using access token"""
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+    async def get_user_info_from_google(self, access_token: str) -> Dict[str, str]:
+        """Get user information from Google using access token"""
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         async with httpx.AsyncClient() as client:
-            # Get user profile
-            async for attempt in retry_external_api("GitHub"):
+            async for attempt in retry_external_api("Google"):
                 with attempt:
-                    user_response = await client.get(
-                        self.GITHUB_USER_URL, headers=headers
+                    response = await client.get(
+                        self.GOOGLE_USERINFO_URL, headers=headers
                     )
-                    user_response.raise_for_status()
-                    user_data = user_response.json()
+                    response.raise_for_status()
 
-            # Get user emails
-            async for attempt in retry_external_api("GitHub"):
-                with attempt:
-                    email_response = await client.get(
-                        self.GITHUB_USER_EMAIL_URL, headers=headers
-                    )
-                    email_response.raise_for_status()
-                    emails_data = email_response.json()
+                    user_data = response.json()
 
-            # Find primary verified email
-            primary_email = None
-            for email_obj in emails_data:
-                if email_obj.get("primary") and email_obj.get("verified"):
-                    primary_email = email_obj.get("email")
-                    break
+                    # Validate required fields
+                    if not user_data.get("sub") or not user_data.get("email"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Missing required user information from Google",
+                        )
 
-            # If no primary verified email, try to find any verified email
-            if not primary_email:
-                for email_obj in emails_data:
-                    if email_obj.get("verified"):
-                        primary_email = email_obj.get("email")
-                        break
+                    return user_data
 
-            # If still no email, check if public email is available
-            if not primary_email and user_data.get("email"):
-                primary_email = user_data.get("email")
+    async def validate_id_token(self, id_token: str) -> Dict[str, str]:
+        """Validate Google ID token with signature verification using Google's public keys"""
+        try:
+            # Fetch Google's public keys for signature verification
+            async with httpx.AsyncClient() as client:
+                async for attempt in retry_external_api("Google"):
+                    with attempt:
+                        response = await client.get(
+                            "https://www.googleapis.com/oauth2/v3/certs"
+                        )
+                        response.raise_for_status()
+                        jwks = response.json()
 
-            if not primary_email:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No verified email found in GitHub account. Please add and verify an email address.",
-                )
+            # Verify the token signature and decode payload
+            # This validates signature, audience, issuer, and expiration automatically
+            # Note: We skip at_hash validation since we verify user info via access token separately
+            payload = jwt.decode(
+                id_token,
+                jwks,
+                algorithms=["RS256"],
+                audience=self.GOOGLE_CLIENT_ID,
+                issuer=["https://accounts.google.com", "accounts.google.com"],
+                options={
+                    "verify_signature": True,
+                    "verify_aud": True,
+                    "verify_iat": True,
+                    "verify_exp": True,
+                    "verify_iss": True,
+                    "verify_at_hash": False,  # Skip at_hash validation (we verify access token separately)
+                },
+            )
 
-            # Validate required fields
-            if not user_data.get("id"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Missing required user information from GitHub",
-                )
+            return payload
 
-            # Return user data with email
-            return {
-                "id": str(user_data.get("id")),
-                "email": primary_email,
-                "name": user_data.get("name") or user_data.get("login"),
-                "login": user_data.get("login"),
-            }
+        except JWTError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid ID token: {str(e)}")
 
     async def create_or_get_user(
-        self, github_user_info: Dict[str, str], db: AsyncSession
+        self, google_user_info: Dict[str, str], db: AsyncSession
     ) -> UserResponse:
         """Create new user or return existing user, handling account linking"""
-        email = github_user_info.get("email")
-        name = github_user_info.get("name", "")
+        email = google_user_info.get("email")
+        name = google_user_info.get("name", "")
 
         # Check if user exists by email
         result = await db.execute(select(User).where(User.email == email))
         existing_user = result.scalar_one_or_none()
 
         if existing_user:
-            # ACCOUNT LINKING: User already exists (possibly from credential signup or Google OAuth)
-            # Set is_verified=True since GitHub has verified email ownership
-            # This allows unverified credential users to verify via GitHub OAuth
+            # ACCOUNT LINKING: User already exists (possibly from credential signup)
+            # Set is_verified=True since Google has verified email ownership
+            # This allows unverified credential users to verify via Google OAuth
             if not existing_user.is_verified:
                 existing_user.is_verified = True
                 await db.commit()
                 await db.refresh(existing_user)
                 logger.info(
-                    f"Existing unverified user now verified via GitHub OAuth: {email}"
+                    f"Existing unverified user now verified via Google OAuth: {email}"
                 )
             else:
                 logger.info(
-                    f"Existing verified user logging in via GitHub OAuth: {email}"
+                    f"Existing verified user logging in via Google OAuth: {email}"
                 )
             return UserResponse.model_validate(existing_user)
 
-        # Create new user via GitHub OAuth
+        # Create new user via Google OAuth
         user_id = str(uuid.uuid4())
         new_user = User(
             id=user_id,
             name=name,
             email=email,
-            password_hash=None,  # No password for GitHub OAuth users
-            is_verified=True,  # GitHub OAuth users are auto-verified
+            password_hash=None,  # No password for Google OAuth users
+            is_verified=True,  # Google OAuth users are auto-verified
         )
 
         db.add(new_user)

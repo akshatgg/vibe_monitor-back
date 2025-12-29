@@ -1,9 +1,11 @@
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
 from app.models import Base
+
 from .config import settings
 
 
@@ -40,15 +42,15 @@ engine = create_async_engine(
     echo=False,  # Disable SQLAlchemy query logging (use Python logging config instead)
     future=True,
     pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600
-    if not settings.is_local
-    else -1,  # Recycle connections every hour in deployed envs
+    pool_recycle=(
+        3600 if not settings.is_local else -1
+    ),  # Recycle connections every hour in deployed envs
     # Direct connection to AWS RDS - asyncpg handles connection pooling
     # RDS allows 100+ concurrent connections (db.t4g.micro: max_connections=100+)
     pool_size=10 if not settings.is_local else 5,  # Base connection pool
-    max_overflow=20
-    if not settings.is_local
-    else 10,  # Burst capacity (total max: 30 for deployed, 15 for local)
+    max_overflow=(
+        20 if not settings.is_local else 10
+    ),  # Burst capacity (total max: 30 for deployed, 15 for local)
     pool_timeout=30,  # Wait up to 30 seconds for connection from pool
     connect_args={
         "command_timeout": 30,  # Command timeout in seconds

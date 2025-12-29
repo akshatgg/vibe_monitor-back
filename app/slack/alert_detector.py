@@ -3,8 +3,8 @@ Alert Detection Utility for Slack Messages
 Detects if a message is an alert from monitoring tools like Grafana, Sentry, PagerDuty, etc.
 """
 
-import re
 import logging
+import re
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)

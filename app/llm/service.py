@@ -16,16 +16,16 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import LLMProviderConfig, LLMProvider, LLMConfigStatus, Membership, Role
+from app.models import LLMConfigStatus, LLMProvider, LLMProviderConfig, Membership, Role
 from app.utils.token_processor import token_processor
+
+from .providers import DEFAULT_MODELS
 from .schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
     LLMVerifyRequest,
     LLMVerifyResponse,
 )
-from .providers import DEFAULT_MODELS
-
 
 logger = logging.getLogger(__name__)
 

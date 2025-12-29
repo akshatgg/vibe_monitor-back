@@ -4,23 +4,25 @@ Uses Datadog Integration credentials (API key and App key)
 """
 
 import logging
-import httpx
 from datetime import datetime, timedelta, timezone
+
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.datadog.integration.service import get_datadog_domain, get_datadog_credentials
+from app.datadog.integration.service import get_datadog_credentials, get_datadog_domain
+
 from .schemas import (
-    SearchLogsRequest,
-    SearchLogsResponse,
-    LogData,
-    LogAttributes,
-    LogLinks,
-    LogMeta,
     ListLogsRequest,
     ListLogsResponse,
-    SimplifiedLogEntry,
     ListServicesRequest,
     ListServicesResponse,
+    LogAttributes,
+    LogData,
+    LogLinks,
+    LogMeta,
+    SearchLogsRequest,
+    SearchLogsResponse,
+    SimplifiedLogEntry,
 )
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,9 @@ Auto-discovers Loki datasource UIDs from Grafana API
 """
 
 from typing import Dict
+
 import httpx
+
 from ...utils.retry_decorator import retry_external_api
 
 

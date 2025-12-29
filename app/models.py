@@ -3,16 +3,18 @@ Unified database models for the application.
 All SQLAlchemy models are defined here.
 """
 
+import enum
+
 from sqlalchemy import (
-    Column,
-    String,
-    DateTime,
     Boolean,
-    ForeignKey,
+    Column,
+    DateTime,
     Enum,
-    Integer,
-    Text,
+    ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -20,7 +22,6 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-import enum
 
 from app.core.config import settings
 

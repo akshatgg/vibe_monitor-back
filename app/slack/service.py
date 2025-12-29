@@ -1,36 +1,40 @@
-import hmac
 import hashlib
+import hmac
 import logging
-import uuid
 import re
 import time
-from typing import Optional
-from datetime import datetime, timezone
+import uuid
 from collections import OrderedDict
+from datetime import datetime, timezone
 from threading import Lock
+from typing import Optional
 
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.utils.retry_decorator import retry_external_api
+from app.integrations.health_checks import check_slack_health
+from app.models import (
+    Integration,
+    Job,
+    JobSource,
+    JobStatus,
+    SlackInstallation,
+    TurnStatus,
+)
+from app.security.llm_guard import llm_guard
+from app.slack.alert_detector import alert_detector
 from app.slack.schemas import (
     SlackEventPayload,
     SlackInstallationCreate,
     SlackInstallationResponse,
 )
-from app.models import SlackInstallation, Integration
-from app.models import Job, JobStatus, JobSource, TurnStatus
-from app.chat.service import ChatService
-from app.integrations.health_checks import check_slack_health
-from app.slack.alert_detector import alert_detector
-from app.security.llm_guard import llm_guard
-
+from app.utils.rate_limiter import ResourceType, check_rate_limit_with_byollm_bypass
+from app.utils.retry_decorator import retry_external_api
 from app.utils.token_processor import token_processor
-from app.utils.rate_limiter import check_rate_limit_with_byollm_bypass, ResourceType
-
 
 logger = logging.getLogger(__name__)
 
@@ -1227,17 +1231,24 @@ class SlackEventService:
                         "type": "static_select",
                         "action_id": "rating_select",
                         "placeholder": {"type": "plain_text", "text": "Select rating"},
-                        "initial_option": {
-                            "text": {"type": "plain_text", "text": "👍 Helpful"},
-                            "value": "5",
-                        }
-                        if initial_score == 5
-                        else {
-                            "text": {"type": "plain_text", "text": "👎 Not helpful"},
-                            "value": "1",
-                        }
-                        if initial_score == 1
-                        else None,
+                        "initial_option": (
+                            {
+                                "text": {"type": "plain_text", "text": "👍 Helpful"},
+                                "value": "5",
+                            }
+                            if initial_score == 5
+                            else (
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "👎 Not helpful",
+                                    },
+                                    "value": "1",
+                                }
+                                if initial_score == 1
+                                else None
+                            )
+                        ),
                         "options": [
                             {
                                 "text": {"type": "plain_text", "text": "👍 Helpful"},

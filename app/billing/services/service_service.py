@@ -3,20 +3,23 @@ Service management business logic.
 Handles CRUD operations for billable services within workspaces.
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func as sql_func
-from typing import Optional, Tuple
 import uuid
-from fastapi import HTTPException
+from typing import Optional, Tuple
 
-from app.models import Service, Workspace, Membership, Role
+from fastapi import HTTPException
+from sqlalchemy import func as sql_func
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Membership, Role, Service, Workspace
+
 from ..schemas import (
-    ServiceCreate,
-    ServiceUpdate,
-    ServiceResponse,
-    ServiceListResponse,
-    ServiceCountResponse,
     FREE_TIER_SERVICE_LIMIT,
+    ServiceCountResponse,
+    ServiceCreate,
+    ServiceListResponse,
+    ServiceResponse,
+    ServiceUpdate,
 )
 from .limit_service import limit_service
 

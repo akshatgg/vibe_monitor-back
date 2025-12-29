@@ -14,19 +14,20 @@ BYOLLM (Bring Your Own LLM) Support:
 
 import logging
 import re
-from typing import Dict, Any, Optional
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+from typing import Any, Dict, Optional
+
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.llm.providers import get_llm_for_workspace
-from .prompts import RCA_SYSTEM_PROMPT
-from .capabilities import IntegrationCapabilityResolver
-from .builder import AgentExecutorBuilder
-from .gemini_agent import gemini_rca_agent_service
 
+from .builder import AgentExecutorBuilder
+from .capabilities import IntegrationCapabilityResolver
+from .gemini_agent import gemini_rca_agent_service
+from .prompts import RCA_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 

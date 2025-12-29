@@ -6,14 +6,16 @@ Provides endpoints for connecting and managing Grafana integrations.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User
-from app.auth.services.google_auth_service import AuthService
 from app.integrations.utils import check_integration_permission
+from app.models import User
+
 from .schemas import (
-    GrafanaConnectRequest,
     GrafanaConnectionResponse,
+    GrafanaConnectRequest,
     GrafanaDisconnectResponse,
+    GrafanaStatusResponse,
 )
 from .service import GrafanaService
 
@@ -73,7 +75,7 @@ async def connect_grafana(
         )
 
 
-@router.get("/status", response_model=GrafanaConnectionResponse)
+@router.get("/status", response_model=GrafanaStatusResponse)
 async def get_grafana_status(
     workspace_id: str,
     current_user: User = Depends(auth_service.get_current_user),
@@ -84,22 +86,20 @@ async def get_grafana_status(
         integration = await grafana_service.get_integration(workspace_id, db)
 
         if not integration:
-            raise HTTPException(
-                status_code=404,
-                detail="No Grafana integration found for this workspace",
-            )
+            return GrafanaStatusResponse(connected=False, integration=None)
 
-        return GrafanaConnectionResponse(
-            id=integration.id,
-            workspace_id=integration.vm_workspace_id,
-            grafana_url=integration.grafana_url,
+        return GrafanaStatusResponse(
             connected=True,
-            created_at=integration.created_at,
-            updated_at=integration.updated_at,
+            integration=GrafanaConnectionResponse(
+                id=integration.id,
+                workspace_id=integration.vm_workspace_id,
+                grafana_url=integration.grafana_url,
+                connected=True,
+                created_at=integration.created_at,
+                updated_at=integration.updated_at,
+            ),
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get Grafana status: {str(e)}"

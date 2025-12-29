@@ -3,20 +3,22 @@ Account management router for deletion preview and execution.
 """
 
 import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.credential.service import CredentialAuthService
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.auth.services.credential_auth_service import CredentialAuthService
-from app.auth.services.account_service import AccountService
-from app.auth.schemas.account_schemas import (
+
+from .schemas import (
+    AccountDeleteRequest,
+    AccountDeleteResponse,
     AccountProfileResponse,
     AccountUpdateRequest,
     DeletionPreviewResponse,
-    AccountDeleteRequest,
-    AccountDeleteResponse,
 )
+from .service import AccountService
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,11 @@ router = APIRouter(prefix="/account", tags=["account"])
 auth_service = AuthService()
 credential_auth_service = CredentialAuthService(jwt_service=auth_service)
 account_service = AccountService(credential_auth_service=credential_auth_service)
+
+
+def get_auth_provider(user) -> str:
+    """Determine auth provider based on whether user has a password."""
+    return "credentials" if user.password_hash else "google"
 
 
 @router.get("/", response_model=AccountProfileResponse)
@@ -43,6 +50,7 @@ async def get_account_profile(
         email=current_user.email,
         is_verified=current_user.is_verified,
         newsletter_subscribed=current_user.newsletter_subscribed,
+        auth_provider=get_auth_provider(current_user),
         created_at=current_user.created_at,
     )
 
@@ -77,6 +85,7 @@ async def update_account_profile(
             email=current_user.email,
             is_verified=current_user.is_verified,
             newsletter_subscribed=current_user.newsletter_subscribed,
+            auth_provider=get_auth_provider(current_user),
             created_at=current_user.created_at,
         )
     except Exception as e:

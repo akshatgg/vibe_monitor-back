@@ -4,27 +4,28 @@ Provides endpoints for managing and monitoring integrations.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User, Workspace, Membership, WorkspaceType
-from app.auth.services.google_auth_service import AuthService
-from app.integrations.service import (
-    check_integration_health,
-    check_all_workspace_integrations_health,
-    get_workspace_integrations,
-    get_integration_by_id,
-)
 from app.integrations.schemas import (
-    IntegrationResponse,
-    IntegrationListResponse,
-    HealthCheckResponse,
     AvailableIntegrationsResponse,
+    HealthCheckResponse,
+    IntegrationListResponse,
+    IntegrationResponse,
 )
-from app.integrations.utils import get_allowed_integrations, ALL_PROVIDERS
+from app.integrations.service import (
+    check_all_workspace_integrations_health,
+    check_integration_health,
+    get_integration_by_id,
+    get_workspace_integrations,
+)
+from app.integrations.utils import ALL_PROVIDERS, get_allowed_integrations
+from app.models import Membership, User, Workspace, WorkspaceType
 
 logger = logging.getLogger(__name__)
 

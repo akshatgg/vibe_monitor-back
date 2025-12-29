@@ -3,10 +3,11 @@ Pydantic schemas for chat endpoints.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
-from app.models import TurnStatus, StepType, StepStatus
+from app.models import StepStatus, StepType, TurnStatus
 
 
 # Request schemas

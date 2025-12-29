@@ -12,18 +12,18 @@ Security: All requests are verified using HMAC-SHA256 signature
 """
 
 import logging
-from fastapi import APIRouter, Request, HTTPException, Header
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
 from pydantic import ValidationError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.github.webhook.schema import (
-    InstallationWebhookPayload,
     InstallationRepositoriesWebhookPayload,
+    InstallationWebhookPayload,
 )
 from app.github.webhook.service import github_webhook_service
 

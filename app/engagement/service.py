@@ -7,20 +7,17 @@ Provides:
 - Slack notification for daily reports
 """
 
-import httpx
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 
-from sqlalchemy import select, func, distinct
+import httpx
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import User, Workspace, RefreshToken, Membership
-from app.engagement.schemas import (
-    MetricPeriod,
-    EngagementReport,
-)
+from app.engagement.schemas import EngagementReport, MetricPeriod
+from app.models import Membership, RefreshToken, User, Workspace
 
 logger = logging.getLogger(__name__)
 

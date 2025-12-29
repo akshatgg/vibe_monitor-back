@@ -3,20 +3,20 @@ FastAPI router for metrics endpoints
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ..core.config import settings
 from .models import (
     InstantMetricResponse,
+    LabelResponse,
     RangeMetricResponse,
     TargetsResponse,
     TimeRange,
-    LabelResponse,
 )
 from .service import metrics_service
-from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 

@@ -7,18 +7,19 @@ used across multiple endpoints in the GitHub tools router.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from fastapi import HTTPException
+from typing import Any, Dict
+
 import httpx
 from dateutil import parser as date_parser
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..oauth.service import GitHubAppService
-from ...utils.token_processor import token_processor
-from ...utils.retry_decorator import retry_external_api
-from ...models import GitHubIntegration, Membership
 from ...core.config import settings
+from ...models import GitHubIntegration, Membership
+from ...utils.retry_decorator import retry_external_api
+from ...utils.token_processor import token_processor
+from ..oauth.service import GitHubAppService
 
 logger = logging.getLogger(__name__)
 

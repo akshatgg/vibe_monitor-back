@@ -3,19 +3,20 @@ Grafana integration service.
 Handles Grafana integration CRUD operations.
 """
 
-import uuid
 import logging
-from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from fastapi import HTTPException
-import httpx
-
+import uuid
 from datetime import datetime, timezone
-from app.models import GrafanaIntegration, Workspace, Integration
-from app.utils.token_processor import token_processor
-from app.utils.retry_decorator import retry_external_api
+from typing import Optional
+
+import httpx
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.integrations.health_checks import check_grafana_health
+from app.models import GrafanaIntegration, Integration, Workspace
+from app.utils.retry_decorator import retry_external_api
+from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 

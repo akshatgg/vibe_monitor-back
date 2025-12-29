@@ -3,22 +3,23 @@ Service name extraction from GitHub repositories
 Standalone functions for discovering service names using deterministic heuristics
 """
 
-import re
 import logging
+import re
 from typing import List, Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.github.tools.router import (
+    download_file_by_path,
     get_repository_metadata,
     get_repository_tree,
-    download_file_by_path,
 )
 from app.github.tools.service import get_github_integration_with_token
-from app.core.config import settings
 from app.services.rca.get_service_name.constants import (
     LANGUAGE_FILES,
-    UNIVERSAL_FILES,
     SERVICE_PATTERNS,
+    UNIVERSAL_FILES,
 )
 
 logger = logging.getLogger(__name__)

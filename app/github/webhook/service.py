@@ -15,19 +15,20 @@ This prevents malicious actors from sending fake webhook events to your API.
 Documentation: https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 """
 
-import logging
-import hmac
 import hashlib
-from typing import Dict, Any
-from dateutil import parser as date_parser
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import hmac
+import logging
+from typing import Any, Dict
 
-from app.models import GitHubIntegration, Integration
-from app.github.webhook.schema import InstallationWebhookPayload
-from app.github.oauth.service import GitHubAppService
-from app.utils.token_processor import token_processor
+from dateutil import parser as date_parser
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
+from app.github.oauth.service import GitHubAppService
+from app.github.webhook.schema import InstallationWebhookPayload
+from app.models import GitHubIntegration, Integration
+from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 

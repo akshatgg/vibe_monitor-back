@@ -9,23 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.services.google_auth_service import AuthService
-from app.core.database import get_db
-from app.models import (
-    Membership,
-    PlanType,
-    Role,
-    User,
-    Workspace,
-)
-from app.billing.schemas import (
-    # Service schemas
-    ServiceCreate,
-    ServiceUpdate,
-    ServiceResponse,
-    ServiceListResponse,
-    ServiceCountResponse,
-    # Billing schemas
+from app.auth.google.service import AuthService
+from app.billing.schemas import (  # Service schemas; Billing schemas
     BillingPortalRequest,
     BillingPortalResponse,
     CancelSubscriptionRequest,
@@ -34,15 +19,22 @@ from app.billing.schemas import (
     InvoicesListResponse,
     PlanResponse,
     PlansListResponse,
+    ServiceCountResponse,
+    ServiceCreate,
+    ServiceListResponse,
+    ServiceResponse,
+    ServiceUpdate,
     SubscribeToProRequest,
     SubscriptionResponse,
     UpdateServiceCountRequest,
     UsageResponse,
 )
-from app.billing.services.service_service import ServiceService
-from app.billing.services.subscription_service import subscription_service
-from app.billing.services.stripe_service import stripe_service
 from app.billing.services.limit_service import limit_service
+from app.billing.services.service_service import ServiceService
+from app.billing.services.stripe_service import stripe_service
+from app.billing.services.subscription_service import subscription_service
+from app.core.database import get_db
+from app.models import Membership, PlanType, Role, User, Workspace
 
 logger = logging.getLogger(__name__)
 

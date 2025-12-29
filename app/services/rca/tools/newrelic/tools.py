@@ -3,22 +3,20 @@ LangChain tools for RCA agent to interact with New Relic Logs and Metrics
 """
 
 import logging
-from typing import Optional
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from langchain.tools import tool
 
+from app.core.database import AsyncSessionLocal
+from app.newrelic.Logs.schemas import FilterLogsRequest, QueryLogsRequest
 from app.newrelic.Logs.service import newrelic_logs_service
-from app.newrelic.Logs.schemas import (
-    QueryLogsRequest,
-    FilterLogsRequest,
+from app.newrelic.Metrics.schemas import (
+    GetInfraMetricsRequest,
+    GetTimeSeriesRequest,
+    QueryMetricsRequest,
 )
 from app.newrelic.Metrics.service import newrelic_metrics_service
-from app.newrelic.Metrics.schemas import (
-    QueryMetricsRequest,
-    GetTimeSeriesRequest,
-    GetInfraMetricsRequest,
-)
-from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 

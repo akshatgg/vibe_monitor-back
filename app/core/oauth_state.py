@@ -3,9 +3,10 @@ OAuth state management for CSRF protection.
 
 For production with multiple instances, replace in-memory cache with Redis.
 """
+
 import time
-from typing import Dict
 from threading import Lock
+from typing import Dict
 
 
 class OAuthStateManager:

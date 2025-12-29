@@ -2,18 +2,20 @@
 Email service for sending emails via Postmark.
 """
 
-import uuid
-import logging
 import html
-import httpx
+import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import HTTPException, status, Header
+
+import httpx
+from fastapi import Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
-from app.utils.retry_decorator import retry_external_api
 from app.models import Email, User
+from app.utils.retry_decorator import retry_external_api
 
 logger = logging.getLogger(__name__)
 

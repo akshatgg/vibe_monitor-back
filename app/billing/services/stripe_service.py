@@ -8,7 +8,8 @@ import logging
 from typing import Optional
 
 import stripe
-from stripe import Customer, Subscription as StripeSubscription
+from stripe import Customer
+from stripe import Subscription as StripeSubscription
 from stripe.billing_portal import Session as BillingPortalSession
 
 from app.core.config import settings

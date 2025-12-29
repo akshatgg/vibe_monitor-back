@@ -5,26 +5,26 @@ Chat service for managing sessions, turns, and message processing.
 import logging
 import re
 import uuid
-from typing import Optional, List, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.models import (
     ChatSession,
     ChatTurn,
-    TurnStep,
     Job,
-    JobStatus,
     JobSource,
-    TurnStatus,
-    StepType,
+    JobStatus,
     StepStatus,
+    StepType,
+    TurnStatus,
+    TurnStep,
 )
 from app.services.sqs.client import sqs_client
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +398,8 @@ class ChatService:
         # Using raw SQL for the complex UNION query
         from sqlalchemy import text
 
-        sql = text("""
+        sql = text(
+            """
             WITH title_matches AS (
                 SELECT
                     s.id as session_id,
@@ -435,7 +436,8 @@ class ChatService:
             SELECT * FROM message_matches
             ORDER BY updated_at DESC NULLS LAST, created_at DESC
             LIMIT :limit
-        """)
+        """
+        )
 
         result = await self.db.execute(
             sql,

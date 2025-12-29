@@ -2,9 +2,10 @@
 Pydantic schemas for integration API responses.
 """
 
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import List
+
+from pydantic import BaseModel, ConfigDict
 
 
 class IntegrationResponse(BaseModel):

@@ -4,13 +4,14 @@ LangChain tools for RCA agent to interact with logs and metrics services
 
 import logging
 from typing import Optional
+
 from langchain.tools import tool
 
-from app.log.service import logs_service
-from app.log.models import TimeRange as LogTimeRange
-from app.metrics.service import metrics_service
-from app.metrics.models import TimeRange as MetricTimeRange
 from app.datasources.service import datasources_service
+from app.log.models import TimeRange as LogTimeRange
+from app.log.service import logs_service
+from app.metrics.models import TimeRange as MetricTimeRange
+from app.metrics.service import metrics_service
 
 logger = logging.getLogger(__name__)
 

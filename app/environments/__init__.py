@@ -6,8 +6,8 @@ This module provides models and utilities for configuring environments
 in GitHub repositories within a workspace.
 """
 
-from app.models import Environment, EnvironmentRepository
-from app.environments.service import EnvironmentService
 from app.environments.router import router
+from app.environments.service import EnvironmentService
+from app.models import Environment, EnvironmentRepository
 
 __all__ = ["Environment", "EnvironmentRepository", "EnvironmentService", "router"]

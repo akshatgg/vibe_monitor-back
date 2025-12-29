@@ -8,18 +8,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (
-    Plan,
-    PlanType,
-    Service,
-    Subscription,
-    Job,
-    JobStatus,
-)
-
+from app.models import Job, JobStatus, Plan, PlanType, Service, Subscription
 
 # Default limits for Free plan (fallback if no subscription exists)
 DEFAULT_FREE_SERVICE_LIMIT = 5

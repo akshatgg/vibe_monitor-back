@@ -4,36 +4,38 @@ Uses AWS Integration credentials with automatic refresh mechanism
 Includes caching for CloudWatch clients
 """
 
-import logging
-from typing import Optional, Dict, Any
 import asyncio
-from datetime import datetime, timezone, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
 import boto3
 from botocore.exceptions import ClientError
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.aws.Integration.service import AWSIntegrationService, aws_integration_service
 from app.models import AWSIntegration
-from app.aws.Integration.service import aws_integration_service, AWSIntegrationService
+
 from .schemas import (
-    ListMetricsRequest,
-    ListMetricsResponse,
-    MetricInfo,
-    GetMetricDataRequest,
-    GetMetricDataResponse,
-    MetricDataResult,
-    GetMetricStatisticsRequest,
-    GetMetricStatisticsResponse,
+    AnomalyDetector,
     Datapoint,
-    ListMetricStreamsRequest,
-    ListMetricStreamsResponse,
-    MetricStreamInfo,
-    GetMetricStreamRequest,
-    GetMetricStreamResponse,
-    ListNamespacesResponse,
     DescribeAnomalyDetectorsRequest,
     DescribeAnomalyDetectorsResponse,
-    AnomalyDetector,
+    GetMetricDataRequest,
+    GetMetricDataResponse,
+    GetMetricStatisticsRequest,
+    GetMetricStatisticsResponse,
+    GetMetricStreamRequest,
+    GetMetricStreamResponse,
+    ListMetricsRequest,
+    ListMetricsResponse,
+    ListMetricStreamsRequest,
+    ListMetricStreamsResponse,
+    ListNamespacesResponse,
+    MetricDataResult,
+    MetricInfo,
+    MetricStreamInfo,
 )
 
 logger = logging.getLogger(__name__)

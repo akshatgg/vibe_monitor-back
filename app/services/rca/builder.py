@@ -4,16 +4,16 @@ Constructs RCA agent with only the tools matching workspace capabilities.
 """
 
 import logging
-from typing import List, Optional
 from functools import partial
+from typing import List, Optional
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.tools import StructuredTool
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models import BaseChatModel
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import StructuredTool
 
-from app.services.rca.capabilities import ExecutionContext, Capability
 from app.core.config import settings
+from app.services.rca.capabilities import Capability, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -34,26 +34,26 @@ class ToolRegistry:
             return self._tools_cache
 
         # Import tools (lazy to avoid circular imports at module load)
-        from app.services.rca.tools.grafana.tools import (
-            fetch_error_logs_tool,
-            fetch_logs_tool,
-            fetch_cpu_metrics_tool,
-            fetch_memory_metrics_tool,
-            fetch_http_latency_tool,
-            fetch_metrics_tool,
-            get_datasources_tool,
-            get_labels_tool,
-            get_label_values_tool,
-        )
         from app.services.rca.tools.github.tools import (
+            download_file_tool,
+            get_branch_recent_commits_tool,
+            get_repository_commits_tool,
+            get_repository_metadata_tool,
+            get_repository_tree_tool,
+            list_pull_requests_tool,
             read_repository_file_tool,
             search_code_tool,
-            get_repository_commits_tool,
-            list_pull_requests_tool,
-            download_file_tool,
-            get_repository_tree_tool,
-            get_branch_recent_commits_tool,
-            get_repository_metadata_tool,
+        )
+        from app.services.rca.tools.grafana.tools import (
+            fetch_cpu_metrics_tool,
+            fetch_error_logs_tool,
+            fetch_http_latency_tool,
+            fetch_logs_tool,
+            fetch_memory_metrics_tool,
+            fetch_metrics_tool,
+            get_datasources_tool,
+            get_label_values_tool,
+            get_labels_tool,
         )
 
         # Map capabilities to tools

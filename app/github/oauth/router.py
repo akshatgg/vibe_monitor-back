@@ -1,16 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import Optional
-import secrets
 import logging
+import secrets
+from typing import Optional
 
-from .service import GitHubAppService
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...auth.services.google_auth_service import AuthService
-from ...core.database import get_db
 from ...core.config import settings
+from ...core.database import get_db
 from ...utils.token_processor import token_processor
+from .service import GitHubAppService
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ async def github_app_installation_callback(
         raise HTTPException(status_code=400, detail="workspace_id is required")
 
     # Validate that workspace exists and user has access
-    from ...models import Workspace, Membership
+    from ...models import Membership, Workspace
 
     workspace_result = await db.execute(
         select(Workspace).where(Workspace.id == final_workspace_id)

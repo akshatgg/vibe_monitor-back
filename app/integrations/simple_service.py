@@ -4,9 +4,10 @@ Use this instead of the full health check service when you don't need credential
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
 
 from app.models import Integration
 
@@ -118,7 +119,8 @@ async def get_integration_stats(workspace_id: str, db: AsyncSession) -> Dict[str
 
     # Single query to get all stats (provider serves as type)
     result = await db.execute(
-        text("""
+        text(
+            """
             SELECT
                 COUNT(*) as total,
                 json_object_agg(provider, provider_count) as by_type,
@@ -136,7 +138,8 @@ async def get_integration_stats(workspace_id: str, db: AsyncSession) -> Dict[str
                 WHERE workspace_id = :workspace_id
             ) subquery
             LIMIT 1
-        """),
+        """
+        ),
         {"workspace_id": workspace_id},
     )
 

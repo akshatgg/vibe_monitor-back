@@ -1,21 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.auth.services.credential_auth_service import CredentialAuthService
-from app.auth.schemas.credential_auth_schemas import (
-    SignupRequest,
-    SignupResponse,
+
+from .schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
-    VerifyEmailRequest,
-    ResendVerificationRequest,
-    ForgotPasswordRequest,
-    ResendPasswordResetRequest,
-    ResetPasswordRequest,
     MessageResponse,
+    ResendPasswordResetRequest,
+    ResendVerificationRequest,
+    ResetPasswordRequest,
+    SignupRequest,
+    SignupResponse,
+    VerifyEmailRequest,
 )
+from .service import CredentialAuthService
 
 router = APIRouter(prefix="/auth", tags=["credential-authentication"])
 

@@ -3,21 +3,22 @@ LangChain tools for RCA agent to interact with GitHub repositories
 """
 
 import logging
-from typing import Optional, List
+from typing import List, Optional
+
 from langchain.tools import tool
 
+from app.core.database import AsyncSessionLocal
 from app.github.tools.router import (
+    download_file_by_path,
+    get_branch_recent_commits,
+    get_repository_commits,
+    get_repository_metadata,
+    get_repository_tree,
+    list_pull_requests,
     list_repositories_graphql,
     read_repository_file,
     search_code,
-    get_repository_commits,
-    list_pull_requests,
-    download_file_by_path,
-    get_repository_tree,
-    get_branch_recent_commits,
-    get_repository_metadata,
 )
-from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
