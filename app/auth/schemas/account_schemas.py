@@ -1,10 +1,24 @@
 """
-Account deletion schemas for preview and execution.
+Account schemas for profile and deletion.
 """
 
+from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
+
+
+class AccountProfileResponse(BaseModel):
+    """Response for user account profile"""
+
+    id: str
+    name: str
+    email: str
+    is_verified: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 class WorkspaceType(str, Enum):

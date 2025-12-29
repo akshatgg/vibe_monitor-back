@@ -11,6 +11,7 @@ from app.auth.services.google_auth_service import AuthService
 from app.auth.services.credential_auth_service import CredentialAuthService
 from app.auth.services.account_service import AccountService
 from app.auth.schemas.account_schemas import (
+    AccountProfileResponse,
     DeletionPreviewResponse,
     AccountDeleteRequest,
     AccountDeleteResponse,
@@ -24,6 +25,24 @@ router = APIRouter(prefix="/account", tags=["account"])
 auth_service = AuthService()
 credential_auth_service = CredentialAuthService(jwt_service=auth_service)
 account_service = AccountService(credential_auth_service=credential_auth_service)
+
+
+@router.get("/", response_model=AccountProfileResponse)
+async def get_account_profile(
+    current_user=Depends(auth_service.get_current_user),
+) -> AccountProfileResponse:
+    """
+    Get the current user's account profile.
+
+    Returns basic profile information including name, email, and verification status.
+    """
+    return AccountProfileResponse(
+        id=current_user.id,
+        name=current_user.name,
+        email=current_user.email,
+        is_verified=current_user.is_verified,
+        created_at=current_user.created_at,
+    )
 
 
 @router.get("/deletion-preview", response_model=DeletionPreviewResponse)
