@@ -367,8 +367,126 @@ class ChatService:
         turn.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
 
-        logger.info(f"Feedback submitted for turn {turn_id}: score={score}")
+        logger.info(f"Feedback submitted for turn {turn_id}: {score}")
         return turn
+
+    async def search_sessions(
+        self,
+        workspace_id: str,
+        user_id: str,
+        query: str,
+        limit: int = 20,
+    ) -> List[dict]:
+        """
+        Search sessions by title and message content.
+
+        Args:
+            workspace_id: Workspace ID
+            user_id: User ID
+            query: Search query string
+            limit: Max results to return
+
+        Returns:
+            List of search results with matched content
+        """
+        if not query or len(query.strip()) < 2:
+            return []
+
+        search_pattern = f"%{query}%"
+
+        # Search in session titles and turn messages
+        # Using raw SQL for the complex UNION query
+        from sqlalchemy import text
+
+        sql = text("""
+            WITH title_matches AS (
+                SELECT
+                    s.id as session_id,
+                    s.title,
+                    s.title as matched_content,
+                    'title' as match_type,
+                    s.created_at,
+                    s.updated_at
+                FROM chat_sessions s
+                WHERE s.workspace_id = :workspace_id
+                    AND s.user_id = :user_id
+                    AND s.title ILIKE :pattern
+            ),
+            message_matches AS (
+                SELECT DISTINCT ON (s.id)
+                    s.id as session_id,
+                    s.title,
+                    COALESCE(
+                        CASE WHEN t.user_message ILIKE :pattern THEN t.user_message ELSE NULL END,
+                        t.final_response
+                    ) as matched_content,
+                    'message' as match_type,
+                    s.created_at,
+                    s.updated_at
+                FROM chat_sessions s
+                JOIN chat_turns t ON t.session_id = s.id
+                WHERE s.workspace_id = :workspace_id
+                    AND s.user_id = :user_id
+                    AND (t.user_message ILIKE :pattern OR t.final_response ILIKE :pattern)
+                ORDER BY s.id, t.created_at DESC
+            )
+            SELECT * FROM title_matches
+            UNION
+            SELECT * FROM message_matches
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC
+            LIMIT :limit
+        """)
+
+        result = await self.db.execute(
+            sql,
+            {
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "pattern": search_pattern,
+                "limit": limit,
+            },
+        )
+
+        rows = result.fetchall()
+        results = []
+        seen_sessions = set()
+
+        for row in rows:
+            session_id = row.session_id
+            if session_id in seen_sessions:
+                continue
+            seen_sessions.add(session_id)
+
+            # Truncate matched content to ~100 chars with context
+            matched_content = row.matched_content or ""
+            if len(matched_content) > 150:
+                # Try to center around the match
+                query_lower = query.lower()
+                content_lower = matched_content.lower()
+                idx = content_lower.find(query_lower)
+                if idx >= 0:
+                    start = max(0, idx - 50)
+                    end = min(len(matched_content), idx + len(query) + 50)
+                    matched_content = (
+                        ("..." if start > 0 else "")
+                        + matched_content[start:end]
+                        + ("..." if end < len(matched_content) else "")
+                    )
+                else:
+                    matched_content = matched_content[:147] + "..."
+
+            results.append(
+                {
+                    "session_id": session_id,
+                    "title": row.title,
+                    "matched_content": matched_content,
+                    "match_type": row.match_type,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                }
+            )
+
+        return results
 
     async def update_turn_status(
         self,

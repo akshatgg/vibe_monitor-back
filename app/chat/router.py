@@ -26,6 +26,8 @@ from app.chat.schemas import (
     ChatSessionSummary,
     ChatTurnResponse,
     FeedbackResponse,
+    ChatSearchResponse,
+    ChatSearchResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -355,6 +357,35 @@ async def list_sessions(
         )
 
     return summaries
+
+
+@router.get("/sessions/search", response_model=ChatSearchResponse)
+async def search_sessions(
+    workspace_id: str,
+    q: str,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Search chat sessions by title and message content.
+
+    Args:
+        q: Search query string (min 2 characters)
+        limit: Maximum number of results (default 20)
+
+    Returns:
+        List of matching sessions with snippets
+    """
+    service = ChatService(db)
+    results = await service.search_sessions(
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+        query=q,
+        limit=limit,
+    )
+
+    return ChatSearchResponse(results=[ChatSearchResult(**r) for r in results])
 
 
 @router.get("/sessions/{session_id}", response_model=ChatSessionResponse)

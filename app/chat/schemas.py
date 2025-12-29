@@ -179,3 +179,24 @@ class SSEErrorEvent(BaseModel):
 
     event: str = "error"
     message: str
+
+
+# Search schemas
+class ChatSearchResult(BaseModel):
+    """Search result for a chat session."""
+
+    session_id: str
+    title: Optional[str] = None
+    matched_content: str
+    match_type: str  # 'title' or 'message'
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChatSearchResponse(BaseModel):
+    """Response for chat search."""
+
+    results: List[ChatSearchResult] = []
