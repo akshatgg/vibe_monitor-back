@@ -12,6 +12,7 @@ from app.auth.services.credential_auth_service import CredentialAuthService
 from app.auth.services.account_service import AccountService
 from app.auth.schemas.account_schemas import (
     AccountProfileResponse,
+    AccountUpdateRequest,
     DeletionPreviewResponse,
     AccountDeleteRequest,
     AccountDeleteResponse,
@@ -41,8 +42,49 @@ async def get_account_profile(
         name=current_user.name,
         email=current_user.email,
         is_verified=current_user.is_verified,
+        newsletter_subscribed=current_user.newsletter_subscribed,
         created_at=current_user.created_at,
     )
+
+
+@router.patch("/", response_model=AccountProfileResponse)
+async def update_account_profile(
+    request: AccountUpdateRequest,
+    current_user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AccountProfileResponse:
+    """
+    Update the current user's account profile.
+
+    Allows updating:
+    - name: User's display name
+    - newsletter_subscribed: Whether user wants to receive newsletter emails
+    """
+    try:
+        # Update user fields if provided
+        if request.name is not None:
+            current_user.name = request.name
+        if request.newsletter_subscribed is not None:
+            current_user.newsletter_subscribed = request.newsletter_subscribed
+
+        db.add(current_user)
+        await db.commit()
+        await db.refresh(current_user)
+
+        return AccountProfileResponse(
+            id=current_user.id,
+            name=current_user.name,
+            email=current_user.email,
+            is_verified=current_user.is_verified,
+            newsletter_subscribed=current_user.newsletter_subscribed,
+            created_at=current_user.created_at,
+        )
+    except Exception as e:
+        logger.error(f"Failed to update account profile: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update account profile. Please try again later.",
+        )
 
 
 @router.get("/deletion-preview", response_model=DeletionPreviewResponse)

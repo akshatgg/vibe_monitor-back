@@ -15,10 +15,18 @@ class AccountProfileResponse(BaseModel):
     name: str
     email: str
     is_verified: bool
+    newsletter_subscribed: bool = True
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class AccountUpdateRequest(BaseModel):
+    """Request body for updating account profile"""
+
+    name: Optional[str] = None
+    newsletter_subscribed: Optional[bool] = None
 
 
 class WorkspaceType(str, Enum):

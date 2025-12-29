@@ -117,9 +117,11 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
 
     # Authentication fields
-
     password_hash = Column(String, nullable=True)  # Null for Google OAuth users
     is_verified = Column(Boolean, default=False, nullable=False)
+
+    # Preferences
+    newsletter_subscribed = Column(Boolean, default=True, nullable=False)
 
     # Workspace tracking
     last_visited_workspace_id = Column(
