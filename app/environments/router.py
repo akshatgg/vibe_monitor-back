@@ -221,6 +221,7 @@ async def add_repository_to_environment(
         user_id=current_user.id,
     )
     await db.commit()
+    await db.refresh(repo_config)
     return EnvironmentRepositoryResponse.model_validate(repo_config)
 
 
@@ -250,6 +251,7 @@ async def update_environment_repository(
         user_id=current_user.id,
     )
     await db.commit()
+    await db.refresh(repo_config)
     return EnvironmentRepositoryResponse.model_validate(repo_config)
 
 
