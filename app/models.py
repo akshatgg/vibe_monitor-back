@@ -207,6 +207,12 @@ class Membership(Base):
     user = relationship("User", back_populates="memberships")
     workspace = relationship("Workspace", back_populates="memberships")
 
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "workspace_id", name="uq_membership_user_workspace"
+        ),
+    )
+
 
 class WorkspaceInvitation(Base):
     """
