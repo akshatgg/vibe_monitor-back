@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...auth.services.google_auth_service import AuthService
+from ...auth.google.service import AuthService
 from ...core.config import settings
 from ...core.database import get_db
 from ...utils.token_processor import token_processor
