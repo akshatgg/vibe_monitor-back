@@ -2,6 +2,7 @@
 Membership Service for workspace invitation and member management.
 """
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,8 @@ from ..schemas.schemas import InvitationStatus as SchemaInvitationStatus
 from ..schemas.schemas import MemberResponse, MemberRoleUpdate
 from ..schemas.schemas import Role as SchemaRole
 from ..schemas.schemas import WorkspaceType, WorkspaceWithMembership
+
+logger = logging.getLogger(__name__)
 
 # Constants
 INVITATION_EXPIRY_DAYS = 7
@@ -159,13 +162,20 @@ class MembershipService:
         await db.commit()
         await db.refresh(invitation)
 
-        # TODO: Send invitation email (queue via email service)
-        # email_service.send_invitation_email(
-        #     invitee_email=invitee_email,
-        #     workspace_name=workspace.name,
-        #     inviter_name=inviter.name,
-        #     token=token,
-        # )
+        # Send invitation email
+        try:
+            from app.email_service.service import email_service
+
+            await email_service.send_invitation_email(
+                invitee_email=invitee_email,
+                workspace_name=workspace.name,
+                inviter_name=inviter.name if inviter else "A team member",
+                role=invitation_data.role.value,
+                token=token,
+            )
+        except Exception as e:
+            # Log error but don't fail the invitation creation
+            logger.error(f"Failed to send invitation email: {e}")
 
         return InvitationResponse(
             id=invitation.id,

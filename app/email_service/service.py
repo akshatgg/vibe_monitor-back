@@ -695,6 +695,67 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
             await db.commit()
             raise
 
+    async def send_invitation_email(
+        self,
+        invitee_email: str,
+        workspace_name: str,
+        inviter_name: str,
+        role: str,
+        token: str,
+    ) -> dict:
+        """
+        Send workspace invitation email to invitee.
+
+        Args:
+            invitee_email: Email address of the person being invited
+            workspace_name: Name of the workspace
+            inviter_name: Name of the person who sent the invitation
+            role: Role being assigned (e.g., "User", "Owner")
+            token: Invitation token for accepting
+
+        Returns:
+            dict: Email send status
+        """
+        subject = f"You're invited to join {workspace_name} on VibeMonitor"
+
+        # Build accept URL
+        accept_url = f"{settings.WEB_APP_URL}/invite/accept?token={token}"
+
+        # Load and render HTML template
+        template = self._load_template("workspace_invitation.html")
+        html_content = self._render_template(
+            template,
+            inviter_name=inviter_name,
+            workspace_name=workspace_name,
+            role=role.capitalize(),
+            accept_url=accept_url,
+        )
+
+        try:
+            response = await self.send_email(
+                to_email=invitee_email,
+                subject=subject,
+                text="",
+                html_body=html_content,
+            )
+
+            logger.info(
+                f"Invitation email sent to {invitee_email} for workspace {workspace_name}"
+            )
+
+            return {
+                "success": True,
+                "message": "Invitation email sent",
+                "email": invitee_email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to send invitation email to {invitee_email}: {str(e)}"
+            )
+            raise
+
 
 # Singleton instance
 email_service = EmailService()
