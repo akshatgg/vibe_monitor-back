@@ -499,6 +499,72 @@ class MembershipService:
 
         return True
 
+    async def get_invitation_by_token(
+        self,
+        token: str,
+        db: AsyncSession,
+    ) -> Optional[InvitationResponse]:
+        """
+        Get invitation details by token (for accept flow).
+
+        Returns invitation info without requiring authentication.
+        """
+        result = await db.execute(
+            select(WorkspaceInvitation)
+            .options(
+                selectinload(WorkspaceInvitation.workspace),
+                selectinload(WorkspaceInvitation.inviter),
+            )
+            .where(WorkspaceInvitation.token == token)
+        )
+        invitation = result.scalar_one_or_none()
+
+        if not invitation:
+            return None
+
+        return InvitationResponse(
+            id=invitation.id,
+            workspace_id=invitation.workspace.id,
+            workspace_name=invitation.workspace.name,
+            inviter_name=invitation.inviter.name if invitation.inviter else "Unknown",
+            invitee_email=invitation.invitee_email,
+            role=SchemaRole(invitation.role.value),
+            status=SchemaInvitationStatus(invitation.status.value),
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+        )
+
+    async def accept_invitation_by_token(
+        self,
+        token: str,
+        user_id: str,
+        user_email: str,
+        db: AsyncSession,
+    ) -> WorkspaceWithMembership:
+        """
+        Accept an invitation using the token from the email.
+
+        Same logic as accept_invitation but looks up by token.
+        """
+        # Get invitation by token
+        result = await db.execute(
+            select(WorkspaceInvitation)
+            .options(selectinload(WorkspaceInvitation.workspace))
+            .where(WorkspaceInvitation.token == token)
+        )
+        invitation = result.scalar_one_or_none()
+
+        if not invitation:
+            raise HTTPException(status_code=404, detail="Invalid invitation link")
+
+        # Delegate to the standard accept method using the invitation ID
+        return await self.accept_invitation(
+            invitation_id=invitation.id,
+            user_id=user_id,
+            user_email=user_email,
+            db=db,
+        )
+
     # =========================================================================
     # Member Management
     # =========================================================================

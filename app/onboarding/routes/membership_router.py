@@ -216,6 +216,59 @@ async def decline_invitation(
 
 
 # =============================================================================
+# Token-based Invitation Endpoints (for email links)
+# =============================================================================
+
+
+@router.get("/invitations/token/{token}", response_model=InvitationResponse)
+async def get_invitation_by_token(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get invitation details by token.
+
+    This endpoint does NOT require authentication so the frontend can
+    show invitation details before the user signs in.
+    """
+    invitation = await membership_service.get_invitation_by_token(token=token, db=db)
+    if not invitation:
+        raise HTTPException(
+            status_code=404, detail="Invalid or expired invitation link"
+        )
+    return invitation
+
+
+@router.post(
+    "/invitations/token/{token}/accept", response_model=WorkspaceWithMembership
+)
+async def accept_invitation_by_token(
+    token: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Accept an invitation using the token from the email link.
+
+    Requires authentication - user must be signed in.
+    """
+    try:
+        workspace = await membership_service.accept_invitation_by_token(
+            token=token,
+            user_id=current_user.id,
+            user_email=current_user.email,
+            db=db,
+        )
+        return workspace
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to accept invitation: {str(e)}"
+        )
+
+
+# =============================================================================
 # Member Management
 # =============================================================================
 
