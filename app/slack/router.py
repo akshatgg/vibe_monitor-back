@@ -311,7 +311,7 @@ async def handle_slack_interactions(
                 chat_service = ChatService(db)
                 turn = await chat_service.submit_feedback_by_turn_id(
                     turn_id=turn_id,
-                    score=5,
+                    score=1,  # 1 = thumbs up
                     comment=None,
                 )
                 await db.commit()
@@ -324,7 +324,7 @@ async def handle_slack_interactions(
                 chat_service = ChatService(db)
                 turn = await chat_service.submit_feedback_by_turn_id(
                     turn_id=turn_id,
-                    score=1,
+                    score=-1,  # -1 = thumbs down
                     comment=None,
                 )
                 await db.commit()

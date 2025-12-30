@@ -828,7 +828,7 @@ class ChatService:
 
         Args:
             turn_id: Turn ID (from feedback button value)
-            score: Feedback score (1=thumbs down, 5=thumbs up)
+            score: Feedback score (1=thumbs up, -1=thumbs down)
             comment: Optional comment
 
         Returns:

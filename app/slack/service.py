@@ -1193,7 +1193,7 @@ class SlackEventService:
             team_id: Slack team/workspace ID
             trigger_id: Slack trigger ID from interaction
             turn_id: Turn ID to store in modal metadata
-            initial_score: Pre-selected score (5 for thumbs up, 1 for thumbs down)
+            initial_score: Pre-selected score (1 for thumbs up, -1 for thumbs down)
 
         Returns:
             True if successful, False otherwise
@@ -1234,32 +1234,32 @@ class SlackEventService:
                         "initial_option": (
                             {
                                 "text": {"type": "plain_text", "text": "👍 Helpful"},
-                                "value": "5",
+                                "value": "1",
                             }
-                            if initial_score == 5
+                            if initial_score == 1
                             else (
                                 {
                                     "text": {
                                         "type": "plain_text",
                                         "text": "👎 Not helpful",
                                     },
-                                    "value": "1",
+                                    "value": "-1",
                                 }
-                                if initial_score == 1
+                                if initial_score == -1
                                 else None
                             )
                         ),
                         "options": [
                             {
                                 "text": {"type": "plain_text", "text": "👍 Helpful"},
-                                "value": "5",
+                                "value": "1",
                             },
                             {
                                 "text": {
                                     "type": "plain_text",
                                     "text": "👎 Not helpful",
                                 },
-                                "value": "1",
+                                "value": "-1",
                             },
                         ],
                     },

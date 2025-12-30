@@ -33,8 +33,8 @@ class UpdateSessionRequest(BaseModel):
 class SubmitFeedbackRequest(BaseModel):
     """Request to submit feedback on a turn."""
 
-    score: int = Field(
-        ..., ge=1, le=5, description="Feedback score: 1=thumbs down, 5=thumbs up"
+    is_positive: bool = Field(
+        ..., description="True for thumbs up, False for thumbs down"
     )
     comment: Optional[str] = Field(
         None, max_length=1000, description="Optional feedback comment"
@@ -131,7 +131,7 @@ class FeedbackResponse(BaseModel):
     """Response after submitting feedback."""
 
     turn_id: str
-    score: int
+    is_positive: bool
     comment: Optional[str] = None
     message: str = "Feedback submitted successfully."
 

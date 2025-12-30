@@ -508,12 +508,15 @@ async def submit_feedback(
     """
     Submit feedback for a turn (thumbs up/down).
     """
+    # Convert boolean to score: True (thumbs up) = 1, False (thumbs down) = -1
+    score = 1 if request.is_positive else -1
+
     service = ChatService(db)
     turn = await service.submit_feedback(
         turn_id=turn_id,
         workspace_id=workspace_id,
         user_id=current_user.id,
-        score=request.score,
+        score=score,
         comment=request.comment,
     )
 
@@ -527,6 +530,6 @@ async def submit_feedback(
 
     return FeedbackResponse(
         turn_id=turn.id,
-        score=turn.feedback_score,
+        is_positive=turn.feedback_score == 1,
         comment=turn.feedback_comment,
     )

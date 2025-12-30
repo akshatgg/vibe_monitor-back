@@ -860,7 +860,7 @@ class ChatTurn(Base):
     job_id = Column(String, ForeignKey("jobs.id"), nullable=True)
 
     # Feedback (at turn level)
-    feedback_score = Column(Integer, nullable=True)  # 1 = thumbs down, 5 = thumbs up
+    feedback_score = Column(Integer, nullable=True)  # 1 = thumbs up, -1 = thumbs down
     feedback_comment = Column(Text, nullable=True)
 
     # Timestamps
