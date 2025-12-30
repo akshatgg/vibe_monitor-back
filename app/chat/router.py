@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google.service import AuthService
 from app.chat.schemas import (
+    AddFeedbackCommentRequest,
     ChatSearchResponse,
     ChatSearchResult,
     ChatSessionResponse,
@@ -507,17 +508,15 @@ async def submit_feedback(
 ):
     """
     Submit feedback for a turn (thumbs up/down).
+    Each user can have one rating per turn (upsert behavior).
     """
-    # Convert boolean to score: True (thumbs up) = 1, False (thumbs down) = -1
-    score = 1 if request.is_positive else -1
-
     service = ChatService(db)
-    turn = await service.submit_feedback(
+
+    # Verify turn exists and user has access
+    turn = await service.get_turn(
         turn_id=turn_id,
         workspace_id=workspace_id,
         user_id=current_user.id,
-        score=score,
-        comment=request.comment,
     )
 
     if not turn:
@@ -526,10 +525,90 @@ async def submit_feedback(
             detail="Turn not found",
         )
 
+    # Submit feedback to new table
+    feedback = await service.submit_turn_feedback(
+        turn_id=turn_id,
+        user_id=current_user.id,
+        is_positive=request.is_positive,
+    )
+
+    if not feedback:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save feedback",
+        )
+
+    # If comment provided, add it as well
+    comment_text = None
+    if request.comment:
+        comment = await service.add_turn_comment(
+            turn_id=turn_id,
+            user_id=current_user.id,
+            comment=request.comment,
+        )
+        comment_text = comment.comment if comment else None
+
     await db.commit()
 
     return FeedbackResponse(
-        turn_id=turn.id,
-        is_positive=turn.feedback_score == 1,
-        comment=turn.feedback_comment,
+        turn_id=turn_id,
+        is_positive=feedback.is_positive,
+        comment=comment_text,
+    )
+
+
+@router.post("/turns/{turn_id}/comment", response_model=FeedbackResponse)
+async def add_feedback_comment(
+    workspace_id: str,
+    turn_id: str,
+    request: AddFeedbackCommentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Add a comment to a turn (separate from thumbs up/down).
+
+    This allows users to provide detailed feedback comments independently
+    from the thumbs up/down rating, matching the Slack interface behavior.
+    Multiple comments per user are allowed.
+    """
+    service = ChatService(db)
+
+    # Verify turn exists and user has access
+    turn = await service.get_turn(
+        turn_id=turn_id,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+    )
+
+    if not turn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Turn not found",
+        )
+
+    # Add the comment to new table
+    comment = await service.add_turn_comment(
+        turn_id=turn_id,
+        user_id=current_user.id,
+        comment=request.comment,
+    )
+
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save comment",
+        )
+
+    await db.commit()
+
+    # Get user's current feedback to include in response
+    feedbacks = await service.get_turn_feedbacks(turn_id)
+    user_feedback = next((f for f in feedbacks if f.user_id == current_user.id), None)
+
+    return FeedbackResponse(
+        turn_id=turn_id,
+        is_positive=user_feedback.is_positive if user_feedback else False,
+        comment=comment.comment,
+        message="Comment added successfully.",
     )

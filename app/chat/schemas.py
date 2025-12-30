@@ -41,6 +41,14 @@ class SubmitFeedbackRequest(BaseModel):
     )
 
 
+class AddFeedbackCommentRequest(BaseModel):
+    """Request to add a comment to existing feedback (separate from thumbs up/down)."""
+
+    comment: str = Field(
+        ..., min_length=1, max_length=1000, description="Feedback comment"
+    )
+
+
 # Response schemas
 class TurnStepResponse(BaseModel):
     """Response for a single processing step."""
@@ -66,8 +74,6 @@ class ChatTurnResponse(BaseModel):
     final_response: Optional[str] = None
     status: TurnStatus
     job_id: Optional[str] = None
-    feedback_score: Optional[int] = None
-    feedback_comment: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     steps: List[TurnStepResponse] = []
@@ -83,7 +89,6 @@ class ChatTurnSummary(BaseModel):
     user_message: str
     final_response: Optional[str] = None
     status: TurnStatus
-    feedback_score: Optional[int] = None
     created_at: datetime
 
     class Config:

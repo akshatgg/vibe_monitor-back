@@ -66,6 +66,7 @@ opentelemetry-exporter-otlp-proto-grpc = "^1.28.0"
 opentelemetry-instrumentation-fastapi = "^0.49b0"
 opentelemetry-instrumentation-logging = "^0.49b0"
 argon2-cffi = "^25.1.0"
+python-multipart = "^0.0.21"
 
 
 [tool.poetry.group.dev.dependencies]

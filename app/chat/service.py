@@ -16,11 +16,14 @@ from app.core.config import settings
 from app.models import (
     ChatSession,
     ChatTurn,
+    FeedbackSource,
     Job,
     JobSource,
     JobStatus,
     StepStatus,
     StepType,
+    TurnComment,
+    TurnFeedback,
     TurnStatus,
     TurnStep,
 )
@@ -336,39 +339,6 @@ class ChatService:
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
-
-    async def submit_feedback(
-        self,
-        turn_id: str,
-        workspace_id: str,
-        user_id: str,
-        score: int,
-        comment: Optional[str] = None,
-    ) -> Optional[ChatTurn]:
-        """
-        Submit feedback for a turn.
-
-        Args:
-            turn_id: Turn ID
-            workspace_id: Workspace ID
-            user_id: User ID
-            score: Feedback score (1-5)
-            comment: Optional comment
-
-        Returns:
-            Updated ChatTurn or None
-        """
-        turn = await self.get_turn(turn_id, workspace_id, user_id, include_steps=False)
-        if not turn:
-            return None
-
-        turn.feedback_score = score
-        turn.feedback_comment = comment
-        turn.updated_at = datetime.now(timezone.utc)
-        await self.db.flush()
-
-        logger.info(f"Feedback submitted for turn {turn_id}: {score}")
-        return turn
 
     async def search_sessions(
         self,
@@ -815,34 +785,222 @@ class ChatService:
         result = await self.db.execute(select(ChatTurn).where(ChatTurn.id == turn_id))
         return result.scalar_one_or_none()
 
-    async def submit_feedback_by_turn_id(
+    # ═══════════════════════════════════════════════════════════════
+    # NEW MULTI-USER FEEDBACK METHODS (using turn_feedbacks table)
+    # ═══════════════════════════════════════════════════════════════
+
+    async def submit_turn_feedback(
         self,
         turn_id: str,
-        score: int,
-        comment: Optional[str] = None,
-    ) -> Optional[ChatTurn]:
+        user_id: str,
+        is_positive: bool,
+    ) -> Optional[TurnFeedback]:
         """
-        Submit feedback for a turn by turn_id (no auth check).
-
-        Used by Slack where we pass turn_id in the feedback button.
+        Submit feedback from a web user (upsert - one feedback per user per turn).
 
         Args:
-            turn_id: Turn ID (from feedback button value)
-            score: Feedback score (1=thumbs up, -1=thumbs down)
-            comment: Optional comment
+            turn_id: Turn ID
+            user_id: User ID (from auth)
+            is_positive: True for thumbs up, False for thumbs down
 
         Returns:
-            Updated ChatTurn or None if not found
+            TurnFeedback record or None if turn not found
         """
+        # Verify turn exists
         turn = await self.get_turn_by_id(turn_id)
         if not turn:
             logger.warning(f"No turn found for turn_id: {turn_id}")
             return None
 
-        turn.feedback_score = score
-        turn.feedback_comment = comment
-        turn.updated_at = datetime.now(timezone.utc)
-        await self.db.flush()
+        # Check for existing feedback from this user
+        result = await self.db.execute(
+            select(TurnFeedback).where(
+                TurnFeedback.turn_id == turn_id,
+                TurnFeedback.user_id == user_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
 
-        logger.info(f"Feedback submitted for turn {turn_id}: score={score}")
-        return turn
+        if existing:
+            # Update existing feedback
+            existing.is_positive = is_positive
+            existing.updated_at = datetime.now(timezone.utc)
+            await self.db.flush()
+            logger.info(f"Feedback updated for turn {turn_id} by user {user_id}")
+            return existing
+        else:
+            # Create new feedback
+            feedback = TurnFeedback(
+                id=str(uuid.uuid4()),
+                turn_id=turn_id,
+                user_id=user_id,
+                is_positive=is_positive,
+                source=FeedbackSource.WEB,
+            )
+            self.db.add(feedback)
+            await self.db.flush()
+            logger.info(f"Feedback created for turn {turn_id} by user {user_id}")
+            return feedback
+
+    async def submit_turn_feedback_slack(
+        self,
+        turn_id: str,
+        slack_user_id: str,
+        is_positive: bool,
+    ) -> Optional[TurnFeedback]:
+        """
+        Submit feedback from a Slack user (upsert - one feedback per Slack user per turn).
+
+        Args:
+            turn_id: Turn ID
+            slack_user_id: Slack user ID
+            is_positive: True for thumbs up, False for thumbs down
+
+        Returns:
+            TurnFeedback record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Check for existing feedback from this Slack user
+        result = await self.db.execute(
+            select(TurnFeedback).where(
+                TurnFeedback.turn_id == turn_id,
+                TurnFeedback.slack_user_id == slack_user_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Update existing feedback
+            existing.is_positive = is_positive
+            existing.updated_at = datetime.now(timezone.utc)
+            await self.db.flush()
+            logger.info(
+                f"Feedback updated for turn {turn_id} by Slack user {slack_user_id}"
+            )
+            return existing
+        else:
+            # Create new feedback
+            feedback = TurnFeedback(
+                id=str(uuid.uuid4()),
+                turn_id=turn_id,
+                slack_user_id=slack_user_id,
+                is_positive=is_positive,
+                source=FeedbackSource.SLACK,
+            )
+            self.db.add(feedback)
+            await self.db.flush()
+            logger.info(
+                f"Feedback created for turn {turn_id} by Slack user {slack_user_id}"
+            )
+            return feedback
+
+    async def add_turn_comment(
+        self,
+        turn_id: str,
+        user_id: str,
+        comment: str,
+    ) -> Optional[TurnComment]:
+        """
+        Add a comment from a web user.
+
+        Args:
+            turn_id: Turn ID
+            user_id: User ID (from auth)
+            comment: Comment text
+
+        Returns:
+            TurnComment record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Create new comment (multiple comments allowed)
+        turn_comment = TurnComment(
+            id=str(uuid.uuid4()),
+            turn_id=turn_id,
+            user_id=user_id,
+            comment=comment,
+            source=FeedbackSource.WEB,
+        )
+        self.db.add(turn_comment)
+        await self.db.flush()
+        logger.info(f"Comment added for turn {turn_id} by user {user_id}")
+        return turn_comment
+
+    async def add_turn_comment_slack(
+        self,
+        turn_id: str,
+        slack_user_id: str,
+        comment: str,
+    ) -> Optional[TurnComment]:
+        """
+        Add a comment from a Slack user.
+
+        Args:
+            turn_id: Turn ID
+            slack_user_id: Slack user ID
+            comment: Comment text
+
+        Returns:
+            TurnComment record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Create new comment (multiple comments allowed)
+        turn_comment = TurnComment(
+            id=str(uuid.uuid4()),
+            turn_id=turn_id,
+            slack_user_id=slack_user_id,
+            comment=comment,
+            source=FeedbackSource.SLACK,
+        )
+        self.db.add(turn_comment)
+        await self.db.flush()
+        logger.info(f"Comment added for turn {turn_id} by Slack user {slack_user_id}")
+        return turn_comment
+
+    async def get_turn_feedbacks(self, turn_id: str) -> List[TurnFeedback]:
+        """
+        Get all feedbacks for a turn.
+
+        Args:
+            turn_id: Turn ID
+
+        Returns:
+            List of TurnFeedback records
+        """
+        result = await self.db.execute(
+            select(TurnFeedback)
+            .where(TurnFeedback.turn_id == turn_id)
+            .order_by(TurnFeedback.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def get_turn_comments(self, turn_id: str) -> List[TurnComment]:
+        """
+        Get all comments for a turn.
+
+        Args:
+            turn_id: Turn ID
+
+        Returns:
+            List of TurnComment records
+        """
+        result = await self.db.execute(
+            select(TurnComment)
+            .where(TurnComment.turn_id == turn_id)
+            .order_by(TurnComment.created_at)
+        )
+        return list(result.scalars().all())

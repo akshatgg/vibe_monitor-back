@@ -50,6 +50,13 @@ class JobSource(enum.Enum):
     MSTEAMS = "msteams"  # Future
 
 
+class FeedbackSource(enum.Enum):
+    """Source of feedback (web UI or Slack)"""
+
+    WEB = "web"
+    SLACK = "slack"
+
+
 class TurnStatus(enum.Enum):
     """Status of a chat turn"""
 
@@ -833,7 +840,7 @@ class ChatSession(Base):
 class ChatTurn(Base):
     """
     A single turn in a chat conversation: user message + bot response.
-    Feedback is collected at the turn level, not individual message level.
+    Feedback is stored in separate tables (turn_feedbacks, turn_comments).
     """
 
     __tablename__ = "chat_turns"
@@ -859,10 +866,6 @@ class ChatTurn(Base):
     # Link to the RCA job that processes this turn
     job_id = Column(String, ForeignKey("jobs.id"), nullable=True)
 
-    # Feedback (at turn level)
-    feedback_score = Column(Integer, nullable=True)  # 1 = thumbs up, -1 = thumbs down
-    feedback_comment = Column(Text, nullable=True)
-
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -873,6 +876,12 @@ class ChatTurn(Base):
     steps = relationship(
         "TurnStep", back_populates="turn", cascade="all, delete-orphan"
     )
+    feedbacks = relationship(
+        "TurnFeedback", back_populates="turn", cascade="all, delete-orphan"
+    )
+    comments = relationship(
+        "TurnComment", back_populates="turn", cascade="all, delete-orphan"
+    )
 
     # Indexes for query performance
     __table_args__ = (
@@ -880,6 +889,100 @@ class ChatTurn(Base):
         Index("idx_chat_turns_job", "job_id"),
         Index("idx_chat_turns_status", "status"),
         Index("idx_chat_turns_created_at", "created_at"),
+    )
+
+
+class TurnFeedback(Base):
+    """
+    Individual feedback (thumbs up/down) on a chat turn.
+    Supports multiple users giving feedback on the same turn.
+    """
+
+    __tablename__ = "turn_feedbacks"
+
+    id = Column(String, primary_key=True)  # UUID
+    turn_id = Column(
+        String, ForeignKey("chat_turns.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # User identification (one of these should be set)
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    slack_user_id = Column(String(255), nullable=True)  # For Slack users not in our DB
+
+    # Feedback
+    is_positive = Column(
+        Boolean, nullable=False
+    )  # True = thumbs up, False = thumbs down
+
+    # Source tracking
+    source = Column(
+        Enum(FeedbackSource, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=FeedbackSource.WEB,
+    )
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    turn = relationship("ChatTurn", back_populates="feedbacks")
+    user = relationship("User")
+
+    # Indexes and constraints
+    __table_args__ = (
+        Index("idx_turn_feedbacks_turn_id", "turn_id"),
+        Index("idx_turn_feedbacks_user_id", "user_id"),
+        Index("idx_turn_feedbacks_slack_user_id", "slack_user_id"),
+        # One feedback per web user per turn
+        UniqueConstraint("turn_id", "user_id", name="uq_turn_feedback_user"),
+        # One feedback per Slack user per turn
+        UniqueConstraint(
+            "turn_id", "slack_user_id", name="uq_turn_feedback_slack_user"
+        ),
+    )
+
+
+class TurnComment(Base):
+    """
+    Comments on a chat turn.
+    Supports multiple comments from multiple users on the same turn.
+    """
+
+    __tablename__ = "turn_comments"
+
+    id = Column(String, primary_key=True)  # UUID
+    turn_id = Column(
+        String, ForeignKey("chat_turns.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # User identification (one of these should be set)
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    slack_user_id = Column(String(255), nullable=True)  # For Slack users not in our DB
+
+    # Comment content
+    comment = Column(Text, nullable=False)
+
+    # Source tracking
+    source = Column(
+        Enum(FeedbackSource, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=FeedbackSource.WEB,
+    )
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    turn = relationship("ChatTurn", back_populates="comments")
+    user = relationship("User")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_turn_comments_turn_id", "turn_id"),
+        Index("idx_turn_comments_user_id", "user_id"),
+        Index("idx_turn_comments_slack_user_id", "slack_user_id"),
+        Index("idx_turn_comments_created_at", "created_at"),
     )
 
 

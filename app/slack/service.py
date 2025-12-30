@@ -17,6 +17,7 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.integrations.health_checks import check_slack_health
+from app.integrations.service import get_workspace_integrations
 from app.models import (
     Integration,
     Job,
@@ -493,6 +494,29 @@ class SlackEventService:
                         return (
                             f"❌ Sorry <@{user_id}>, your Slack workspace is not linked to a VibeMonitor workspace. "
                             f"Please complete the setup or contact support."
+                        )
+
+                    # ═══════════════════════════════════════════════════════════════
+                    # PRE-CHECK: Verify GitHub integration exists (required for RCA)
+                    # ═══════════════════════════════════════════════════════════════
+                    all_integrations = await get_workspace_integrations(
+                        workspace_id, db
+                    )
+                    github_integration = next(
+                        (i for i in all_integrations if i.provider == "github"), None
+                    )
+
+                    if not github_integration:
+                        logger.warning(
+                            f"GitHub integration not found for workspace {workspace_id}"
+                        )
+                        return (
+                            "⚠️ *Github integration is not configured*\n\n"
+                            "The Github integration is required for RCA analysis "
+                            "but has not been set up for this workspace.\n\n"
+                            "*To resolve this:*\n"
+                            "• Connect your Github account in the dashboard\n"
+                            "• Ensure the integration is properly configured"
                         )
 
                     # Check rate limit before creating job (BYOLLM users bypass rate limiting)
@@ -1113,7 +1137,7 @@ class SlackEventService:
             logger.error(f"Failed to decrypt token for team {team_id}: {err}")
             return None
 
-        # Build message blocks with feedback button
+        # Build message blocks with feedback buttons (comment option appears after feedback)
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
             {"type": "divider"},
@@ -1123,7 +1147,6 @@ class SlackEventService:
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "👍", "emoji": True},
-                        "style": "primary",
                         "action_id": "feedback_thumbs_up",
                         "value": turn_id,
                     },
@@ -1131,16 +1154,6 @@ class SlackEventService:
                         "type": "button",
                         "text": {"type": "plain_text", "text": "👎", "emoji": True},
                         "action_id": "feedback_thumbs_down",
-                        "value": turn_id,
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "💬 Comment",
-                            "emoji": True,
-                        },
-                        "action_id": "feedback_with_comment",
                         "value": turn_id,
                     },
                 ],
@@ -1180,20 +1193,143 @@ class SlackEventService:
             return None
 
     @staticmethod
+    async def update_message_with_feedback_confirmation(
+        team_id: str,
+        channel: str,
+        message_ts: str,
+        original_text: str,
+        feedback_type: str,  # "thumbs_up", "thumbs_down", or "comment"
+        turn_id: str,
+    ) -> bool:
+        """
+        Update the original message to show feedback confirmation.
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID
+            message_ts: Original message timestamp to update
+            original_text: The original RCA response text
+            feedback_type: Type of feedback given
+            turn_id: Turn ID for the comment button
+
+        Returns:
+            True if successful, False otherwise
+        """
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation or not installation.access_token:
+            logger.error(f"No installation/token for team {team_id}")
+            return False
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+        except Exception as err:
+            logger.error(f"Failed to decrypt token for team {team_id}: {err}")
+            return False
+
+        # Build updated blocks with feedback confirmation
+        if feedback_type == "thumbs_up":
+            feedback_text = "✅ Thanks for the feedback! 👍"
+            thumbs_up_style = "primary"
+            thumbs_down_style = None
+        elif feedback_type == "thumbs_down":
+            feedback_text = "✅ Thanks for the feedback! 👎"
+            thumbs_up_style = None
+            thumbs_down_style = "primary"
+        else:  # comment
+            feedback_text = "✅ Thanks for your comment! 💬"
+            thumbs_up_style = None
+            thumbs_down_style = None
+
+        # Build buttons with selected state
+        thumbs_up_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "👍", "emoji": True},
+            "action_id": "feedback_thumbs_up",
+            "value": turn_id,
+        }
+        if thumbs_up_style:
+            thumbs_up_button["style"] = thumbs_up_style
+
+        thumbs_down_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "👎", "emoji": True},
+            "action_id": "feedback_thumbs_down",
+            "value": turn_id,
+        }
+        if thumbs_down_style:
+            thumbs_down_button["style"] = thumbs_down_style
+
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": original_text}},
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": feedback_text}],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    thumbs_up_button,
+                    thumbs_down_button,
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Add comment?",
+                            "emoji": True,
+                        },
+                        "action_id": "feedback_with_comment",
+                        "value": turn_id,
+                    },
+                ],
+            },
+        ]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{settings.SLACK_API_BASE_URL}/chat.update",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "channel": channel,
+                        "ts": message_ts,
+                        "text": original_text,
+                        "blocks": blocks,
+                    },
+                    timeout=10.0,
+                )
+
+                data = response.json()
+                if data.get("ok"):
+                    logger.info(
+                        f"Message updated with feedback confirmation: {feedback_type}"
+                    )
+                    return True
+                else:
+                    logger.error(f"Failed to update message: {data.get('error')}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error updating message with feedback confirmation: {e}")
+            return False
+
+    @staticmethod
     async def open_feedback_modal(
         team_id: str,
         trigger_id: str,
         turn_id: str,
-        initial_score: Optional[int] = None,
     ) -> bool:
         """
-        Open feedback modal in Slack for detailed feedback.
+        Open feedback modal in Slack for adding a comment.
 
         Args:
             team_id: Slack team/workspace ID
             trigger_id: Slack trigger ID from interaction
             turn_id: Turn ID to store in modal metadata
-            initial_score: Pre-selected score (1 for thumbs up, -1 for thumbs down)
 
         Returns:
             True if successful, False otherwise
@@ -1208,12 +1344,12 @@ class SlackEventService:
         except Exception:
             return False
 
-        # Build modal with optional pre-selected score
+        # Build modal with comment input only (rating is done via buttons)
         modal = {
             "type": "modal",
             "callback_id": "feedback_submission",
             "private_metadata": turn_id,
-            "title": {"type": "plain_text", "text": "Share Feedback"},
+            "title": {"type": "plain_text", "text": "Add Comment"},
             "submit": {"type": "plain_text", "text": "Submit"},
             "close": {"type": "plain_text", "text": "Cancel"},
             "blocks": [
@@ -1221,71 +1357,25 @@ class SlackEventService:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "How was this analysis? Your feedback helps us improve! 🙏",
+                        "text": "Share your thoughts on this response. Your feedback helps us improve! 🙏",
                     },
-                },
-                {
-                    "type": "input",
-                    "block_id": "rating_block",
-                    "element": {
-                        "type": "static_select",
-                        "action_id": "rating_select",
-                        "placeholder": {"type": "plain_text", "text": "Select rating"},
-                        "initial_option": (
-                            {
-                                "text": {"type": "plain_text", "text": "👍 Helpful"},
-                                "value": "1",
-                            }
-                            if initial_score == 1
-                            else (
-                                {
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": "👎 Not helpful",
-                                    },
-                                    "value": "-1",
-                                }
-                                if initial_score == -1
-                                else None
-                            )
-                        ),
-                        "options": [
-                            {
-                                "text": {"type": "plain_text", "text": "👍 Helpful"},
-                                "value": "1",
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "👎 Not helpful",
-                                },
-                                "value": "-1",
-                            },
-                        ],
-                    },
-                    "label": {"type": "plain_text", "text": "Rating"},
                 },
                 {
                     "type": "input",
                     "block_id": "comment_block",
-                    "optional": True,
                     "element": {
                         "type": "plain_text_input",
                         "action_id": "comment_input",
                         "multiline": True,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "Any additional comments? (optional)",
+                            "text": "What could be improved? What was helpful?",
                         },
                     },
-                    "label": {"type": "plain_text", "text": "Comments"},
+                    "label": {"type": "plain_text", "text": "Your Comment"},
                 },
             ],
         }
-
-        # Remove initial_option if not set
-        if initial_score is None:
-            del modal["blocks"][1]["element"]["initial_option"]
 
         try:
             async with httpx.AsyncClient() as client:

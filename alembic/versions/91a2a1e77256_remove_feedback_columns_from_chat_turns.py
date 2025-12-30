@@ -1,0 +1,33 @@
+"""Remove feedback columns from chat_turns
+
+Revision ID: 91a2a1e77256
+Revises: 7ea2ca5ca7f8
+Create Date: 2025-12-30 22:15:00.000000
+
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = "91a2a1e77256"
+down_revision: Union[str, Sequence[str], None] = "7ea2ca5ca7f8"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Remove deprecated feedback columns from chat_turns."""
+    op.drop_column("chat_turns", "feedback_score")
+    op.drop_column("chat_turns", "feedback_comment")
+
+
+def downgrade() -> None:
+    """Re-add feedback columns to chat_turns."""
+    op.add_column(
+        "chat_turns", sa.Column("feedback_score", sa.Integer(), nullable=True)
+    )
+    op.add_column("chat_turns", sa.Column("feedback_comment", sa.Text(), nullable=True))

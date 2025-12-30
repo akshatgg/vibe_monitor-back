@@ -275,106 +275,167 @@ async def handle_slack_events(request: Request):
         raise HTTPException(status_code=500, detail="Internal processing error")
 
 
-@slack_webhook_router.post("/interactions")
-async def handle_slack_interactions(
+@slack_webhook_router.post("/interactivity")
+async def handle_slack_interactivity(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Handle Slack interactive components (buttons, modals).
     """
-    slack_signature = request.headers.get("X-Slack-Signature", "")
-    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
-    request_body = await request.body()
+    try:
+        logger.info("=== INTERACTIVITY HANDLER START ===")
+        slack_signature = request.headers.get("X-Slack-Signature", "")
+        slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        request_body = await request.body()
+        logger.info(f"Request body length: {len(request_body)}")
 
-    if not await slack_event_service.verify_slack_request(
-        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
-    ):
-        raise HTTPException(status_code=403, detail="Invalid request signature")
+        if not await slack_event_service.verify_slack_request(
+            slack_signature, slack_request_timestamp, request_body.decode("utf-8")
+        ):
+            raise HTTPException(status_code=403, detail="Invalid request signature")
 
-    form_data = await request.form()
-    payload = json.loads(form_data.get("payload", "{}"))
+        logger.info("Signature verified successfully")
+        form_data = await request.form()
+        payload = json.loads(form_data.get("payload", "{}"))
+        logger.info(f"Payload parsed: {json.dumps(payload)[:500]}")
 
-    payload_type = payload.get("type")
-    team_id = payload.get("team", {}).get("id")
+        payload_type = payload.get("type")
+        team_id = payload.get("team", {}).get("id")
 
-    logger.info(f"Received Slack interaction: type={payload_type}")
+        logger.info(
+            f"Received Slack interaction: type={payload_type}, team_id={team_id}"
+        )
 
-    if payload_type == "block_actions":
-        actions = payload.get("actions", [])
-        for action in actions:
-            action_id = action.get("action_id")
-            turn_id = action.get("value")
-            trigger_id = payload.get("trigger_id")
+        if payload_type == "block_actions":
+            actions = payload.get("actions", [])
+            logger.info(f"Processing {len(actions)} actions")
 
-            if action_id == "feedback_thumbs_up":
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=1,  # 1 = thumbs up
-                    comment=None,
-                )
-                await db.commit()
+            # Extract message info for updating after feedback
+            message = payload.get("message", {})
+            message_ts = message.get("ts")
+            channel_id = payload.get("channel", {}).get("id")
+            # Get original text from the first block (section with RCA response)
+            blocks = message.get("blocks", [])
+            original_text = ""
+            if blocks and blocks[0].get("type") == "section":
+                original_text = blocks[0].get("text", {}).get("text", "")
 
-                if turn:
-                    logger.info(f"Thumbs up feedback recorded for turn {turn_id}")
-                return JSONResponse({"ok": True})
+            for action in actions:
+                action_id = action.get("action_id")
+                turn_id = action.get("value")
+                trigger_id = payload.get("trigger_id")
+                logger.info(f"Action: action_id={action_id}, turn_id={turn_id}")
 
-            elif action_id == "feedback_thumbs_down":
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=-1,  # -1 = thumbs down
-                    comment=None,
-                )
-                await db.commit()
-
-                if turn:
-                    logger.info(f"Thumbs down feedback recorded for turn {turn_id}")
-                return JSONResponse({"ok": True})
-
-            elif action_id == "feedback_with_comment":
-                await slack_event_service.open_feedback_modal(
-                    team_id=team_id,
-                    trigger_id=trigger_id,
-                    turn_id=turn_id,
-                )
-                return JSONResponse({"ok": True})
-
-    if payload_type == "view_submission":
-        callback_id = payload.get("view", {}).get("callback_id")
-
-        if callback_id == "feedback_submission":
-            turn_id = payload.get("view", {}).get("private_metadata")
-            values = payload.get("view", {}).get("state", {}).get("values", {})
-
-            rating = (
-                values.get("rating_block", {})
-                .get("rating_select", {})
-                .get("selected_option", {})
-                .get("value")
-            )
-            comment = (
-                values.get("comment_block", {}).get("comment_input", {}).get("value")
-            )
-
-            if rating:
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=int(rating),
-                    comment=comment,
-                )
-                await db.commit()
-
-                if turn:
+                if action_id == "feedback_thumbs_up":
+                    slack_user_id = payload.get("user", {}).get("id")
                     logger.info(
-                        f"Feedback submitted for turn {turn_id}: score={rating}"
+                        f"Processing thumbs up for turn_id={turn_id}, "
+                        f"slack_user={slack_user_id}"
+                    )
+                    chat_service = ChatService(db)
+                    feedback = await chat_service.submit_turn_feedback_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        is_positive=True,
+                    )
+                    await db.commit()
+
+                    if feedback:
+                        logger.info(
+                            f"Thumbs up feedback recorded for turn {turn_id} "
+                            f"by Slack user {slack_user_id}"
+                        )
+
+                    # Update message to show feedback confirmation
+                    if message_ts and channel_id and original_text:
+                        await slack_event_service.update_message_with_feedback_confirmation(
+                            team_id=team_id,
+                            channel=channel_id,
+                            message_ts=message_ts,
+                            original_text=original_text,
+                            feedback_type="thumbs_up",
+                            turn_id=turn_id,
+                        )
+
+                    return JSONResponse({"ok": True})
+
+                elif action_id == "feedback_thumbs_down":
+                    slack_user_id = payload.get("user", {}).get("id")
+                    logger.info(
+                        f"Processing thumbs down for turn_id={turn_id}, "
+                        f"slack_user={slack_user_id}"
+                    )
+                    chat_service = ChatService(db)
+                    feedback = await chat_service.submit_turn_feedback_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        is_positive=False,
+                    )
+                    await db.commit()
+
+                    if feedback:
+                        logger.info(
+                            f"Thumbs down feedback recorded for turn {turn_id} "
+                            f"by Slack user {slack_user_id}"
+                        )
+
+                    # Update message to show feedback confirmation
+                    if message_ts and channel_id and original_text:
+                        await slack_event_service.update_message_with_feedback_confirmation(
+                            team_id=team_id,
+                            channel=channel_id,
+                            message_ts=message_ts,
+                            original_text=original_text,
+                            feedback_type="thumbs_down",
+                            turn_id=turn_id,
+                        )
+
+                    return JSONResponse({"ok": True})
+
+                elif action_id == "feedback_with_comment":
+                    logger.info(f"Opening feedback modal for turn_id={turn_id}")
+                    await slack_event_service.open_feedback_modal(
+                        team_id=team_id,
+                        trigger_id=trigger_id,
+                        turn_id=turn_id,
+                    )
+                    return JSONResponse({"ok": True})
+        if payload_type == "view_submission":
+            callback_id = payload.get("view", {}).get("callback_id")
+
+            if callback_id == "feedback_submission":
+                turn_id = payload.get("view", {}).get("private_metadata")
+                slack_user_id = payload.get("user", {}).get("id")
+                values = payload.get("view", {}).get("state", {}).get("values", {})
+
+                comment = (
+                    values.get("comment_block", {})
+                    .get("comment_input", {})
+                    .get("value")
+                )
+
+                if comment:
+                    chat_service = ChatService(db)
+                    await chat_service.add_turn_comment_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        comment=comment,
+                    )
+                    await db.commit()
+                    logger.info(
+                        f"Comment added for turn {turn_id} by Slack user {slack_user_id}"
                     )
 
-            return JSONResponse({"response_action": "clear"})
+                return JSONResponse({"response_action": "clear"})
 
-    return JSONResponse({"ok": True})
+        return JSONResponse({"ok": True})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"=== INTERACTIVITY ERROR: {e} ===")
+        raise
 
 
 @slack_webhook_router.get("/oauth/callback")
