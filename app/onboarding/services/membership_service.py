@@ -445,6 +445,12 @@ class MembershipService:
         invitation.responded_at = datetime.now(timezone.utc)
         invitation.invitee_id = user_id
 
+        # Update user's last visited workspace to the newly joined workspace
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if user:
+            user.last_visited_workspace_id = invitation.workspace_id
+
         await db.commit()
         await db.refresh(invitation.workspace)
 

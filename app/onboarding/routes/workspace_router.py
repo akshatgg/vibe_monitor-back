@@ -141,6 +141,26 @@ async def update_workspace(
         )
 
 
+@router.post("/{workspace_id}/visit")
+async def mark_workspace_visited(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a workspace as the user's last visited workspace"""
+    try:
+        await workspace_service.update_last_visited_workspace(
+            user_id=current_user.id, workspace_id=workspace_id, db=db
+        )
+        return {"message": "Workspace marked as last visited"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to update last visited workspace: {str(e)}"
+        )
+
+
 @router.delete("/{workspace_id}")
 async def delete_workspace(
     workspace_id: str,

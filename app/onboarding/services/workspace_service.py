@@ -107,11 +107,13 @@ class WorkspaceService:
     ) -> List[WorkspaceWithMembership]:
         """Get all workspaces where the user is a member"""
 
-        # Query memberships with workspace data
+        # Query memberships with workspace data, ordered by workspace creation date
         query = (
             select(Membership)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
             .options(selectinload(Membership.workspace))
             .where(Membership.user_id == user_id)
+            .order_by(Workspace.created_at)
         )
 
         result = await db.execute(query)
