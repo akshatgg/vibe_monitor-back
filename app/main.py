@@ -16,7 +16,6 @@ from app.middleware import RequestIDMiddleware
 from app.github.webhook.router import limiter
 from app.core.otel_config import setup_otel_metrics, setup_otel_logs, shutdown_otel
 from app.core.otel_metrics import init_meter
-
 from app.worker import RCAOrchestratorWorker
 from app.services.sqs.client import sqs_client
 from app.core.redis import close_redis, get_redis
@@ -41,7 +40,6 @@ if settings.SENTRY_DSN:
         enable_logs=True,
     )
     logger.info("Sentry initialized")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

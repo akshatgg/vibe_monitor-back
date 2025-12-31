@@ -15,6 +15,7 @@ from app.slack.service import slack_event_service
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
 from app.core.logging_config import set_job_id, clear_job_id
+from app.core.otel_metrics import JOB_METRICS
 from app.models import Job, JobStatus, JobSource, TurnStatus
 from app.chat.service import ChatService
 from app.github.tools.router import list_repositories_graphql
@@ -297,6 +298,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = "GitHub integration not configured"
                         await db.commit()
 
+                        JOB_METRICS["jobs_failed_total"].add(
+                            1,
+                            {
+                                "job_source": job.source.value,
+                                "error_type": "MissingGitHubIntegration",
+                            }
+                        )
+
                         # Notify client based on source
                         if job.source == JobSource.WEB:
                             turn_id = requested_context.get("turn_id")
@@ -402,6 +411,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.finished_at = datetime.now(timezone.utc)
                         job.error_message = f"Service discovery failed: {str(e)}"
                         await db.commit()
+
+                        JOB_METRICS["jobs_failed_total"].add(
+                            1,
+                            {
+                                "job_source": job.source.value,
+                                "error_type": "ServiceDiscoveryError",
+                            }
+                        )
 
                         # Notify client based on source
                         if job.source == JobSource.WEB:
@@ -513,6 +530,13 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.finished_at = datetime.now(timezone.utc)
                         await db.commit()
 
+                        JOB_METRICS["jobs_succeeded_total"].add(
+                            1,
+                            {
+                                "job_source": job.source.value,
+                            }
+                        )
+
                         # Send final response based on source
                         final_output = result.get("output", "Analysis completed.")
 
@@ -568,6 +592,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.error_message = error_msg
                         await db.commit()
 
+                        JOB_METRICS["jobs_failed_total"].add(
+                            1,
+                            {
+                                "job_source": job.source.value,
+                                "error_type": "UnknownError",
+                            }
+                        )
+
                         # Send error based on source
                         if job.source == JobSource.WEB and web_callback:
                             await web_callback.send_error(error_msg)
@@ -595,6 +627,14 @@ class RCAOrchestratorWorker(BaseWorker):
                             job.finished_at = datetime.now(timezone.utc)
                             job.error_message = f"Worker exception: {str(e)}"
                             await db.commit()
+
+                            JOB_METRICS["jobs_failed_total"].add(
+                                1,
+                                {
+                                    "job_source": job.source.value,
+                                    "error_type": "InternalError",
+                                }
+                            )
 
                             # Attempt to send error notification based on source
                             if job.requested_context:
