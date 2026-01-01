@@ -20,6 +20,7 @@ SQS_METRICS: Dict[str, Any] = {}
 SLACK_METRICS: Dict[str, Any] = {}
 GITHUB_METRICS: Dict[str, Any] = {}
 WORKSPACE_METRICS: Dict[str, Any] = {}
+JOB_METRICS: Dict[str, Any] = {}
 
 
 def init_meter(meter: Meter):
@@ -39,7 +40,8 @@ def init_meter(meter: Meter):
         SQS_METRICS, \
         SLACK_METRICS, \
         GITHUB_METRICS, \
-        WORKSPACE_METRICS
+        WORKSPACE_METRICS, \
+        JOB_METRICS
 
     _meter = meter
 
@@ -61,6 +63,26 @@ def init_meter(meter: Meter):
             unit="1",
         ),
     }
+
+    # ==================== JOB METRICS (SLACK) ====================
+    JOB_METRICS.clear()
+    JOB_METRICS.update({
+        "jobs_created_total": meter.create_counter(
+            name="vm_api.jobs.created.total",
+            description="Total number of jobs created",
+            unit="1",
+        ),
+        "jobs_succeeded_total": meter.create_counter(
+            name="vm_api.jobs.succeeded.total",
+            description="Total number of successful jobs",
+            unit="1",
+        ),
+        "jobs_failed_total": meter.create_counter(
+            name="vm_api.jobs.failed.total",
+            description="Total number of failed jobs",
+            unit="1",
+        ),
+    })
 
     # ==================== DATABASE METRICS ====================
     DB_METRICS = {

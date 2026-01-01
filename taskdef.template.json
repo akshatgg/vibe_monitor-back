@@ -56,7 +56,8 @@
         {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/engagement-slack-webhook-url"},
         {"name": "GITHUB_OAUTH_CLIENT_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-id"},
         {"name": "GITHUB_OAUTH_CLIENT_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-secret"},
-        {"name": "REDIS_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/redis-url"}
+        {"name": "REDIS_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/redis-url"},
+        {"name": "NEW_RELIC_LICENSE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-relic-license-key"}
       ]
     }
   ]

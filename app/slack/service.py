@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.otel_metrics import JOB_METRICS
 from app.integrations.health_checks import check_slack_health
 from app.integrations.service import get_workspace_integrations
 from app.models import (
@@ -662,6 +663,14 @@ class SlackEventService:
                     turn.status = TurnStatus.PROCESSING
 
                     await db.commit()
+
+                    JOB_METRICS["jobs_created_total"].add(
+                        1,
+                        {
+                            "job_source": job.source.value,
+                        },
+                    )
+
                     logger.info(
                         f"✅ Session {session.id}, Turn {turn.id}, Job {job_id} created"
                     )
@@ -705,6 +714,14 @@ class SlackEventService:
                             job.error_message = "Failed to enqueue to SQS"
                             await db.commit()
 
+                            JOB_METRICS["jobs_failed_total"].add(
+                                1,
+                                {
+                                    "job_source": job.source.value,
+                                    "error_type": "SQSEnqueueError",
+                                },
+                            )
+
                     return (
                         f"❌ Sorry <@{user_id}>, I'm having trouble processing your request right now. "
                         f"Please try again in a moment."
@@ -712,6 +729,18 @@ class SlackEventService:
 
             except Exception as e:
                 logger.exception(f"❌ Error creating job: {e}")
+
+                job_source_attr = (
+                    getattr(job.source, "value", "unknown") if job else "unknown"
+                )
+                JOB_METRICS["jobs_failed_total"].add(
+                    1,
+                    {
+                        "job_source": job_source_attr,
+                        "error_type": "InternalError",
+                    },
+                )
+
                 return (
                     f"❌ Sorry <@{user_id}>, I encountered an error while processing your request. "
                     f"Please try again in a moment."
