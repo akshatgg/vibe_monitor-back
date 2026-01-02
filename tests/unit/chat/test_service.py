@@ -3,9 +3,8 @@ Unit tests for ChatService.
 Focuses on pure functions and validation logic (no database operations).
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-import pytest
 
 from app.chat.service import ChatService
 

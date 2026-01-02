@@ -3,7 +3,7 @@ Unit tests for EmailService.
 Focuses on pure functions and validation logic (no database operations).
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -125,9 +125,7 @@ class TestEmailServiceRenderTemplate:
     def test_render_template_escapes_html_quotes(self):
         """XSS: HTML quotes are escaped."""
         template = "Message: {{content}}"
-        result = self.service._render_template(
-            template, content='Hello "World"'
-        )
+        result = self.service._render_template(template, content='Hello "World"')
 
         assert '"World"' not in result
         assert "&quot;World&quot;" in result
@@ -135,9 +133,7 @@ class TestEmailServiceRenderTemplate:
     def test_render_template_escapes_ampersand(self):
         """XSS: Ampersand is escaped."""
         template = "Message: {{content}}"
-        result = self.service._render_template(
-            template, content="Tom & Jerry"
-        )
+        result = self.service._render_template(template, content="Tom & Jerry")
 
         assert " & " not in result
         assert "&amp;" in result
@@ -145,9 +141,7 @@ class TestEmailServiceRenderTemplate:
     def test_render_template_escapes_single_quotes(self):
         """XSS: Single quotes are escaped."""
         template = "Message: {{content}}"
-        result = self.service._render_template(
-            template, content="It's a test"
-        )
+        result = self.service._render_template(template, content="It's a test")
 
         assert "It's" not in result
         assert "&#x27;" in result or "It&#x27;s" in result
@@ -170,9 +164,7 @@ class TestEmailServiceRenderTemplate:
     def test_render_template_xss_javascript_url(self):
         """XSS: JavaScript URL is escaped."""
         template = '<a href="{{url}}">Click</a>'
-        result = self.service._render_template(
-            template, url="javascript:alert('xss')"
-        )
+        result = self.service._render_template(template, url="javascript:alert('xss')")
 
         # Single quotes should be escaped
         assert "&#x27;" in result or "'" not in result.replace("'xss'", "")

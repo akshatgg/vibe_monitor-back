@@ -91,7 +91,9 @@ class TestEventDeduplicationCache:
         # Re-process the event (updates timestamp)
         cache.mark_processed("event-123")
 
-        time.sleep(1.5)  # Wait another 1.5 seconds (total 2.5s from first, 1.5s from second)
+        time.sleep(
+            1.5
+        )  # Wait another 1.5 seconds (total 2.5s from first, 1.5s from second)
 
         # Event should still be valid because timestamp was updated
         assert cache.is_duplicate("event-123") is True
@@ -152,7 +154,9 @@ class TestSlackEventServiceVerifyRequest:
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_valid_signature_returns_true(self, mock_settings, slack_signing_secret):
+    async def test_valid_signature_returns_true(
+        self, mock_settings, slack_signing_secret
+    ):
         """Valid signature returns True."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
@@ -160,12 +164,16 @@ class TestSlackEventServiceVerifyRequest:
         body = '{"type":"event_callback","event":{}}'
         signature = self._generate_signature(slack_signing_secret, timestamp, body)
 
-        result = await SlackEventService.verify_slack_request(signature, timestamp, body)
+        result = await SlackEventService.verify_slack_request(
+            signature, timestamp, body
+        )
         assert result is True
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_invalid_signature_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_invalid_signature_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """Invalid signature returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
@@ -180,13 +188,17 @@ class TestSlackEventServiceVerifyRequest:
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_tampered_body_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_tampered_body_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """Tampered body returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
         timestamp = str(int(time.time()))
         original_body = '{"type":"event_callback","event":{}}'
-        signature = self._generate_signature(slack_signing_secret, timestamp, original_body)
+        signature = self._generate_signature(
+            slack_signing_secret, timestamp, original_body
+        )
 
         tampered_body = '{"type":"event_callback","event":{"malicious":true}}'
 
@@ -219,18 +231,20 @@ class TestSlackEventServiceVerifyRequest:
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_missing_signature_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_missing_signature_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """Missing signature returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
-        result = await SlackEventService.verify_slack_request(
-            "", "12345", "body"
-        )
+        result = await SlackEventService.verify_slack_request("", "12345", "body")
         assert result is False
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_missing_timestamp_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_missing_timestamp_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """Missing timestamp returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
@@ -241,18 +255,20 @@ class TestSlackEventServiceVerifyRequest:
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_none_signature_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_none_signature_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """None signature returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
-        result = await SlackEventService.verify_slack_request(
-            None, "12345", "body"
-        )
+        result = await SlackEventService.verify_slack_request(None, "12345", "body")
         assert result is False
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_different_secret_returns_false(self, mock_settings, slack_signing_secret):
+    async def test_different_secret_returns_false(
+        self, mock_settings, slack_signing_secret
+    ):
         """Signature created with different secret returns False."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
@@ -270,7 +286,9 @@ class TestSlackEventServiceVerifyRequest:
 
     @pytest.mark.asyncio
     @patch("app.slack.service.settings")
-    async def test_empty_body_valid_signature(self, mock_settings, slack_signing_secret):
+    async def test_empty_body_valid_signature(
+        self, mock_settings, slack_signing_secret
+    ):
         """Empty body with valid signature returns True."""
         mock_settings.SLACK_SIGNING_SECRET = slack_signing_secret
 
@@ -278,7 +296,9 @@ class TestSlackEventServiceVerifyRequest:
         body = ""
         signature = self._generate_signature(slack_signing_secret, timestamp, body)
 
-        result = await SlackEventService.verify_slack_request(signature, timestamp, body)
+        result = await SlackEventService.verify_slack_request(
+            signature, timestamp, body
+        )
         assert result is True
 
     @pytest.mark.asyncio
@@ -291,5 +311,7 @@ class TestSlackEventServiceVerifyRequest:
         body = '{"text":"Hello World!"}'
         signature = self._generate_signature(slack_signing_secret, timestamp, body)
 
-        result = await SlackEventService.verify_slack_request(signature, timestamp, body)
+        result = await SlackEventService.verify_slack_request(
+            signature, timestamp, body
+        )
         assert result is True
