@@ -622,7 +622,127 @@ class TestHealthCheckAll:
         assert response.status_code == 403
 
 
-# NOTE: TestAvailableIntegrations tests are skipped because the /available endpoint
-# has a route ordering bug in app/integrations/router.py - the /{integration_id} route
-# is defined before /available, so FastAPI matches "available" as an integration_id.
-# The endpoint needs to be moved before /{integration_id} in the router to work correctly.
+class TestAvailableIntegrations:
+    """Tests for GET /workspaces/{workspace_id}/integrations/available"""
+
+    @pytest.mark.asyncio
+    async def test_get_available_integrations_team_workspace(
+        self, client, test_db, test_workspace, mock_user, auth_override
+    ):
+        """Test getting available integrations for a team workspace."""
+        from app.main import app
+
+        app.dependency_overrides[integrations_router.auth_service.get_current_user] = (
+            auth_override
+        )
+
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{test_workspace.id}/integrations/available"
+        )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_type"] == "team"
+        assert "allowed_integrations" in data
+        assert "restrictions" in data
+        # Team workspaces should have all integrations available
+        assert len(data["allowed_integrations"]) > 0
+        assert data["upgrade_message"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_available_integrations_personal_workspace(
+        self, client, test_db, personal_workspace, mock_user, auth_override
+    ):
+        """Test getting available integrations for a personal workspace."""
+        from app.main import app
+
+        app.dependency_overrides[integrations_router.auth_service.get_current_user] = (
+            auth_override
+        )
+
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{personal_workspace.id}/integrations/available"
+        )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["workspace_type"] == "personal"
+        assert "allowed_integrations" in data
+        assert "restrictions" in data
+        # Personal workspaces should have limited integrations
+        assert data["upgrade_message"] is not None
+        assert "team workspace" in data["upgrade_message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_available_integrations_no_membership(
+        self, client, test_db, test_workspace, auth_override
+    ):
+        """Test getting available integrations when user has no membership."""
+        from app.main import app
+
+        # Create a different user without membership
+        other_user = User(
+            id=str(uuid.uuid4()),
+            name="Other User",
+            email="other@example.com",
+            is_verified=True,
+        )
+        test_db.add(other_user)
+        await test_db.commit()
+
+        async def override_get_current_user():
+            return other_user
+
+        app.dependency_overrides[integrations_router.auth_service.get_current_user] = (
+            override_get_current_user
+        )
+
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{test_workspace.id}/integrations/available"
+        )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 403
+        assert "does not have access" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_get_available_integrations_workspace_not_found(
+        self, client, test_db, mock_user, auth_override
+    ):
+        """Test getting available integrations for non-existent workspace."""
+        from app.main import app
+
+        # Add mock_user to database
+        test_db.add(mock_user)
+        await test_db.commit()
+
+        # Create membership to avoid early 403 but for a non-existent workspace
+        fake_workspace_id = str(uuid.uuid4())
+
+        app.dependency_overrides[integrations_router.auth_service.get_current_user] = (
+            auth_override
+        )
+
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{fake_workspace_id}/integrations/available"
+        )
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 403  # No membership check fails first
+
+    @pytest.mark.asyncio
+    async def test_get_available_integrations_unauthenticated(
+        self, client, test_db, test_workspace
+    ):
+        """Test getting available integrations without authentication."""
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{test_workspace.id}/integrations/available"
+        )
+
+        assert response.status_code == 403
