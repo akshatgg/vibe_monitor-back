@@ -14,41 +14,21 @@ Tests are organized by method and cover:
 
 import base64
 import hashlib
-import sys
-import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 from jose import jwt
-from pydantic import BaseModel
 
 
-# Create mock UserResponse before importing AuthService
-class MockUserResponse(BaseModel):
-    id: str
-    name: str
-    email: str
-    last_visited_workspace_id: str | None = None
-    created_at: datetime | None = None
+# Use the module-scoped fixture from conftest.py to set up mocks before import
+@pytest.fixture(scope="module")
+def auth_service_module(mock_auth_service_dependencies):
+    """Import AuthService after mocks are set up."""
+    from app.onboarding.services.auth_service import AuthService
 
-    model_config = {"from_attributes": True}
-
-
-# Mock dependencies before importing AuthService
-mock_email_module = MagicMock()
-mock_email_module.email_service = MagicMock()
-sys.modules["app.email"] = mock_email_module
-sys.modules["app.email.service"] = mock_email_module
-
-# Mock the schemas module to include UserResponse
-mock_schemas = MagicMock()
-mock_schemas.UserResponse = MockUserResponse
-sys.modules["app.onboarding.schemas"] = MagicMock()
-sys.modules["app.onboarding.schemas.schemas"] = mock_schemas
-
-from app.onboarding.services.auth_service import AuthService
+    return AuthService
 
 
 # =============================================================================
@@ -57,7 +37,7 @@ from app.onboarding.services.auth_service import AuthService
 
 
 @pytest.fixture
-def auth_service():
+def auth_service(auth_service_module):
     """Create AuthService instance with mocked settings."""
     with patch("app.onboarding.services.auth_service.settings") as mock_settings:
         mock_settings.JWT_SECRET_KEY = "test-secret-key"
@@ -68,8 +48,10 @@ def auth_service():
         mock_settings.GOOGLE_CLIENT_SECRET = "test-google-client-secret"
         mock_settings.GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
         mock_settings.GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-        mock_settings.GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
-        yield AuthService()
+        mock_settings.GOOGLE_USERINFO_URL = (
+            "https://www.googleapis.com/oauth2/v3/userinfo"
+        )
+        yield auth_service_module()
 
 
 @pytest.fixture
@@ -169,14 +151,16 @@ class TestGetGoogleAuthUrl:
         assert "code_challenge=test-challenge" in url
         assert "code_challenge_method=S256" in url
 
-    def test_get_google_auth_url_without_client_id_raises_error(self):
+    def test_get_google_auth_url_without_client_id_raises_error(
+        self, auth_service_module
+    ):
         with patch("app.onboarding.services.auth_service.settings") as mock_settings:
             mock_settings.GOOGLE_CLIENT_ID = None
             mock_settings.JWT_SECRET_KEY = "test"
             mock_settings.JWT_ALGORITHM = "HS256"
             mock_settings.ACCESS_TOKEN_EXPIRE_MINUTES = 30
             mock_settings.REFRESH_TOKEN_EXPIRE_DAYS = 7
-            service = AuthService()
+            service = auth_service_module()
 
             with pytest.raises(HTTPException) as exc_info:
                 service.get_google_auth_url(redirect_uri="https://example.com/callback")
@@ -222,7 +206,9 @@ class TestCreateAccessToken:
         now = datetime.now(timezone.utc)
 
         # Should expire in approximately 2 hours
-        assert timedelta(hours=1, minutes=59) < (exp - now) < timedelta(hours=2, minutes=1)
+        assert (
+            timedelta(hours=1, minutes=59) < (exp - now) < timedelta(hours=2, minutes=1)
+        )
 
     def test_create_access_token_preserves_original_data(self, auth_service):
         original_data = {"sub": "user-123", "email": "test@example.com"}
@@ -269,7 +255,11 @@ class TestVerifyToken:
     def test_verify_token_with_wrong_secret_raises_error(self, auth_service):
         # Create token with different secret
         token = jwt.encode(
-            {"sub": "user-123", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+            {
+                "sub": "user-123",
+                "type": "access",
+                "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+            },
             "different-secret",
             algorithm="HS256",
         )
@@ -289,7 +279,9 @@ class TestValidateIdToken:
     """Tests for validate_id_token method - Google ID token validation logic."""
 
     @pytest.mark.asyncio
-    async def test_validate_id_token_with_valid_token_returns_payload(self, auth_service):
+    async def test_validate_id_token_with_valid_token_returns_payload(
+        self, auth_service
+    ):
         payload = {
             "sub": "user-id-123",
             "email": "test@example.com",
@@ -305,7 +297,9 @@ class TestValidateIdToken:
         assert result["email"] == "test@example.com"
 
     @pytest.mark.asyncio
-    async def test_validate_id_token_with_wrong_audience_raises_error(self, auth_service):
+    async def test_validate_id_token_with_wrong_audience_raises_error(
+        self, auth_service
+    ):
         payload = {
             "sub": "user-id-123",
             "aud": "wrong-client-id",
@@ -321,7 +315,9 @@ class TestValidateIdToken:
         assert "Invalid token audience" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_validate_id_token_with_expired_token_raises_error(self, auth_service):
+    async def test_validate_id_token_with_expired_token_raises_error(
+        self, auth_service
+    ):
         payload = {
             "sub": "user-id-123",
             "aud": "test-google-client-id",
@@ -366,7 +362,9 @@ class TestGetUserInfoFromGoogle:
     """
 
     @pytest.mark.asyncio
-    async def test_get_user_info_from_google_success(self, auth_service, google_user_info):
+    async def test_get_user_info_from_google_success(
+        self, auth_service, google_user_info
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = google_user_info
         mock_response.raise_for_status = MagicMock()
@@ -382,7 +380,9 @@ class TestGetUserInfoFromGoogle:
         assert result["sub"] == "google-user-id-123"
 
     @pytest.mark.asyncio
-    async def test_get_user_info_from_google_missing_sub_raises_error(self, auth_service):
+    async def test_get_user_info_from_google_missing_sub_raises_error(
+        self, auth_service
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = {"email": "test@example.com"}  # Missing 'sub'
         mock_response.raise_for_status = MagicMock()
@@ -399,7 +399,9 @@ class TestGetUserInfoFromGoogle:
             assert "Missing required user information" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_get_user_info_from_google_missing_email_raises_error(self, auth_service):
+    async def test_get_user_info_from_google_missing_email_raises_error(
+        self, auth_service
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = {"sub": "123"}  # Missing 'email'
         mock_response.raise_for_status = MagicMock()
@@ -448,7 +450,9 @@ class TestExchangeCodeForTokens:
             assert call_args[1]["data"]["code_verifier"] == "test-verifier"
 
     @pytest.mark.asyncio
-    async def test_exchange_code_for_tokens_without_credentials_raises_error(self):
+    async def test_exchange_code_for_tokens_without_credentials_raises_error(
+        self, auth_service_module
+    ):
         with patch("app.onboarding.services.auth_service.settings") as mock_settings:
             mock_settings.GOOGLE_CLIENT_ID = None
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -456,7 +460,7 @@ class TestExchangeCodeForTokens:
             mock_settings.JWT_ALGORITHM = "HS256"
             mock_settings.ACCESS_TOKEN_EXPIRE_MINUTES = 30
             mock_settings.REFRESH_TOKEN_EXPIRE_DAYS = 7
-            service = AuthService()
+            service = auth_service_module()
 
             with pytest.raises(HTTPException) as exc_info:
                 await service.exchange_code_for_tokens(
