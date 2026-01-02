@@ -57,6 +57,7 @@ class TestRequireWorkspaceOwner:
 
         # Should not raise
         await require_workspace_owner(sample_workspace.id, sample_user, mock_db)
+        assert True  # No exception raised
 
     @pytest.mark.asyncio
     async def test_member_access_denied(

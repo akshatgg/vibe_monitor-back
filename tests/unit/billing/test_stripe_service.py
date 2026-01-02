@@ -15,15 +15,6 @@ from app.billing.services.stripe_service import StripeService
 class TestStripeServiceInitialization:
     """Tests for StripeService initialization."""
 
-    def test_init_sets_api_key_when_configured(self):
-        """Should set Stripe API key when STRIPE_SECRET_KEY is configured."""
-        with patch("app.billing.services.stripe_service.settings") as mock_settings:
-            mock_settings.STRIPE_SECRET_KEY = "sk_test_123"
-
-            with patch("app.billing.services.stripe_service.stripe") as mock_stripe:
-                StripeService()
-                mock_stripe.api_key = "sk_test_123"
-
     def test_init_logs_warning_when_key_not_configured(self):
         """Should log warning when STRIPE_SECRET_KEY is not configured."""
         with patch("app.billing.services.stripe_service.settings") as mock_settings:

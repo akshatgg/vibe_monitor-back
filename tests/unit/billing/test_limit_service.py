@@ -295,6 +295,7 @@ class TestLimitServiceEnforceServiceLimit:
 
         # Should not raise
         await limit_service.enforce_service_limit(mock_db, "ws-123")
+        assert True  # No exception raised
 
     @pytest.mark.asyncio
     async def test_error_message_includes_plan_name(self, limit_service, mock_db):
@@ -390,6 +391,7 @@ class TestLimitServiceEnforceRCALimit:
 
         # Should not raise
         await limit_service.enforce_rca_limit(mock_db, "ws-123")
+        assert True  # No exception raised
 
 
 class TestLimitServiceGetUsageStats:

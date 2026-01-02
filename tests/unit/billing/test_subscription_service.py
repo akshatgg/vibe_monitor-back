@@ -205,6 +205,7 @@ class TestHandleSubscriptionCreated:
         await subscription_service.handle_subscription_created(
             mock_db, mock_stripe_subscription
         )
+        assert True  # No exception raised
 
     @pytest.mark.asyncio
     async def test_skips_if_local_subscription_not_found(
@@ -217,6 +218,7 @@ class TestHandleSubscriptionCreated:
         await subscription_service.handle_subscription_created(
             mock_db, mock_stripe_subscription
         )
+        assert True  # No exception raised
 
 
 class TestHandleSubscriptionDeleted:

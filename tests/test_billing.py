@@ -239,12 +239,6 @@ class TestSubscriptionService:
 class TestWebhookHandler:
     """Tests for the Stripe webhook handler."""
 
-    def test_webhook_signature_verification_required(self):
-        """Test that webhook requires signature verification."""
-        # This is a unit test placeholder - actual integration test
-        # would use Stripe CLI to generate test webhooks
-        pass
-
     def test_subscription_created_event_handling(self):
         """Test handling subscription.created webhook event."""
         # Create mock event data

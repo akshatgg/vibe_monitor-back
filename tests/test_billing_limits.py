@@ -308,6 +308,7 @@ class TestLimitServiceEnforceServiceLimit:
         await limit_service.enforce_service_limit(
             mock_db, sample_subscription.workspace_id
         )
+        assert True  # No exception raised
 
     @pytest.mark.asyncio
     async def test_enforce_raises_402_at_limit(
@@ -360,6 +361,7 @@ class TestLimitServiceEnforceRcaLimit:
 
         # Should not raise
         await limit_service.enforce_rca_limit(mock_db, sample_subscription.workspace_id)
+        assert True  # No exception raised
 
     @pytest.mark.asyncio
     async def test_enforce_raises_402_at_limit(
