@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import backref, relationship
 from sqlalchemy.sql import func
 
 from app.core.config import settings
@@ -167,16 +167,24 @@ class Workspace(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Relationships
-    memberships = relationship("Membership", back_populates="workspace")
+    # Relationships - all with cascade delete to clean up when workspace is deleted
+    memberships = relationship(
+        "Membership", back_populates="workspace", cascade="all, delete-orphan"
+    )
     grafana_integration = relationship(
-        "GrafanaIntegration", back_populates="workspace", uselist=False
+        "GrafanaIntegration",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
     services = relationship(
         "Service", back_populates="workspace", cascade="all, delete-orphan"
     )
     subscription = relationship(
-        "Subscription", back_populates="workspace", uselist=False
+        "Subscription",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
     llm_config = relationship(
         "LLMProviderConfig",
@@ -251,7 +259,9 @@ class WorkspaceInvitation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="invitations")
+    workspace = relationship(
+        "Workspace", backref=backref("invitations", cascade="all, delete-orphan")
+    )
     inviter = relationship(
         "User", foreign_keys=[inviter_id], backref="sent_invitations"
     )
@@ -433,7 +443,10 @@ class GitHubIntegration(Base):
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    workspace = relationship("Workspace", backref="github_integrations")
+    workspace = relationship(
+        "Workspace",
+        backref=backref("github_integrations", cascade="all, delete-orphan"),
+    )
 
     # Indexes for query performance
     __table_args__ = (Index("idx_github_integration_installation", "installation_id"),)
@@ -499,7 +512,9 @@ class Job(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="jobs")
+    workspace = relationship(
+        "Workspace", backref=backref("jobs", cascade="all, delete-orphan")
+    )
     slack_integration = relationship("SlackInstallation", backref="jobs")
 
     # Indexes for query performance
@@ -529,7 +544,10 @@ class RateLimitTracking(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="rate_limit_tracking")
+    workspace = relationship(
+        "Workspace",
+        backref=backref("rate_limit_tracking", cascade="all, delete-orphan"),
+    )
 
     # Indexes
     __table_args__ = (
@@ -621,7 +639,9 @@ class AWSIntegration(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="aws_integrations")
+    workspace = relationship(
+        "Workspace", backref=backref("aws_integrations", cascade="all, delete-orphan")
+    )
 
     # Indexes for query performance
     __table_args__ = (
@@ -657,7 +677,10 @@ class NewRelicIntegration(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="newrelic_integrations")
+    workspace = relationship(
+        "Workspace",
+        backref=backref("newrelic_integrations", cascade="all, delete-orphan"),
+    )
 
 
 class DatadogIntegration(Base):
@@ -690,7 +713,10 @@ class DatadogIntegration(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="datadog_integrations")
+    workspace = relationship(
+        "Workspace",
+        backref=backref("datadog_integrations", cascade="all, delete-orphan"),
+    )
 
     # Indexes for query performance
     __table_args__ = (Index("idx_datadog_integration_workspace", "workspace_id"),)
@@ -763,7 +789,9 @@ class SecurityEvent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="security_events")
+    workspace = relationship(
+        "Workspace", backref=backref("security_events", cascade="all, delete-orphan")
+    )
     slack_integration = relationship("SlackInstallation", backref="security_events")
 
     # Indexes for query performance
@@ -818,7 +846,9 @@ class ChatSession(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    workspace = relationship("Workspace", backref="chat_sessions")
+    workspace = relationship(
+        "Workspace", backref=backref("chat_sessions", cascade="all, delete-orphan")
+    )
     user = relationship("User", backref="chat_sessions")
     turns = relationship(
         "ChatTurn", back_populates="session", cascade="all, delete-orphan"
