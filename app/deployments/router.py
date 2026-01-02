@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.core.security import get_current_user
 from app.deployments.schemas import (
     ApiKeyCreate,
     ApiKeyCreateResponse,
@@ -26,6 +26,9 @@ from app.models import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deployments", tags=["deployments"])
+
+# Initialize auth service
+auth_service = AuthService()
 
 
 # ==================== Webhook Endpoint ====================
@@ -103,7 +106,7 @@ async def create_deployment(
     workspace_id: str,
     environment_id: str,
     data: DeploymentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DeploymentResponse:
     """Create a deployment record (manual update)."""
@@ -138,7 +141,7 @@ async def list_deployments(
     repo: Optional[str] = Query(None, description="Filter by repository full name"),
     limit: int = Query(50, ge=1, le=100, description="Number of results to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DeploymentListResponse:
     """List deployment history for an environment."""
@@ -176,7 +179,7 @@ async def get_latest_deployment(
     workspace_id: str,
     environment_id: str,
     repo_full_name: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[DeploymentResponse]:
     """Get the latest successful deployment for a repository in an environment."""
@@ -214,7 +217,7 @@ async def get_latest_deployment(
 async def create_api_key(
     workspace_id: str,
     data: ApiKeyCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
     """
@@ -245,7 +248,7 @@ async def create_api_key(
 )
 async def list_api_keys(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyListResponse:
     """List all API keys for a workspace."""
@@ -274,7 +277,7 @@ async def list_api_keys(
 async def delete_api_key(
     workspace_id: str,
     key_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an API key."""

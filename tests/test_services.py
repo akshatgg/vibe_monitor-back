@@ -304,7 +304,7 @@ class TestServiceServiceCreate:
             count_result,  # For limit_service.get_service_count
         ]
 
-        service_data = ServiceCreate(name="api-gateway")
+        service_data = ServiceCreate(name="api-gateway", repository_name="org/repo")
 
         with pytest.raises(HTTPException) as exc_info:
             await service_service.create_service(
@@ -349,7 +349,7 @@ class TestServiceServiceCreate:
             unique_result,
         ]
 
-        service_data = ServiceCreate(name="api-gateway")
+        service_data = ServiceCreate(name="api-gateway", repository_name="org/repo")
 
         with pytest.raises(HTTPException) as exc_info:
             await service_service.create_service(
