@@ -340,7 +340,7 @@ async def test_send_slack_nudge_emails_with_scheduler_token(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-slack-nudge-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -370,7 +370,7 @@ async def test_send_slack_nudge_emails_skips_users_with_slack(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-slack-nudge-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -408,7 +408,7 @@ async def test_send_user_help_emails_with_scheduler_token(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-user-help-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -440,7 +440,7 @@ async def test_send_user_help_emails_skips_already_sent(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-user-help-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -482,7 +482,7 @@ async def test_send_usage_feedback_emails_with_scheduler_token(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-usage-feedback-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -507,7 +507,7 @@ async def test_send_usage_feedback_emails_skips_inactive_users(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-usage-feedback-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -535,7 +535,7 @@ async def test_send_usage_feedback_emails_skips_recent_users(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-usage-feedback-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 
@@ -571,7 +571,7 @@ async def test_send_usage_feedback_emails_skips_already_sent(client, test_db):
             response = await client.post(
                 f"{API_PREFIX}/send-usage-feedback-emails",
                 headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_AUTH_TOKEN or "test-token"
+                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
                 },
             )
 

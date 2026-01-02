@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models import Membership, User, Workspace, WorkspaceType
+from tests.integration.conftest import get_auth_headers
 
 API_PREFIX = "/api/v1"
 
@@ -74,11 +75,9 @@ async def test_create_newrelic_integration_success(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.newrelic.integration.service.verify_newrelic_credentials",
             new_callable=AsyncMock,
@@ -97,6 +96,7 @@ async def test_create_newrelic_integration_success(client, test_db):
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     assert response.status_code == 201
@@ -115,18 +115,17 @@ async def test_create_newrelic_integration_invalid_api_key_prefix(client, test_d
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "account_id": "1234567",
-                "api_key": "INVALID-XXXXXXXXXXXXXXXXXXXX",  # Doesn't start with NRAK
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "account_id": "1234567",
+            "api_key": "INVALID-XXXXXXXXXXXXXXXXXXXX",  # Doesn't start with NRAK
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 422  # Pydantic validation error
 
@@ -139,18 +138,17 @@ async def test_create_newrelic_integration_short_api_key(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "account_id": "1234567",
-                "api_key": "NRAK-X",  # Too short
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "account_id": "1234567",
+            "api_key": "NRAK-X",  # Too short
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 422  # Pydantic validation error
 
@@ -163,16 +161,12 @@ async def test_create_newrelic_integration_invalid_credentials(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
-        patch(
-            "app.newrelic.integration.service.verify_newrelic_credentials",
-            new_callable=AsyncMock,
-            return_value=(False, "Invalid API key"),
-        ),
+    auth_headers = get_auth_headers(user)
+
+    with patch(
+        "app.newrelic.integration.service.verify_newrelic_credentials",
+        new_callable=AsyncMock,
+        return_value=(False, "Invalid API key"),
     ):
         response = await client.post(
             f"{API_PREFIX}/newrelic/integration",
@@ -181,6 +175,7 @@ async def test_create_newrelic_integration_invalid_credentials(client, test_db):
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     assert response.status_code == 400
@@ -195,18 +190,17 @@ async def test_create_newrelic_integration_no_workspace_access(client, test_db):
     # No membership created
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "account_id": "1234567",
-                "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "account_id": "1234567",
+            "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
     assert "Access denied" in response.json()["detail"]
@@ -222,11 +216,9 @@ async def test_create_newrelic_integration_personal_workspace_allowed(client, te
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.newrelic.integration.service.verify_newrelic_credentials",
             new_callable=AsyncMock,
@@ -245,6 +237,7 @@ async def test_create_newrelic_integration_personal_workspace_allowed(client, te
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     # New Relic is allowed for personal workspaces (unlike Datadog)
@@ -264,14 +257,13 @@ async def test_get_newrelic_integration_status_not_connected(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/newrelic/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.get(
+        f"{API_PREFIX}/newrelic/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -287,12 +279,10 @@ async def test_get_newrelic_integration_status_connected(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # First create an integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.newrelic.integration.service.verify_newrelic_credentials",
             new_callable=AsyncMock,
@@ -311,17 +301,15 @@ async def test_get_newrelic_integration_status_connected(client, test_db):
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     # Now check status
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/newrelic/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    response = await client.get(
+        f"{API_PREFIX}/newrelic/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -338,14 +326,13 @@ async def test_get_newrelic_integration_status_no_access(client, test_db):
     # No membership
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/newrelic/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.get(
+        f"{API_PREFIX}/newrelic/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
 
@@ -363,12 +350,10 @@ async def test_delete_newrelic_integration_success(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # First create an integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.newrelic.integration.service.verify_newrelic_credentials",
             new_callable=AsyncMock,
@@ -387,17 +372,15 @@ async def test_delete_newrelic_integration_success(client, test_db):
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     # Delete the integration
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-        )
+    response = await client.delete(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -413,14 +396,13 @@ async def test_delete_newrelic_integration_not_found(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.delete(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
@@ -434,14 +416,13 @@ async def test_delete_newrelic_integration_no_access(client, test_db):
     # No membership
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.delete(
+        f"{API_PREFIX}/newrelic/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
 
@@ -459,12 +440,10 @@ async def test_create_newrelic_integration_duplicate(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # Create first integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.newrelic.integration.service.verify_newrelic_credentials",
             new_callable=AsyncMock,
@@ -483,21 +462,16 @@ async def test_create_newrelic_integration_duplicate(client, test_db):
                 "account_id": "1234567",
                 "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
             },
+            headers=auth_headers,
         )
 
     assert response1.status_code == 201
 
     # Try to create second integration
-    with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
-        patch(
-            "app.newrelic.integration.service.verify_newrelic_credentials",
-            new_callable=AsyncMock,
-            return_value=(True, ""),
-        ),
+    with patch(
+        "app.newrelic.integration.service.verify_newrelic_credentials",
+        new_callable=AsyncMock,
+        return_value=(True, ""),
     ):
         response2 = await client.post(
             f"{API_PREFIX}/newrelic/integration",
@@ -506,6 +480,7 @@ async def test_create_newrelic_integration_duplicate(client, test_db):
                 "account_id": "7654321",  # Different account
                 "api_key": "NRAK-YYYYYYYYYYYYYYYYYYYY",
             },
+            headers=auth_headers,
         )
 
     assert response2.status_code == 400

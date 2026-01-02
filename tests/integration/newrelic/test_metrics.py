@@ -8,7 +8,7 @@ Tests the following OPEN endpoints (no authentication required):
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -56,6 +56,17 @@ async def create_test_workspace_with_newrelic(test_db) -> tuple[Workspace, str]:
     return workspace, workspace_id
 
 
+def create_mock_httpx_response(
+    status_code: int, json_data: dict = None, text: str = ""
+):
+    """Create a mock httpx response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = json_data or {}
+    mock_response.text = text
+    return mock_response
+
+
 # =============================================================================
 # Test: Query Metrics (NRQL)
 # =============================================================================
@@ -85,16 +96,19 @@ async def test_query_metrics_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/query",
@@ -139,16 +153,19 @@ async def test_query_metrics_timeseries(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/query",
@@ -176,7 +193,7 @@ async def test_query_metrics_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+        "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -230,16 +247,19 @@ async def test_get_timeseries_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/timeseries",
@@ -280,16 +300,19 @@ async def test_get_timeseries_with_filter(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/timeseries",
@@ -327,16 +350,19 @@ async def test_get_timeseries_different_aggregations(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/timeseries",
@@ -390,16 +416,19 @@ async def test_get_infra_metrics_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/infrastructure",
@@ -446,16 +475,19 @@ async def test_get_infra_metrics_with_hostname(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/infrastructure",
@@ -487,7 +519,7 @@ async def test_get_infra_metrics_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+        "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -514,16 +546,19 @@ async def test_metrics_api_authentication_error(client, test_db):
     """Test metrics query handles authentication errors."""
     workspace, workspace_id = await create_test_workspace_with_newrelic(test_db)
 
+    mock_response = create_mock_httpx_response(401, text="Unauthorized")
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "invalid_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 401
-        mock_post.return_value.text = "Unauthorized"
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/query",
@@ -550,16 +585,19 @@ async def test_metrics_graphql_error(client, test_db):
         ]
     }
 
+    mock_response = create_mock_httpx_response(200, mock_error_response)
+
     with (
         patch(
-            "app.newrelic.Metrics.service.newrelic_metrics_service._get_credentials",
+            "app.newrelic.Metrics.service.NewRelicMetricsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_error_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/metrics/query",

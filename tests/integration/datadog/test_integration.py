@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models import Membership, User, Workspace, WorkspaceType
+from tests.integration.conftest import get_auth_headers
 
 API_PREFIX = "/api/v1"
 
@@ -75,12 +76,10 @@ async def test_create_datadog_integration_success(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    # Mock auth and external API calls
+    auth_headers = get_auth_headers(user)
+
+    # Mock external API calls
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.datadog.integration.service.verify_datadog_credentials",
             new_callable=AsyncMock,
@@ -100,6 +99,7 @@ async def test_create_datadog_integration_success(client, test_db):
                 "app_key": "b" * 40,  # Valid length App key
                 "region": "us1",
             },
+            headers=auth_headers,
         )
 
     assert response.status_code == 201
@@ -118,16 +118,12 @@ async def test_create_datadog_integration_invalid_credentials(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
-        patch(
-            "app.datadog.integration.service.verify_datadog_credentials",
-            new_callable=AsyncMock,
-            return_value=(False, "Invalid API key"),
-        ),
+    auth_headers = get_auth_headers(user)
+
+    with patch(
+        "app.datadog.integration.service.verify_datadog_credentials",
+        new_callable=AsyncMock,
+        return_value=(False, "Invalid API key"),
     ):
         response = await client.post(
             f"{API_PREFIX}/datadog/integration",
@@ -137,6 +133,7 @@ async def test_create_datadog_integration_invalid_credentials(client, test_db):
                 "app_key": "b" * 40,
                 "region": "us1",
             },
+            headers=auth_headers,
         )
 
     assert response.status_code == 400
@@ -151,19 +148,18 @@ async def test_create_datadog_integration_invalid_region(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "api_key": "a" * 32,
-                "app_key": "b" * 40,
-                "region": "invalid_region",
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "api_key": "a" * 32,
+            "app_key": "b" * 40,
+            "region": "invalid_region",
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 422  # Pydantic validation error
 
@@ -176,19 +172,18 @@ async def test_create_datadog_integration_short_api_key(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "api_key": "short",  # Too short
-                "app_key": "b" * 40,
-                "region": "us1",
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "api_key": "short",  # Too short
+            "app_key": "b" * 40,
+            "region": "us1",
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 422  # Pydantic validation error
 
@@ -201,19 +196,18 @@ async def test_create_datadog_integration_no_workspace_access(client, test_db):
     # No membership created
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "api_key": "a" * 32,
-                "app_key": "b" * 40,
-                "region": "us1",
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "api_key": "a" * 32,
+            "app_key": "b" * 40,
+            "region": "us1",
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
     assert "Access denied" in response.json()["detail"]
@@ -229,19 +223,18 @@ async def test_create_datadog_integration_personal_workspace_blocked(client, tes
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "api_key": "a" * 32,
-                "app_key": "b" * 40,
-                "region": "us1",
-            },
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.post(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        json={
+            "api_key": "a" * 32,
+            "app_key": "b" * 40,
+            "region": "us1",
+        },
+        headers=auth_headers,
+    )
 
     assert response.status_code == 400
     assert "not available for personal workspaces" in response.json()["detail"]
@@ -260,14 +253,13 @@ async def test_get_datadog_integration_status_not_connected(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/datadog/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.get(
+        f"{API_PREFIX}/datadog/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -283,12 +275,10 @@ async def test_get_datadog_integration_status_connected(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # First create an integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.datadog.integration.service.verify_datadog_credentials",
             new_callable=AsyncMock,
@@ -308,17 +298,15 @@ async def test_get_datadog_integration_status_connected(client, test_db):
                 "app_key": "b" * 40,
                 "region": "us1",
             },
+            headers=auth_headers,
         )
 
     # Now check status
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/datadog/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    response = await client.get(
+        f"{API_PREFIX}/datadog/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -335,14 +323,13 @@ async def test_get_datadog_integration_status_no_access(client, test_db):
     # No membership
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.get(
-            f"{API_PREFIX}/datadog/integration/status",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.get(
+        f"{API_PREFIX}/datadog/integration/status",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
 
@@ -360,12 +347,10 @@ async def test_delete_datadog_integration_success(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # First create an integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.datadog.integration.service.verify_datadog_credentials",
             new_callable=AsyncMock,
@@ -385,17 +370,15 @@ async def test_delete_datadog_integration_success(client, test_db):
                 "app_key": "b" * 40,
                 "region": "us1",
             },
+            headers=auth_headers,
         )
 
     # Delete the integration
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-        )
+    response = await client.delete(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -411,14 +394,13 @@ async def test_delete_datadog_integration_not_found(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.delete(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
@@ -432,14 +414,13 @@ async def test_delete_datadog_integration_no_access(client, test_db):
     # No membership
     await test_db.commit()
 
-    with patch(
-        "app.auth.google.service.AuthService.get_current_user",
-        return_value=user,
-    ):
-        response = await client.delete(
-            f"{API_PREFIX}/datadog/integration",
-            params={"workspace_id": workspace.id},
-        )
+    auth_headers = get_auth_headers(user)
+
+    response = await client.delete(
+        f"{API_PREFIX}/datadog/integration",
+        params={"workspace_id": workspace.id},
+        headers=auth_headers,
+    )
 
     assert response.status_code == 403
 
@@ -457,12 +438,10 @@ async def test_create_datadog_integration_duplicate(client, test_db):
     await create_test_membership(test_db, user, workspace)
     await test_db.commit()
 
+    auth_headers = get_auth_headers(user)
+
     # Create first integration
     with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
         patch(
             "app.datadog.integration.service.verify_datadog_credentials",
             new_callable=AsyncMock,
@@ -482,21 +461,16 @@ async def test_create_datadog_integration_duplicate(client, test_db):
                 "app_key": "b" * 40,
                 "region": "us1",
             },
+            headers=auth_headers,
         )
 
     assert response1.status_code == 201
 
     # Try to create second integration
-    with (
-        patch(
-            "app.auth.google.service.AuthService.get_current_user",
-            return_value=user,
-        ),
-        patch(
-            "app.datadog.integration.service.verify_datadog_credentials",
-            new_callable=AsyncMock,
-            return_value=(True, ""),
-        ),
+    with patch(
+        "app.datadog.integration.service.verify_datadog_credentials",
+        new_callable=AsyncMock,
+        return_value=(True, ""),
     ):
         response2 = await client.post(
             f"{API_PREFIX}/datadog/integration",
@@ -506,6 +480,7 @@ async def test_create_datadog_integration_duplicate(client, test_db):
                 "app_key": "d" * 40,
                 "region": "eu1",
             },
+            headers=auth_headers,
         )
 
     assert response2.status_code == 400

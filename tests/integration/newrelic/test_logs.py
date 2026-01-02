@@ -7,7 +7,7 @@ Tests the following OPEN endpoints (no authentication required):
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -55,6 +55,17 @@ async def create_test_workspace_with_newrelic(test_db) -> tuple[Workspace, str]:
     return workspace, workspace_id
 
 
+def create_mock_httpx_response(
+    status_code: int, json_data: dict = None, text: str = ""
+):
+    """Create a mock httpx response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = json_data or {}
+    mock_response.text = text
+    return mock_response
+
+
 # =============================================================================
 # Test: Query Logs (NRQL)
 # =============================================================================
@@ -95,16 +106,19 @@ async def test_query_logs_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/query",
@@ -142,16 +156,19 @@ async def test_query_logs_with_facet(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/query",
@@ -177,9 +194,9 @@ async def test_query_logs_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+        "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
         new_callable=AsyncMock,
-        return_value=None,
+        side_effect=Exception("New Relic integration not found"),
     ):
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/query",
@@ -204,16 +221,19 @@ async def test_query_logs_graphql_error(client, test_db):
         ]
     }
 
+    mock_response = create_mock_httpx_response(200, mock_error_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_error_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/query",
@@ -256,16 +276,19 @@ async def test_filter_logs_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/filter",
@@ -305,16 +328,19 @@ async def test_filter_logs_with_pagination(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/filter",
@@ -349,16 +375,19 @@ async def test_filter_logs_default_parameters(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_graphql_response)
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "test_api_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_graphql_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/filter",
@@ -379,16 +408,19 @@ async def test_query_logs_authentication_error(client, test_db):
     """Test log query handles authentication errors."""
     workspace, workspace_id = await create_test_workspace_with_newrelic(test_db)
 
+    mock_response = create_mock_httpx_response(401, text="Unauthorized")
+
     with (
         patch(
-            "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+            "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
             new_callable=AsyncMock,
             return_value={"account_id": "1234567", "api_key": "invalid_key"},
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.newrelic.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 401
-        mock_post.return_value.text = "Unauthorized"
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/query",
@@ -412,9 +444,9 @@ async def test_filter_logs_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.newrelic.Logs.service.newrelic_logs_service._get_credentials",
+        "app.newrelic.Logs.service.NewRelicLogsService._get_newrelic_credentials",
         new_callable=AsyncMock,
-        return_value=None,
+        side_effect=Exception("New Relic integration not found"),
     ):
         response = await client.post(
             f"{API_PREFIX}/newrelic/logs/filter",

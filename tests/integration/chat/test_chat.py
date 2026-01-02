@@ -20,7 +20,7 @@ Endpoints tested:
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -45,7 +45,7 @@ from app.models import (
     Workspace,
     WorkspaceType,
 )
-from tests.integration.conftest import API_PREFIX
+from tests.integration.conftest import API_PREFIX, get_auth_headers
 
 
 # =============================================================================
@@ -239,10 +239,7 @@ class TestListSessions:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/sessions."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_list_sessions_returns_user_sessions(
-        self, mock_auth, client, test_db
-    ):
+    async def test_list_sessions_returns_user_sessions(self, client, test_db):
         """List sessions returns sessions for the current user."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -255,9 +252,12 @@ class TestListSessions:
             test_db, workspace.id, user.id, title="Session 2"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
-        response = await client.get(f"{API_PREFIX}/workspaces/{workspace.id}/sessions")
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions",
+            headers=headers,
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -267,9 +267,8 @@ class TestListSessions:
         assert "Session 2" in titles
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
     async def test_list_sessions_does_not_return_other_users_sessions(
-        self, mock_auth, client, test_db
+        self, client, test_db
     ):
         """List sessions does not return sessions belonging to other users."""
         user1 = await create_test_user(test_db, email="user1@example.com")
@@ -285,9 +284,12 @@ class TestListSessions:
             test_db, workspace.id, user2.id, title="User2 Session"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user1)
+        headers = get_auth_headers(user1)
 
-        response = await client.get(f"{API_PREFIX}/workspaces/{workspace.id}/sessions")
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions",
+            headers=headers,
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -295,8 +297,7 @@ class TestListSessions:
         assert data[0]["title"] == "User1 Session"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_list_sessions_with_pagination(self, mock_auth, client, test_db):
+    async def test_list_sessions_with_pagination(self, client, test_db):
         """List sessions supports limit and offset pagination."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -307,10 +308,11 @@ class TestListSessions:
                 test_db, workspace.id, user.id, title=f"Session {i}"
             )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions?limit=2&offset=1"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions?limit=2&offset=1",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -318,16 +320,18 @@ class TestListSessions:
         assert len(data) == 2
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_list_sessions_empty(self, mock_auth, client, test_db):
+    async def test_list_sessions_empty(self, client, test_db):
         """List sessions returns empty list when no sessions exist."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
-        response = await client.get(f"{API_PREFIX}/workspaces/{workspace.id}/sessions")
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions",
+            headers=headers,
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -338,8 +342,7 @@ class TestSearchSessions:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/sessions/search."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_search_sessions_by_title(self, mock_auth, client, test_db):
+    async def test_search_sessions_by_title(self, client, test_db):
         """Search sessions finds sessions by title."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -352,10 +355,11 @@ class TestSearchSessions:
             test_db, workspace.id, user.id, title="API Performance Review"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/search?q=Database"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/search?q=Database",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -367,10 +371,7 @@ class TestGetSession:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/sessions/{session_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_get_session_returns_session_with_turns(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_session_returns_session_with_turns(self, client, test_db):
         """Get session returns session details with turns."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -382,10 +383,11 @@ class TestGetSession:
         await create_test_chat_turn(test_db, session.id, user_message="First question")
         await create_test_chat_turn(test_db, session.id, user_message="Second question")
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -395,24 +397,23 @@ class TestGetSession:
         assert len(data["turns"]) == 2
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_get_session_not_found_returns_404(self, mock_auth, client, test_db):
+    async def test_get_session_not_found_returns_404(self, client, test_db):
         """Get non-existent session returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/non-existent-id"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/non-existent-id",
+            headers=headers,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_get_session_other_user_returns_404(self, mock_auth, client, test_db):
+    async def test_get_session_other_user_returns_404(self, client, test_db):
         """Get session belonging to another user returns 404."""
         user1 = await create_test_user(test_db, email="user1@example.com")
         user2 = await create_test_user(test_db, email="user2@example.com")
@@ -424,10 +425,11 @@ class TestGetSession:
             test_db, workspace.id, user2.id, title="User2's Session"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user1)
+        headers = get_auth_headers(user1)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -437,8 +439,7 @@ class TestUpdateSession:
     """Integration tests for PATCH /api/v1/workspaces/{workspace_id}/sessions/{session_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_update_session_title(self, mock_auth, client, test_db):
+    async def test_update_session_title(self, client, test_db):
         """Update session title successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -448,11 +449,12 @@ class TestUpdateSession:
             test_db, workspace.id, user.id, title="Old Title"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
             json={"title": "New Title"},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -460,10 +462,7 @@ class TestUpdateSession:
         assert data["title"] == "New Title"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_update_session_persists_to_database(
-        self, mock_auth, client, test_db
-    ):
+    async def test_update_session_persists_to_database(self, client, test_db):
         """Update session persists changes to database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -473,31 +472,30 @@ class TestUpdateSession:
             test_db, workspace.id, user.id, title="Old Title"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
             json={"title": "Updated Title"},
+            headers=headers,
         )
 
         await test_db.refresh(session)
         assert session.title == "Updated Title"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_update_session_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_update_session_not_found_returns_404(self, client, test_db):
         """Update non-existent session returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/sessions/non-existent-id",
             json={"title": "New Title"},
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -507,8 +505,7 @@ class TestDeleteSession:
     """Integration tests for DELETE /api/v1/workspaces/{workspace_id}/sessions/{session_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_delete_session_success(self, mock_auth, client, test_db):
+    async def test_delete_session_success(self, client, test_db):
         """Delete session returns 204 and removes from database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -518,10 +515,11 @@ class TestDeleteSession:
             test_db, workspace.id, user.id, title="To Delete"
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.delete(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
+            headers=headers,
         )
 
         assert response.status_code == 204
@@ -532,8 +530,7 @@ class TestDeleteSession:
         assert deleted_session is None
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_delete_session_cascades_to_turns(self, mock_auth, client, test_db):
+    async def test_delete_session_cascades_to_turns(self, client, test_db):
         """Delete session also deletes associated turns."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -542,10 +539,11 @@ class TestDeleteSession:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.delete(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
+            headers=headers,
         )
 
         # Verify turn is also deleted
@@ -554,19 +552,17 @@ class TestDeleteSession:
         assert deleted_turn is None
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_delete_session_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_delete_session_not_found_returns_404(self, client, test_db):
         """Delete non-existent session returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.delete(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/non-existent-id"
+            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/non-existent-id",
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -581,8 +577,7 @@ class TestGetTurn:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/turns/{turn_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_get_turn_returns_turn_details(self, mock_auth, client, test_db):
+    async def test_get_turn_returns_turn_details(self, client, test_db):
         """Get turn returns turn details with steps."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -597,10 +592,11 @@ class TestGetTurn:
             status=TurnStatus.COMPLETED,
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -611,17 +607,17 @@ class TestGetTurn:
         assert data["status"] == "completed"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_get_turn_not_found_returns_404(self, mock_auth, client, test_db):
+    async def test_get_turn_not_found_returns_404(self, client, test_db):
         """Get non-existent turn returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/turns/non-existent-id"
+            f"{API_PREFIX}/workspaces/{workspace.id}/turns/non-existent-id",
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -636,8 +632,7 @@ class TestSubmitFeedback:
     """Integration tests for POST /api/v1/workspaces/{workspace_id}/turns/{turn_id}/feedback."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_submit_positive_feedback(self, mock_auth, client, test_db):
+    async def test_submit_positive_feedback(self, client, test_db):
         """Submit positive feedback (thumbs up) successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -646,11 +641,12 @@ class TestSubmitFeedback:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/feedback",
             json={"is_positive": True},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -659,8 +655,7 @@ class TestSubmitFeedback:
         assert data["is_positive"] is True
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_submit_negative_feedback(self, mock_auth, client, test_db):
+    async def test_submit_negative_feedback(self, client, test_db):
         """Submit negative feedback (thumbs down) successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -669,11 +664,12 @@ class TestSubmitFeedback:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/feedback",
             json={"is_positive": False},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -681,8 +677,7 @@ class TestSubmitFeedback:
         assert data["is_positive"] is False
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_submit_feedback_with_comment(self, mock_auth, client, test_db):
+    async def test_submit_feedback_with_comment(self, client, test_db):
         """Submit feedback with optional comment."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -691,7 +686,7 @@ class TestSubmitFeedback:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/feedback",
@@ -699,6 +694,7 @@ class TestSubmitFeedback:
                 "is_positive": True,
                 "comment": "Very helpful analysis!",
             },
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -707,10 +703,7 @@ class TestSubmitFeedback:
         assert data["comment"] == "Very helpful analysis!"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_submit_feedback_persists_to_database(
-        self, mock_auth, client, test_db
-    ):
+    async def test_submit_feedback_persists_to_database(self, client, test_db):
         """Submit feedback persists data to database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -719,11 +712,12 @@ class TestSubmitFeedback:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/feedback",
             json={"is_positive": True},
+            headers=headers,
         )
 
         result = await test_db.execute(
@@ -734,20 +728,18 @@ class TestSubmitFeedback:
         assert feedback.is_positive is True
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_submit_feedback_turn_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_submit_feedback_turn_not_found_returns_404(self, client, test_db):
         """Submit feedback for non-existent turn returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/non-existent-id/feedback",
             json={"is_positive": True},
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -757,8 +749,7 @@ class TestAddFeedbackComment:
     """Integration tests for POST /api/v1/workspaces/{workspace_id}/turns/{turn_id}/comment."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_add_comment_success(self, mock_auth, client, test_db):
+    async def test_add_comment_success(self, client, test_db):
         """Add comment to turn successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -767,11 +758,12 @@ class TestAddFeedbackComment:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/comment",
             json={"comment": "This could be improved by..."},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -779,8 +771,7 @@ class TestAddFeedbackComment:
         assert data["comment"] == "This could be improved by..."
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_add_comment_persists_to_database(self, mock_auth, client, test_db):
+    async def test_add_comment_persists_to_database(self, client, test_db):
         """Add comment persists to database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -789,11 +780,12 @@ class TestAddFeedbackComment:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/comment",
             json={"comment": "Detailed feedback comment"},
+            headers=headers,
         )
 
         result = await test_db.execute(
@@ -804,27 +796,24 @@ class TestAddFeedbackComment:
         assert comment.comment == "Detailed feedback comment"
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_add_comment_turn_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_add_comment_turn_not_found_returns_404(self, client, test_db):
         """Add comment for non-existent turn returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/non-existent-id/comment",
             json={"comment": "Some comment"},
+            headers=headers,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
-    async def test_add_multiple_comments(self, mock_auth, client, test_db):
+    async def test_add_multiple_comments(self, client, test_db):
         """User can add multiple comments to the same turn."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -833,15 +822,17 @@ class TestAddFeedbackComment:
         session = await create_test_chat_session(test_db, workspace.id, user.id)
         turn = await create_test_chat_turn(test_db, session.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/comment",
             json={"comment": "First comment"},
+            headers=headers,
         )
         await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/turns/{turn.id}/comment",
             json={"comment": "Second comment"},
+            headers=headers,
         )
 
         result = await test_db.execute(
@@ -860,10 +851,9 @@ class TestSendMessage:
     """Integration tests for POST /api/v1/workspaces/{workspace_id}/chat."""
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
     @patch("app.chat.router.check_rate_limit_with_byollm_bypass")
     async def test_send_message_creates_session_and_turn(
-        self, mock_rate_limit, mock_auth, client, test_db
+        self, mock_rate_limit, client, test_db
     ):
         """Send message creates new session and turn when no session_id provided."""
         user = await create_test_user(test_db)
@@ -872,12 +862,13 @@ class TestSendMessage:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
         mock_rate_limit.return_value = (True, 0, 10)  # allowed, count, limit
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/chat",
             json={"message": "What caused the database timeout?"},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -886,22 +877,22 @@ class TestSendMessage:
         assert "session_id" in data
 
     @pytest.mark.asyncio
-    @patch("app.chat.router.auth_service")
     @patch("app.chat.router.check_rate_limit_with_byollm_bypass")
     async def test_send_message_rate_limited_returns_429(
-        self, mock_rate_limit, mock_auth, client, test_db
+        self, mock_rate_limit, client, test_db
     ):
         """Send message returns 429 when rate limit exceeded."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
         mock_rate_limit.return_value = (False, 10, 10)  # not allowed, at limit
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/chat",
             json={"message": "Rate limited message"},
+            headers=headers,
         )
 
         assert response.status_code == 429

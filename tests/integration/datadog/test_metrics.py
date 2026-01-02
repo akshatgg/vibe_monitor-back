@@ -9,7 +9,7 @@ Tests the following OPEN endpoints (no authentication required):
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -58,6 +58,17 @@ async def create_test_workspace_with_datadog(test_db) -> tuple[Workspace, str]:
     return workspace, workspace_id
 
 
+def create_mock_httpx_response(
+    status_code: int, json_data: dict = None, text: str = ""
+):
+    """Create a mock httpx response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = json_data or {}
+    mock_response.text = text
+    return mock_response
+
+
 # =============================================================================
 # Test: Query Timeseries
 # =============================================================================
@@ -68,7 +79,7 @@ async def test_query_timeseries_simple_format(client, test_db):
     """Test timeseries query with simple format (single query)."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {
+    mock_response_data = {
         "data": {
             "type": "timeseries_response",
             "attributes": {
@@ -79,9 +90,11 @@ async def test_query_timeseries_simple_format(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -89,10 +102,11 @@ async def test_query_timeseries_simple_format(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/metrics/query/timeseries",
@@ -141,7 +155,7 @@ async def test_query_timeseries_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.datadog.integration.service.get_datadog_credentials",
+        "app.datadog.Metrics.service.get_datadog_credentials",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -169,7 +183,7 @@ async def test_simple_query_success(client, test_db):
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
     # Mock the timeseries response that the service will parse
-    mock_response = {
+    mock_response_data = {
         "data": {
             "type": "timeseries_response",
             "attributes": {
@@ -180,9 +194,11 @@ async def test_simple_query_success(client, test_db):
         }
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -190,10 +206,11 @@ async def test_simple_query_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/metrics/query",
@@ -222,7 +239,7 @@ async def test_events_search_success(client, test_db):
     """Test searching Datadog events."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {
+    mock_response_data = {
         "events": [
             {
                 "id": 12345,
@@ -248,9 +265,11 @@ async def test_events_search_success(client, test_db):
         ]
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -258,10 +277,11 @@ async def test_events_search_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/metrics/events/search",
@@ -285,11 +305,12 @@ async def test_events_search_empty(client, test_db):
     """Test events search returns empty list when no events."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {"events": []}
+    mock_response_data = {"events": []}
+    mock_response = create_mock_httpx_response(200, mock_response_data)
 
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -297,10 +318,11 @@ async def test_events_search_empty(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/metrics/events/search",
@@ -328,7 +350,7 @@ async def test_list_tags_success(client, test_db):
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
     # Mock events response that contains tags
-    mock_response = {
+    mock_response_data = {
         "events": [
             {"id": 1, "tags": ["env:prod", "service:api", "region:us-east-1"]},
             {"id": 2, "tags": ["env:staging", "service:api"]},
@@ -336,9 +358,11 @@ async def test_list_tags_success(client, test_db):
         ]
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -346,10 +370,11 @@ async def test_list_tags_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.get(
             f"{API_PREFIX}/datadog/metrics/tags/list",
@@ -376,7 +401,7 @@ async def test_list_tags_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.datadog.integration.service.get_datadog_credentials",
+        "app.datadog.Metrics.service.get_datadog_credentials",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -398,9 +423,11 @@ async def test_metrics_api_authentication_error(client, test_db):
     """Test metrics query handles authentication errors."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
+    mock_response = create_mock_httpx_response(403, text="Forbidden")
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Metrics.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "invalid_key",
@@ -408,10 +435,11 @@ async def test_metrics_api_authentication_error(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Metrics.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 403
-        mock_post.return_value.text = "Forbidden"
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/metrics/query",

@@ -40,7 +40,7 @@ from app.models import (
     Workspace,
     WorkspaceType,
 )
-from tests.integration.conftest import API_PREFIX
+from tests.integration.conftest import API_PREFIX, get_auth_headers
 
 
 # =============================================================================
@@ -187,8 +187,7 @@ class TestCreateService:
     """Integration tests for POST /api/v1/workspaces/{workspace_id}/services."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_create_service_success(self, mock_auth, client, test_db):
+    async def test_create_service_success(self, client, test_db):
         """Create service with valid data returns 201."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -196,7 +195,7 @@ class TestCreateService:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/services",
@@ -204,6 +203,7 @@ class TestCreateService:
                 "name": "my-service",
                 "repository_name": "owner/repo",
             },
+            headers=headers,
         )
 
         assert response.status_code == 201
@@ -213,10 +213,7 @@ class TestCreateService:
         assert data["enabled"] is True
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_create_service_persists_to_database(
-        self, mock_auth, client, test_db
-    ):
+    async def test_create_service_persists_to_database(self, client, test_db):
         """Create service persists data to database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -224,7 +221,7 @@ class TestCreateService:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/services",
@@ -232,6 +229,7 @@ class TestCreateService:
                 "name": "persisted-service",
                 "repository_name": "owner/repo",
             },
+            headers=headers,
         )
 
         result = await test_db.execute(
@@ -242,16 +240,13 @@ class TestCreateService:
         assert service.workspace_id == workspace.id
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_create_service_unauthorized_non_member(
-        self, mock_auth, client, test_db
-    ):
+    async def test_create_service_unauthorized_non_member(self, client, test_db):
         """Create service by non-member returns 403."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         # No membership created
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/services",
@@ -259,19 +254,17 @@ class TestCreateService:
                 "name": "my-service",
                 "repository_name": "owner/repo",
             },
+            headers=headers,
         )
 
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_create_service_invalid_workspace_returns_404(
-        self, mock_auth, client, test_db
-    ):
-        """Create service with invalid workspace ID returns 404."""
+    async def test_create_service_invalid_workspace_returns_403(self, client, test_db):
+        """Create service with invalid workspace ID returns 403 (access denied)."""
         user = await create_test_user(test_db)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/non-existent-id/services",
@@ -279,19 +272,19 @@ class TestCreateService:
                 "name": "my-service",
                 "repository_name": "owner/repo",
             },
+            headers=headers,
         )
 
-        assert response.status_code == 404
+        # Returns 403 since user is not a member of the workspace
+        # (doesn't leak whether workspace exists - better security)
+        assert response.status_code == 403
 
 
 class TestListServices:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/services."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_list_services_returns_all_workspace_services(
-        self, mock_auth, client, test_db
-    ):
+    async def test_list_services_returns_all_workspace_services(self, client, test_db):
         """List services returns all services for the workspace."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -302,9 +295,12 @@ class TestListServices:
         await create_test_service(test_db, workspace.id, "service-1")
         await create_test_service(test_db, workspace.id, "service-2")
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
-        response = await client.get(f"{API_PREFIX}/workspaces/{workspace.id}/services")
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{workspace.id}/services",
+            headers=headers,
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -315,8 +311,7 @@ class TestListServices:
         assert "service-2" in service_names
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_list_services_empty_workspace(self, mock_auth, client, test_db):
+    async def test_list_services_empty_workspace(self, client, test_db):
         """List services returns empty list for workspace with no services."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -324,9 +319,12 @@ class TestListServices:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
-        response = await client.get(f"{API_PREFIX}/workspaces/{workspace.id}/services")
+        response = await client.get(
+            f"{API_PREFIX}/workspaces/{workspace.id}/services",
+            headers=headers,
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -338,10 +336,7 @@ class TestGetServiceCount:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/services/count."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_service_count_returns_correct_count(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_service_count_returns_correct_count(self, client, test_db):
         """Get service count returns correct count and limit."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -352,10 +347,11 @@ class TestGetServiceCount:
         await create_test_service(test_db, workspace.id, "service-1")
         await create_test_service(test_db, workspace.id, "service-2")
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/count"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/count",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -365,19 +361,17 @@ class TestGetServiceCount:
         assert data["can_add_more"] is True
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_service_count_non_member_returns_403(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_service_count_non_member_returns_403(self, client, test_db):
         """Get service count by non-member returns 403."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         # No membership
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/count"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/count",
+            headers=headers,
         )
 
         assert response.status_code == 403
@@ -387,8 +381,7 @@ class TestGetService:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/services/{service_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_service_returns_service(self, mock_auth, client, test_db):
+    async def test_get_service_returns_service(self, client, test_db):
         """Get service returns the requested service."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -397,10 +390,11 @@ class TestGetService:
         await create_test_subscription(test_db, workspace.id, plan.id)
         service = await create_test_service(test_db, workspace.id, "my-service")
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -409,17 +403,17 @@ class TestGetService:
         assert data["name"] == "my-service"
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_service_not_found_returns_404(self, mock_auth, client, test_db):
+    async def test_get_service_not_found_returns_404(self, client, test_db):
         """Get non-existent service returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id, Role.OWNER)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/non-existent-id"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/non-existent-id",
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -429,8 +423,7 @@ class TestUpdateService:
     """Integration tests for PATCH /api/v1/workspaces/{workspace_id}/services/{service_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_update_service_name(self, mock_auth, client, test_db):
+    async def test_update_service_name(self, client, test_db):
         """Update service name successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -439,11 +432,12 @@ class TestUpdateService:
         await create_test_subscription(test_db, workspace.id, plan.id)
         service = await create_test_service(test_db, workspace.id, "old-name")
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}",
             json={"name": "new-name"},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -451,8 +445,7 @@ class TestUpdateService:
         assert data["name"] == "new-name"
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_update_service_enabled_status(self, mock_auth, client, test_db):
+    async def test_update_service_enabled_status(self, client, test_db):
         """Update service enabled status successfully."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -461,11 +454,12 @@ class TestUpdateService:
         await create_test_subscription(test_db, workspace.id, plan.id)
         service = await create_test_service(test_db, workspace.id, enabled=True)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}",
             json={"enabled": False},
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -473,10 +467,7 @@ class TestUpdateService:
         assert data["enabled"] is False
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_update_service_non_owner_returns_403(
-        self, mock_auth, client, test_db
-    ):
+    async def test_update_service_non_owner_returns_403(self, client, test_db):
         """Update service by non-owner returns 403."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -485,11 +476,12 @@ class TestUpdateService:
         await create_test_subscription(test_db, workspace.id, plan.id)
         service = await create_test_service(test_db, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.patch(
             f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}",
             json={"name": "new-name"},
+            headers=headers,
         )
 
         assert response.status_code == 403
@@ -499,8 +491,7 @@ class TestDeleteService:
     """Integration tests for DELETE /api/v1/workspaces/{workspace_id}/services/{service_id}."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_delete_service_success(self, mock_auth, client, test_db):
+    async def test_delete_service_success(self, client, test_db):
         """Delete service returns 204 and removes from database."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -509,10 +500,11 @@ class TestDeleteService:
         await create_test_subscription(test_db, workspace.id, plan.id)
         service = await create_test_service(test_db, workspace.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.delete(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/{service.id}",
+            headers=headers,
         )
 
         assert response.status_code == 204
@@ -523,19 +515,17 @@ class TestDeleteService:
         assert deleted_service is None
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_delete_service_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_delete_service_not_found_returns_404(self, client, test_db):
         """Delete non-existent service returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id, Role.OWNER)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.delete(
-            f"{API_PREFIX}/workspaces/{workspace.id}/services/non-existent-id"
+            f"{API_PREFIX}/workspaces/{workspace.id}/services/non-existent-id",
+            headers=headers,
         )
 
         assert response.status_code == 404
@@ -640,10 +630,7 @@ class TestGetWorkspaceSubscription:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/billing/subscription."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_subscription_returns_subscription_details(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_subscription_returns_subscription_details(self, client, test_db):
         """Get subscription returns subscription information."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -653,10 +640,11 @@ class TestGetWorkspaceSubscription:
             test_db, workspace.id, plan.id, billable_service_count=3
         )
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription"
+            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -668,29 +656,24 @@ class TestGetWorkspaceSubscription:
         assert data["billable_service_count"] == 3
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_subscription_not_found_returns_404(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_subscription_not_found_returns_404(self, client, test_db):
         """Get subscription for workspace without subscription returns 404."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id, Role.OWNER)
         # No subscription created
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription"
+            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription",
+            headers=headers,
         )
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_subscription_accessible_by_member(
-        self, mock_auth, client, test_db
-    ):
+    async def test_get_subscription_accessible_by_member(self, client, test_db):
         """Get subscription is accessible by regular members (not just owners)."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
@@ -698,10 +681,11 @@ class TestGetWorkspaceSubscription:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription"
+            f"{API_PREFIX}/workspaces/{workspace.id}/billing/subscription",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -711,10 +695,9 @@ class TestGetWorkspaceUsage:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/billing/usage."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
     @patch("app.billing.router.limit_service")
     async def test_get_usage_returns_usage_stats(
-        self, mock_limit_service, mock_auth, client, test_db
+        self, mock_limit_service, client, test_db
     ):
         """Get usage returns workspace usage statistics."""
         user = await create_test_user(test_db)
@@ -723,7 +706,7 @@ class TestGetWorkspaceUsage:
         plan = await create_test_plan(test_db)
         await create_test_subscription(test_db, workspace.id, plan.id)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
         mock_limit_service.get_usage_stats = AsyncMock(
             return_value={
                 "plan_name": "Free",
@@ -741,7 +724,8 @@ class TestGetWorkspaceUsage:
         )
 
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/billing/usage"
+            f"{API_PREFIX}/workspaces/{workspace.id}/billing/usage",
+            headers=headers,
         )
 
         assert response.status_code == 200
@@ -752,18 +736,18 @@ class TestGetWorkspaceUsage:
         assert data["rca_sessions_today"] == 5
 
     @pytest.mark.asyncio
-    @patch("app.billing.router.auth_service")
-    async def test_get_usage_accessible_by_member(self, mock_auth, client, test_db):
+    async def test_get_usage_accessible_by_member(self, client, test_db):
         """Get usage is accessible by regular members."""
         user = await create_test_user(test_db)
         workspace = await create_test_workspace(test_db)
         await create_test_membership(test_db, user.id, workspace.id, Role.USER)
 
-        mock_auth.get_current_user = AsyncMock(return_value=user)
+        headers = get_auth_headers(user)
 
         # This will fail with 500 due to missing subscription, but not 403
         response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/billing/usage"
+            f"{API_PREFIX}/workspaces/{workspace.id}/billing/usage",
+            headers=headers,
         )
 
         # Should not be 403 (forbidden) - member access is allowed

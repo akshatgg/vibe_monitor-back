@@ -176,6 +176,7 @@ async def test_scan_repository_no_github_integration(client, test_db):
     """Test scanning when workspace has no GitHub integration."""
     user = await create_test_user(test_db)
     workspace = await create_test_workspace(test_db)
+    await create_test_membership(test_db, user, workspace)
     token = create_access_token(user.id, user.email)
 
     # Mock the service to raise an exception for missing integration
@@ -200,6 +201,7 @@ async def test_scan_repository_success(client, test_db):
     """Test successfully scanning a repository for services."""
     user = await create_test_user(test_db)
     workspace = await create_test_workspace(test_db)
+    await create_test_membership(test_db, user, workspace)
     integration = await create_test_integration(test_db, workspace)
     github_integration = await create_test_github_integration(
         test_db,
@@ -240,6 +242,7 @@ async def test_scan_repository_no_services_found(client, test_db):
     """Test scanning a repository that has no recognizable services."""
     user = await create_test_user(test_db)
     workspace = await create_test_workspace(test_db)
+    await create_test_membership(test_db, user, workspace)
     integration = await create_test_integration(test_db, workspace)
     github_integration = await create_test_github_integration(
         test_db,
@@ -277,6 +280,7 @@ async def test_scan_repository_extraction_error(client, test_db):
     """Test handling errors during service extraction."""
     user = await create_test_user(test_db)
     workspace = await create_test_workspace(test_db)
+    await create_test_membership(test_db, user, workspace)
     integration = await create_test_integration(test_db, workspace)
     github_integration = await create_test_github_integration(
         test_db,
@@ -312,6 +316,7 @@ async def test_scan_repository_with_special_characters(client, test_db):
     """Test scanning a repository with special characters in name."""
     user = await create_test_user(test_db)
     workspace = await create_test_workspace(test_db)
+    await create_test_membership(test_db, user, workspace)
     integration = await create_test_integration(test_db, workspace)
     github_integration = await create_test_github_integration(
         test_db,
@@ -371,16 +376,13 @@ async def test_scan_repository_invalid_workspace_id_format(client, test_db):
     user = await create_test_user(test_db)
     token = create_access_token(user.id, user.email)
 
-    with patch(
-        "app.services.rca.get_service_name.router.get_github_integration_with_token"
-    ) as mock_get_integration:
-        mock_get_integration.side_effect = Exception("GitHub integration not found")
-
-        response = await client.post(
-            f"{API_PREFIX}/scan",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"workspace_id": "invalid-id-format"},
-            json={"repo": "test-repo"},
-        )
-        # Should handle gracefully - likely 500 as integration won't be found
-        assert response.status_code in [400, 404, 500]
+    # The endpoint doesn't check workspace membership, but returns 500
+    # when trying to find GitHub integration for an invalid workspace
+    response = await client.post(
+        f"{API_PREFIX}/scan",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"workspace_id": "invalid-id-format"},
+        json={"repo": "test-repo"},
+    )
+    # Returns 500 since no GitHub integration exists for invalid workspace
+    assert response.status_code == 500

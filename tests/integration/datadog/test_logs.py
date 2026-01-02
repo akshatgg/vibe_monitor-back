@@ -8,7 +8,7 @@ Tests the following OPEN endpoints (no authentication required):
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -62,6 +62,17 @@ async def create_test_workspace_with_datadog(test_db) -> tuple[Workspace, str]:
     return workspace, workspace_id
 
 
+def create_mock_httpx_response(
+    status_code: int, json_data: dict = None, text: str = ""
+):
+    """Create a mock httpx response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = json_data or {}
+    mock_response.text = text
+    return mock_response
+
+
 # =============================================================================
 # Test: Search Logs
 # =============================================================================
@@ -72,7 +83,7 @@ async def test_search_logs_success(client, test_db):
     """Test successful log search."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {
+    mock_response_data = {
         "data": [
             {
                 "id": "log-123",
@@ -91,9 +102,11 @@ async def test_search_logs_success(client, test_db):
         "meta": {"elapsed": 100, "status": "done"},
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -101,10 +114,11 @@ async def test_search_logs_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/search",
@@ -124,11 +138,12 @@ async def test_search_logs_with_time_range(client, test_db):
     """Test log search with explicit time range."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {"data": [], "meta": {"status": "done"}}
+    mock_response_data = {"data": [], "meta": {"status": "done"}}
+    mock_response = create_mock_httpx_response(200, mock_response_data)
 
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -136,10 +151,11 @@ async def test_search_logs_with_time_range(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/search",
@@ -169,7 +185,7 @@ async def test_search_logs_no_integration(client, test_db):
     await test_db.commit()
 
     with patch(
-        "app.datadog.integration.service.get_datadog_credentials",
+        "app.datadog.Logs.service.get_datadog_credentials",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -188,9 +204,11 @@ async def test_search_logs_api_error(client, test_db):
     """Test log search handles API errors gracefully."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
+    mock_response = create_mock_httpx_response(403, text="Forbidden")
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -198,10 +216,11 @@ async def test_search_logs_api_error(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 403
-        mock_post.return_value.text = "Forbidden"
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/search",
@@ -223,7 +242,7 @@ async def test_list_logs_success(client, test_db):
     """Test successful simplified log listing."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {
+    mock_response_data = {
         "data": [
             {
                 "id": "log-1",
@@ -253,9 +272,11 @@ async def test_list_logs_success(client, test_db):
         "meta": {"status": "done"},
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -263,10 +284,11 @@ async def test_list_logs_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/list",
@@ -289,11 +311,12 @@ async def test_list_logs_default_query(client, test_db):
     """Test listing logs with default query (*)."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {"data": [], "meta": {"status": "done"}}
+    mock_response_data = {"data": [], "meta": {"status": "done"}}
+    mock_response = create_mock_httpx_response(200, mock_response_data)
 
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -301,10 +324,11 @@ async def test_list_logs_default_query(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/list",
@@ -325,7 +349,7 @@ async def test_list_services_success(client, test_db):
     """Test successful listing of unique services."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {
+    mock_response_data = {
         "data": [
             {
                 "id": "log-1",
@@ -351,9 +375,11 @@ async def test_list_services_success(client, test_db):
         "meta": {"status": "done"},
     }
 
+    mock_response = create_mock_httpx_response(200, mock_response_data)
+
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -361,10 +387,11 @@ async def test_list_services_success(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/services",
@@ -387,11 +414,12 @@ async def test_list_services_empty(client, test_db):
     """Test listing services when no logs exist."""
     workspace, workspace_id = await create_test_workspace_with_datadog(test_db)
 
-    mock_response = {"data": [], "meta": {"status": "done"}}
+    mock_response_data = {"data": [], "meta": {"status": "done"}}
+    mock_response = create_mock_httpx_response(200, mock_response_data)
 
     with (
         patch(
-            "app.datadog.integration.service.get_datadog_credentials",
+            "app.datadog.Logs.service.get_datadog_credentials",
             new_callable=AsyncMock,
             return_value={
                 "api_key": "test_api_key",
@@ -399,10 +427,11 @@ async def test_list_services_empty(client, test_db):
                 "region": "us1",
             },
         ),
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+        patch("app.datadog.Logs.service.httpx.AsyncClient") as mock_client_class,
     ):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         response = await client.post(
             f"{API_PREFIX}/datadog/logs/services",
