@@ -5,7 +5,6 @@ Focuses on pure functions and validation logic (no database operations).
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.github.tools.service import get_owner_or_default
 

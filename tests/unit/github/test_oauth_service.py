@@ -19,21 +19,23 @@ from app.github.oauth.service import GitHubAppService
 def generate_test_rsa_keys():
     """Generate a fresh RSA key pair for testing."""
     private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-        backend=default_backend()
+        public_exponent=65537, key_size=2048, backend=default_backend()
     )
 
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode('utf-8')
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
 
-    public_pem = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('utf-8')
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
 
     return private_pem, public_pem
 
@@ -87,13 +89,14 @@ class TestGenerateJWT:
         mock_settings.GITHUB_API_BASE_URL = "https://api.github.com"
 
         service = GitHubAppService()
-        now = int(time.time())
         token = service.generate_jwt()
 
         payload = jwt.decode(token, TEST_RSA_PUBLIC_KEY, algorithms=["RS256"])
 
         # exp should be about 10 minutes (600 seconds) from iat
-        assert payload["exp"] - payload["iat"] == 11 * 60  # iat is now-60, exp is now+600
+        assert (
+            payload["exp"] - payload["iat"] == 11 * 60
+        )  # iat is now-60, exp is now+600
 
     @patch("app.github.oauth.service.settings")
     def test_generate_jwt_iat_is_backdated(self, mock_settings):

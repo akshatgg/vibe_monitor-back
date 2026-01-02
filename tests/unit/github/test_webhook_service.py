@@ -107,7 +107,9 @@ class TestVerifySignature:
         invalid_format_signature = "md5=somehash"
 
         with pytest.raises(ValueError) as exc_info:
-            GitHubWebhookService.verify_signature(invalid_format_signature, request_body)
+            GitHubWebhookService.verify_signature(
+                invalid_format_signature, request_body
+            )
 
         assert "invalid signature format" in str(exc_info.value).lower()
 
