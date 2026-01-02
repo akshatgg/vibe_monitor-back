@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import List, Optional
 
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Membership, Role, User, Workspace
+from app.models import GitHubIntegration, Membership, Role, User, Workspace
 from app.models import WorkspaceType as DBWorkspaceType
 
 from ..schemas.schemas import (
@@ -15,6 +16,8 @@ from ..schemas.schemas import (
     WorkspaceType,
     WorkspaceWithMembership,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceService:
@@ -341,7 +344,11 @@ class WorkspaceService:
     async def delete_workspace(
         self, workspace_id: str, user_id: str, db: AsyncSession
     ) -> bool:
-        """Delete a workspace if user is the owner"""
+        """Delete a workspace if user is the owner.
+
+        This also revokes any GitHub App installations associated with the workspace
+        to ensure clean removal of external integrations.
+        """
 
         # Verify user is the owner of the workspace
         membership_query = (
@@ -364,18 +371,46 @@ class WorkspaceService:
 
         workspace = membership.workspace
 
-        # Delete all memberships first (foreign key constraint)
-        memberships_query = select(Membership).where(
-            Membership.workspace_id == workspace_id
-        )
-        memberships_result = await db.execute(memberships_query)
-        memberships = memberships_result.scalars().all()
+        # Revoke GitHub App installations before deleting workspace
+        await self._revoke_github_installations(workspace_id, db)
 
-        for membership in memberships:
-            await db.delete(membership)
-
-        # Delete the workspace
+        # Delete the workspace (cascade will handle related records)
         await db.delete(workspace)
         await db.commit()
 
         return True
+
+    async def _revoke_github_installations(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Revoke GitHub App installations for a workspace.
+
+        This ensures the GitHub App is uninstalled from the user's GitHub account
+        when the workspace is deleted, preventing orphaned installations.
+        """
+        # Import here to avoid circular imports
+        from app.github.oauth.service import GitHubAppService
+
+        github_service = GitHubAppService()
+
+        # Find all GitHub integrations for this workspace
+        github_query = select(GitHubIntegration).where(
+            GitHubIntegration.workspace_id == workspace_id
+        )
+        result = await db.execute(github_query)
+        github_integrations = result.scalars().all()
+
+        for integration in github_integrations:
+            try:
+                await github_service.uninstall_github_app(integration.installation_id)
+                logger.info(
+                    f"Revoked GitHub App installation {integration.installation_id} "
+                    f"for workspace {workspace_id}"
+                )
+            except Exception as e:
+                # Log but don't fail - the installation might already be revoked
+                # or the user might have manually removed it
+                logger.warning(
+                    f"Failed to revoke GitHub App installation {integration.installation_id} "
+                    f"for workspace {workspace_id}: {e}. Continuing with workspace deletion."
+                )
