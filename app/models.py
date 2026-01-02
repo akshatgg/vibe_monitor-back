@@ -99,6 +99,27 @@ class InvitationStatus(enum.Enum):
     EXPIRED = "expired"
 
 
+class DeploymentStatus(enum.Enum):
+    """Status of a deployment"""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class DeploymentSource(enum.Enum):
+    """Source that reported the deployment"""
+
+    MANUAL = "manual"
+    WEBHOOK = "webhook"
+    GITHUB_ACTIONS = "github_actions"
+    GITHUB_DEPLOYMENTS = "github_deployments"
+    ARGOCD = "argocd"
+    JENKINS = "jenkins"
+
+
 class LLMProvider(enum.Enum):
     """Available LLM providers for BYOLLM"""
 
@@ -1345,4 +1366,87 @@ class EnvironmentRepository(Base):
     __table_args__ = (
         UniqueConstraint("environment_id", "repo_full_name", name="uq_env_repo"),
         Index("ix_environment_repositories_environment_id", "environment_id"),
+    )
+
+
+class Deployment(Base):
+    """
+    Deployment record tracking which branch/commit is deployed to an environment.
+
+    Each deployment record represents a point in time when code was deployed.
+    This enables RCA to query the correct code version based on what was
+    actually deployed, rather than just what branch is configured.
+    """
+
+    __tablename__ = "deployments"
+
+    id = Column(String, primary_key=True)  # UUID
+    environment_id = Column(
+        String, ForeignKey("environments.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
+    branch = Column(String(255), nullable=True)  # The deployed branch
+    commit_sha = Column(String(40), nullable=True)  # The specific commit SHA
+    status = Column(
+        Enum(DeploymentStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=DeploymentStatus.SUCCESS,
+    )
+    source = Column(
+        Enum(DeploymentSource, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=DeploymentSource.MANUAL,
+    )
+    deployed_at = Column(
+        DateTime(timezone=True), nullable=True
+    )  # When deployment occurred
+    extra_data = Column(JSON, nullable=True)  # Flexible field for CI/CD specific data
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    environment = relationship("Environment", backref="deployments")
+
+    # Indexes for fast "latest deployment" queries
+    __table_args__ = (
+        Index(
+            "ix_deployments_env_repo_deployed",
+            "environment_id",
+            "repo_full_name",
+            "deployed_at",
+        ),
+        Index("ix_deployments_environment_id", "environment_id"),
+    )
+
+
+class WorkspaceApiKey(Base):
+    """
+    API keys for workspace-level authentication.
+
+    Used primarily for CI/CD webhook authentication to report deployments.
+    Keys are stored as SHA-256 hashes for security.
+    """
+
+    __tablename__ = "workspace_api_keys"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    key_hash = Column(String(64), nullable=False)  # SHA-256 hash of the key
+    key_prefix = Column(String(8), nullable=False)  # First 8 chars for identification
+    name = Column(String(100), nullable=False)  # e.g., "CI/CD Webhook Key"
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", backref="api_keys")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_workspace_api_keys_workspace_id", "workspace_id"),
+        Index("ix_workspace_api_keys_key_hash", "key_hash"),
     )

@@ -20,6 +20,7 @@ from app.datadog.integration.router import router as datadog_router
 from app.datadog.Logs.router import router as datadog_logs_router
 from app.datadog.Metrics.router import router as datadog_metrics_router
 from app.datasources.router import router as datasources_router
+from app.deployments.router import router as deployments_router
 from app.email_service.router import router as email_router
 from app.environments.router import router as environments_router
 from app.github.oauth.router import router as github_app_router
@@ -73,6 +74,7 @@ api_router.include_router(email_router, tags=["email"])
 api_router.include_router(grafana_router, tags=["grafana"])
 api_router.include_router(integrations_router, tags=["integrations"])
 api_router.include_router(environments_router, tags=["environments"])
+api_router.include_router(deployments_router, tags=["deployments"])
 
 # AWS, NewRelic, Datadog integrations
 api_router.include_router(aws_router, tags=["aws-integration"])
