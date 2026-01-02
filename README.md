@@ -1,10 +1,19 @@
-# Git Workflow & Project Setup
+# VM-API (VibeMonitor API)
+
+FastAPI-based observability platform with AI-powered root cause analysis. Integrates with Slack, GitHub, Grafana, AWS CloudWatch, Datadog, and New Relic.
+
+## Git Workflow & Project Setup
 This document describes the branching workflow and how to run the repo.
+
 ## 📚 Documentation
 
 - [Project Structure & Architecture](./project-overview/project-structure.md) - Detailed overview of the codebase, data flows, and API endpoints
 - [Database ER Diagram](./project-overview/er-diagram.md) - Entity-relationship diagram showing all database tables and relationships
-- [Dev Environment Setup](../vm-infra/README_DEV_SETUP.md) - Complete guide to set up dev environment infrastructure
+- [Setup Guide](./SETUP_GUIDE.md) - Complete setup guide for local development
+- [Frontend Chat Integration](./docs/FRONTEND_CHAT_INTEGRATION.md) - Web chat API with SSE streaming
+- [Frontend Integration](./docs/FRONTEND_INTEGRATION.md) - Complete API reference for frontend engineers
+- [Jobs System](./docs/JOBS_SYSTEM.md) - RCA job processing architecture
+- [RCA Agent](./app/services/rca/README.md) - AI-powered root cause analysis agent
 
 ## Branches
 - **main** → Production environment (protected) - deploys to `api.vibemonitor.ai`

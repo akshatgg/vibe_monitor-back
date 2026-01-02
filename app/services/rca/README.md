@@ -2,12 +2,39 @@
 
 ## Overview
 
-This RCA system uses LangChain's ReAct (Reasoning + Acting) framework with Groq's LLM to automatically investigate service issues by analyzing logs and metrics from your observability platform.
+This RCA system uses LangChain's ReAct (Reasoning + Acting) framework with multiple LLM providers to automatically investigate service issues by analyzing logs, metrics, and code from your observability platform.
+
+**Supported LLM Providers:**
+- **Groq** (default) - Fast inference with Llama models
+- **OpenAI** - GPT-4 and GPT-4 Turbo
+- **Azure OpenAI** - Enterprise Azure deployment
+- **Google Gemini** - Gemini Pro models
+
+**Supported Interfaces:**
+- **Slack Bot** - Interactive RCA via Slack mentions
+- **Web Chat** - Real-time SSE streaming in browser
+
+**Supported Integrations:**
+- **Grafana** - Loki logs, Prometheus metrics
+- **AWS CloudWatch** - Logs and metrics
+- **Datadog** - Logs and metrics
+- **New Relic** - Logs and metrics
+- **GitHub** - Code search and context
 
 ## Architecture
 
 ```
-User (Slack) → FastAPI → SQS Queue → Worker → RCA Agent → Logs/Metrics APIs → Slack Response
+User (Slack/Web) → FastAPI → SQS Queue → Worker → RCA Agent → Integrations → Response
+                                                       ↓
+                                           ┌───────────────────────┐
+                                           │  Available Tools      │
+                                           ├───────────────────────┤
+                                           │ • Grafana (Loki/Prom) │
+                                           │ • AWS CloudWatch      │
+                                           │ • Datadog             │
+                                           │ • New Relic           │
+                                           │ • GitHub (code)       │
+                                           └───────────────────────┘
 ```
 
 ### Components
@@ -243,8 +270,7 @@ BASE_URL = os.getenv("VM_API_URL", "http://localhost:8000/api/v1")
 
 ### LLM Model
 
-Using Groq's `llama-3.3-70b-versatile`:
-
+**Default (Groq):**
 ```python
 self.llm = ChatGroq(
     api_key=settings.GROQ_API_KEY,
@@ -254,7 +280,17 @@ self.llm = ChatGroq(
 )
 ```
 
-Alternative models:
+**BYOLLM (Bring Your Own LLM):**
+
+Workspaces can configure their own LLM provider via the Settings page:
+
+- **OpenAI**: GPT-4, GPT-4 Turbo
+- **Azure OpenAI**: Enterprise deployment with custom endpoints
+- **Google Gemini**: Gemini Pro, Gemini Flash
+
+The LLM configuration is stored encrypted in the `llm_provider_configs` table and loaded at runtime.
+
+**Alternative Groq models:**
 - `llama-3.1-70b-versatile` (faster)
 - `mixtral-8x7b-32768` (larger context)
 
@@ -272,24 +308,22 @@ self.agent_executor = AgentExecutor(
 
 ## Available Tools
 
-### Log Tools
+### Grafana Tools (Loki Logs & Prometheus Metrics)
 
 1. **fetch_error_logs_tool**
-   - Filters ERROR-level logs
+   - Filters ERROR-level logs from Loki
    - Use first for quick issue identification
 
 2. **fetch_logs_tool**
-   - Search logs with text query
+   - Search logs with text query in Loki
    - Filter by service and time range
 
-### Metrics Tools
-
 3. **fetch_cpu_metrics_tool**
-   - CPU usage percentage over time
+   - CPU usage percentage over time from Prometheus
    - Statistics: latest, avg, max, min
 
 4. **fetch_memory_metrics_tool**
-   - Memory usage in MB
+   - Memory usage in MB from Prometheus
    - Detect memory leaks, OOM issues
 
 5. **fetch_http_latency_tool**
@@ -299,6 +333,62 @@ self.agent_executor = AgentExecutor(
 6. **fetch_metrics_tool**
    - Generic metrics: http_requests, errors, throughput, availability
    - Flexible for custom metrics
+
+### AWS CloudWatch Tools
+
+7. **list_log_groups_tool**
+   - List available CloudWatch log groups
+   - Discover log sources in AWS environment
+
+8. **search_logs_tool**
+   - Search CloudWatch logs with filter patterns
+   - Time-bounded queries
+
+9. **insights_query_tool**
+   - Execute CloudWatch Logs Insights queries
+   - Complex log analytics
+
+10. **get_metric_statistics_tool**
+    - Fetch CloudWatch metrics with statistics
+    - CPU, memory, custom metrics
+
+### Datadog Tools
+
+11. **search_datadog_logs_tool**
+    - Search Datadog logs with query syntax
+    - Filter by service, env, status
+
+12. **query_datadog_metrics_tool**
+    - Query Datadog metrics with formulas
+    - Time series analysis
+
+### New Relic Tools
+
+13. **query_newrelic_logs_tool**
+    - Search New Relic logs with NRQL
+    - Application and infrastructure logs
+
+14. **query_newrelic_metrics_tool**
+    - Query New Relic metrics with NRQL
+    - APM and infrastructure metrics
+
+### GitHub Tools
+
+15. **list_repositories_tool**
+    - List connected GitHub repositories
+    - Discover available codebases
+
+16. **read_file_tool**
+    - Read file contents from repository
+    - Inspect configuration or code
+
+17. **search_code_tool**
+    - Search across repository code
+    - Find related implementations
+
+18. **list_commits_tool**
+    - List recent commits for a repository
+    - Identify recent changes (potential root cause)
 
 ## Troubleshooting
 
@@ -425,26 +515,38 @@ Track:
 
 ### API Key Management
 
-- Groq API key stored in environment (not committed)
-- Slack tokens encrypted in database
+- All API keys stored in environment variables (not committed)
+- BYOLLM credentials encrypted at rest (Fernet encryption)
+- Slack/GitHub tokens encrypted in database
 - SQS messages in private queue
+
+### Prompt Injection Protection
+
+The system includes an LLM-based prompt injection guard (`app/security/guard.py`):
+
+- Analyzes user queries for malicious patterns
+- Blocks attempts to manipulate the RCA agent
+- Logs security events to `security_events` table
+- Configurable sensitivity levels
 
 ### Input Validation
 
 - User queries sanitized in tools (prevent injection)
 - Service names validated against allowed list
 - Time ranges limited to prevent DoS
+- Maximum query length enforced
 
 ### Rate Limiting
 
-Add to prevent abuse:
+Rate limiting is implemented per workspace:
+
+- Default: 10 RCA requests per day (Free plan)
+- Pro plan: Higher limits or unlimited
+- BYOLLM users bypass VibeMonitor rate limits
 
 ```python
-# In slack service
-from app.utils.rate_limiter import rate_limit
-
-@rate_limit(max_requests=10, window=60)  # 10 req/min per user
-async def process_user_message(...)
+# Implemented in middleware/rate_limit.py
+# Tracks usage in rate_limit_tracking table
 ```
 
 ## Future Enhancements

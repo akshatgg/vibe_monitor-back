@@ -6,13 +6,16 @@ Complete setup guide for VM-API with Slack bot integration and monitoring stack.
 
 ## 📋 What is VM-API?
 
-**VM-API** (VibeMonitor API) is a monitoring platform that:
+**VM-API** (VibeMonitor API) is an observability platform that provides:
 
-- 📊 Queries metrics from Prometheus (CPU, memory, availability)
-- 📝 Queries logs from Loki (error logs, search)
-- 💬 Integrates with Slack for bot interactions
-- 🔐 Multi-tenant with workspace isolation
-- 🤖 AI-powered root cause analysis
+- 🤖 AI-powered root cause analysis (RCA) via Slack and Web Chat
+- 📊 Queries metrics from Prometheus, CloudWatch, Datadog, New Relic
+- 📝 Queries logs from Loki, CloudWatch, Datadog, New Relic
+- 💬 Slack bot integration for interactive RCA
+- 🌐 Web chat with real-time SSE streaming
+- 🔐 Multi-tenant workspace management with team invitations
+- 💳 Billing and subscription management (Stripe)
+- 🔑 BYOLLM (Bring Your Own LLM) support
 
 ---
 
@@ -27,36 +30,44 @@ Complete setup guide for VM-API with Slack bot integration and monitoring stack.
 - Git
 
 **Required Accounts:**
-- Slack workspace
-- Ngrok account (free)
+- Slack workspace (for Slack bot integration)
+- Google Cloud Console (for Google OAuth)
+- GitHub account (for GitHub App integration)
+- Ngrok account (free, for webhook testing)
+- Stripe account (optional, for billing - use test mode)
+- Postmark account (optional, for transactional emails)
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────┐
-│      Your Local Machine         │
-│                                 │
-│  ┌──────────┐  ┌──────────┐   │
-│  │  LGTM    │  │  VM-API  │   │
-│  │ (Grafana │◄─┤ (FastAPI)│   │
-│  │ Prom/Loki│  │ Port 8000│   │
-│  └──────────┘  └────┬─────┘   │
-│                     │          │
-│              ┌──────▼─────┐    │
-│              │ PostgreSQL │    │
-│              └────────────┘    │
-└─────────────────┬───────────────┘
-                  │
-           ┌──────▼──────┐
-           │    Ngrok    │ (Tunnel)
-           └──────┬──────┘
-                  │
-           ┌──────▼──────┐
-           │  Internet   │
-           │ (Slack API) │
-           └─────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    Your Local Machine                         │
+│                                                              │
+│  ┌──────────────┐   ┌─────────────┐   ┌─────────────────┐   │
+│  │    LGTM      │   │   VM-API    │   │    VM-Webapp    │   │
+│  │ (Grafana:3300│◄──┤ (FastAPI)   ├──►│ (Next.js:3000)  │   │
+│  │  Prom/Loki)  │   │ Port 8000   │   │ Frontend        │   │
+│  └──────────────┘   └──────┬──────┘   └─────────────────┘   │
+│                            │                                  │
+│         ┌──────────────────┼──────────────────┐              │
+│         ▼                  ▼                  ▼              │
+│  ┌────────────┐    ┌────────────┐    ┌────────────┐         │
+│  │ PostgreSQL │    │   Redis    │    │ LocalStack │         │
+│  │ (Supabase) │    │ (SSE/Cache)│    │   (SQS)    │         │
+│  └────────────┘    └────────────┘    └────────────┘         │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                       ┌──────▼──────┐
+                       │    Ngrok    │ (Tunnel for webhooks)
+                       └──────┬──────┘
+                              │
+           ┌──────────────────┼──────────────────┐
+           ▼                  ▼                  ▼
+    ┌────────────┐    ┌────────────┐    ┌────────────┐
+    │ Slack API  │    │ GitHub API │    │ Stripe API │
+    └────────────┘    └────────────┘    └────────────┘
 ```
 
 ---
@@ -86,12 +97,16 @@ Copy these values :
 ### Create Google Auth Client ID
 Go to https://console.cloud.google.com/apis/credentials
 
-Click Create Client -> Application Type - Web application -> name - vm-dev-username
-Add Authorized JavaScript origins: http://localhost:3000
-Add Authorized redirect URIs: http://localhost:8000/api/v1/auth/callback (for bakcend check)
-and http://localhost:3000/auth/google/callback (for frontend check)
-
-Create -> Copy Client ID and Client Secret
+1. Click **Create Credentials** → **OAuth 2.0 Client ID**
+2. Application Type: **Web application**
+3. Name: `vm-dev-yourname`
+4. Add Authorized JavaScript origins:
+   - `http://localhost:3000` (webapp)
+   - `http://localhost:8000` (api)
+5. Add Authorized redirect URIs:
+   - `http://localhost:8000/api/v1/auth/google/callback` (backend)
+   - `http://localhost:3000/auth/google/callback` (frontend)
+6. Click **Create** → Copy **Client ID** and **Client Secret**
 ### 1️⃣ Clone & Setup VM-API
 
 ```bash
@@ -184,12 +199,15 @@ docker ps
 # Login: admin/admin
 ```
 
-**Create Grafana API Token:**
+**Create Grafana API Token (for Grafana integration):**
 
-1. Grafana → Administration → Users and access → Service Accounts
-2. Click "Add service account" → Name: `vm-api`, Role: `Admin`
-3. Click "Add service account token" → Generate
-4. **Copy token** (starts with `glsa_...`) - save it!
+1. Open Grafana at http://localhost:3300
+2. Go to **Administration** → **Users and access** → **Service Accounts**
+3. Click **"Add service account"** → Name: `vm-api`, Role: `Admin`
+4. Click **"Add service account token"** → Generate
+5. **Copy token** (starts with `glsa_...`) - save it for later!
+
+**Note:** The Grafana token will be used when setting up the Grafana integration through the webapp UI.
 
 ---
 
@@ -337,12 +355,14 @@ INSERT INTO grafana_integrations (
 ) VALUES (
   gen_random_uuid(),
   '101',
-  'http://localhost:3000',
+  'http://host.docker.internal:3300',  -- Use host.docker.internal for Docker containers
   'YOUR_GRAFANA_TOKEN_HERE',  -- Token from step 2
   NOW(),
   NOW()
 );
 ```
+
+**Note:** Use `http://host.docker.internal:3300` if VM-API runs in Docker, or `http://localhost:3300` if running natively.
 
 **Exit database:**
 ```sql
@@ -439,7 +459,32 @@ Connect with github -> install on Vibe-Monitor/auth and /desk and /marketplace
 
 ---
 
-### 8️⃣ Install Slack Bot to Workspace
+### 8️⃣ Stripe Setup (Optional - for billing)
+
+**For local development with Stripe webhooks:**
+
+1. Install Stripe CLI: https://stripe.com/docs/stripe-cli
+2. Login to Stripe: `stripe login`
+3. Forward webhooks to your local server:
+   ```bash
+   stripe listen --forward-to localhost:8000/api/v1/billing/webhooks/stripe
+   ```
+4. Copy the webhook signing secret (starts with `whsec_...`)
+
+**Update .env:**
+```bash
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRO_PLAN_PRICE_ID=price_...
+STRIPE_ADDITIONAL_SERVICE_PRICE_ID=price_...
+```
+
+**Note:** Use Stripe test mode keys for development. The billing system is optional for local development.
+
+---
+
+### 9️⃣ Install Slack Bot to Workspace
 
 **Generate JWT token:**
 ```bash
@@ -513,9 +558,10 @@ docker compose -f docker-compose.dev.yml --profile full-docker up -d
 
 **Quick Health Check:**
 ```bash
-curl http://localhost:8000/health
-curl http://localhost:3000/api/health
-curl https://YOUR_NGROK_URL.ngrok.io/health
+curl http://localhost:8000/health                      # VM-API
+curl http://localhost:3000/api/health                  # VM-Webapp (if running)
+curl http://localhost:3300/api/health                  # Grafana (LGTM stack)
+curl https://YOUR_NGROK_URL.ngrok.io/health            # Ngrok tunnel
 ```
 
 ---
@@ -546,12 +592,12 @@ groups:read
 
 **Solution:**
 ```bash
-# Test Grafana API token
-curl "http://localhost:3000/api/datasources" \
+# Test Grafana API token (LGTM stack runs on port 3300)
+curl "http://localhost:3300/api/datasources" \
   -H "Authorization: Bearer YOUR_GRAFANA_TOKEN"
 
-# If fails, regenerate token in Grafana
-# Update database: grafana_integrations table
+# If fails, regenerate token in Grafana at http://localhost:3300
+# Update the integration through the webapp UI or directly in database
 ```
 
 ### Issue: Ngrok URL Changed
