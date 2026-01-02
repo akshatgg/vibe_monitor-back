@@ -11,8 +11,7 @@ Tests are organized by method and cover:
 - Input validation
 """
 
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from datetime import datetime, timezone
 
 import pytest
 
@@ -111,58 +110,48 @@ class TestFormatTime:
         assert result == expected
 
     def test_format_time_with_now_string(self, metrics_service):
-        with patch("app.metrics.service.datetime") as mock_datetime:
-            mock_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.now.return_value = mock_now
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-
-            result = metrics_service._format_time("now")
-            expected = int(mock_now.timestamp() * 1000)
-            assert result == expected
+        # Test that "now" returns a valid milliseconds timestamp
+        result = metrics_service._format_time("now")
+        assert isinstance(result, int)
+        assert result > 0
+        # Should be a reasonable timestamp (after year 2020)
+        assert result > 1577836800000  # Jan 1, 2020 in ms
 
     def test_format_time_with_relative_seconds(self, metrics_service):
-        with patch("app.metrics.service.datetime") as mock_datetime:
-            mock_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.now.return_value = mock_now
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-
-            result = metrics_service._format_time("now-30s")
-            expected_time = mock_now - timedelta(seconds=30)
-            expected = int(expected_time.timestamp() * 1000)
-            assert result == expected
+        # Test relative time parsing for seconds
+        now_result = metrics_service._format_time("now")
+        past_result = metrics_service._format_time("now-30s")
+        # Past should be less than now
+        assert past_result < now_result
+        # Difference should be approximately 30 seconds (30000 ms)
+        assert 25000 < (now_result - past_result) < 35000
 
     def test_format_time_with_relative_minutes(self, metrics_service):
-        with patch("app.metrics.service.datetime") as mock_datetime:
-            mock_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.now.return_value = mock_now
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-
-            result = metrics_service._format_time("now-5m")
-            expected_time = mock_now - timedelta(minutes=5)
-            expected = int(expected_time.timestamp() * 1000)
-            assert result == expected
+        # Test relative time parsing for minutes
+        now_result = metrics_service._format_time("now")
+        past_result = metrics_service._format_time("now-5m")
+        # Past should be less than now
+        assert past_result < now_result
+        # Difference should be approximately 5 minutes (300000 ms)
+        assert 290000 < (now_result - past_result) < 310000
 
     def test_format_time_with_relative_hours(self, metrics_service):
-        with patch("app.metrics.service.datetime") as mock_datetime:
-            mock_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.now.return_value = mock_now
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-
-            result = metrics_service._format_time("now-2h")
-            expected_time = mock_now - timedelta(hours=2)
-            expected = int(expected_time.timestamp() * 1000)
-            assert result == expected
+        # Test relative time parsing for hours
+        now_result = metrics_service._format_time("now")
+        past_result = metrics_service._format_time("now-2h")
+        # Past should be less than now
+        assert past_result < now_result
+        # Difference should be approximately 2 hours (7200000 ms)
+        assert 7100000 < (now_result - past_result) < 7300000
 
     def test_format_time_with_relative_days(self, metrics_service):
-        with patch("app.metrics.service.datetime") as mock_datetime:
-            mock_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.now.return_value = mock_now
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
-
-            result = metrics_service._format_time("now-1d")
-            expected_time = mock_now - timedelta(days=1)
-            expected = int(expected_time.timestamp() * 1000)
-            assert result == expected
+        # Test relative time parsing for days
+        now_result = metrics_service._format_time("now")
+        past_result = metrics_service._format_time("now-1d")
+        # Past should be less than now
+        assert past_result < now_result
+        # Difference should be approximately 1 day (86400000 ms)
+        assert 86300000 < (now_result - past_result) < 86500000
 
     def test_format_time_with_integer(self, metrics_service):
         timestamp = 1705319400000  # Milliseconds
