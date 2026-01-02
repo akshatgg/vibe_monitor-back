@@ -27,6 +27,9 @@ class EnvironmentUpdate(BaseModel):
     name: Optional[str] = Field(
         None, min_length=1, max_length=255, description="New environment name"
     )
+    is_default: Optional[bool] = Field(
+        None, description="Whether this is the default environment for RCA"
+    )
     auto_discovery_enabled: Optional[bool] = Field(
         None, description="Whether to auto-add new repos"
     )

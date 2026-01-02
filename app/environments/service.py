@@ -172,6 +172,15 @@ class EnvironmentService:
         if data.auto_discovery_enabled is not None:
             environment.auto_discovery_enabled = data.auto_discovery_enabled
 
+        if data.is_default is not None:
+            if data.is_default:
+                # Setting as default - unset any existing default first
+                await self._unset_default_environment(environment.workspace_id)
+                environment.is_default = True
+            else:
+                # Removing from default
+                environment.is_default = False
+
         await self.db.flush()
         logger.info(f"Updated environment {environment_id}")
         return environment
