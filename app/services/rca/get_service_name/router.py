@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google.service import AuthService
 from app.core.database import get_db
+from app.github.tools.service import get_github_integration_with_token
 
 from .schemas import ScanRepositoryRequest
 from .service import extract_service_names_from_repo
@@ -36,8 +37,6 @@ async def scan_repository(
     """
     try:
         # Get owner from database
-        from app.github.tools.service import get_github_integration_with_token
-
         integration, _ = await get_github_integration_with_token(workspace_id, db)
         owner = integration.github_username
 
