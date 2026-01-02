@@ -399,10 +399,11 @@ class ChatService:
                 WHERE s.workspace_id = :workspace_id
                     AND s.user_id = :user_id
                     AND (t.user_message ILIKE :pattern OR t.final_response ILIKE :pattern)
+                    AND s.id NOT IN (SELECT session_id FROM title_matches)
                 ORDER BY s.id, t.created_at DESC
             )
             SELECT * FROM title_matches
-            UNION
+            UNION ALL
             SELECT * FROM message_matches
             ORDER BY updated_at DESC NULLS LAST, created_at DESC
             LIMIT :limit
