@@ -109,3 +109,169 @@ async def client(test_db):
 
 # All API routes are prefixed with this. Use it in your tests!
 API_PREFIX = "/api/v1"
+
+
+# =============================================================================
+# Authentication Helpers
+# =============================================================================
+
+
+def get_auth_headers(user) -> dict:
+    """
+    Generate JWT auth headers for a user.
+
+    Creates a valid access token that can be used in Authorization headers.
+    """
+    from app.auth.google.service import AuthService
+
+    auth_service = AuthService()
+    access_token = auth_service.create_access_token(
+        data={"sub": user.id, "email": user.email}
+    )
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest_asyncio.fixture
+async def test_user(test_db):
+    """
+    Create a test user in the database.
+
+    Returns a User model instance that can be used for authentication.
+    """
+    import uuid
+
+    from app.models import User
+
+    user = User(
+        id=str(uuid.uuid4()),
+        name="Test User",
+        email="testuser@example.com",
+        is_verified=True,
+    )
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def second_user(test_db):
+    """
+    Create a second test user for multi-user scenarios.
+    """
+    import uuid
+
+    from app.models import User
+
+    user = User(
+        id=str(uuid.uuid4()),
+        name="Second User",
+        email="seconduser@example.com",
+        is_verified=True,
+    )
+    test_db.add(user)
+    await test_db.commit()
+    await test_db.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def auth_headers(test_user):
+    """
+    Generate auth headers for the test_user.
+
+    Usage:
+        async def test_something(client, auth_headers):
+            response = await client.get("/api/v1/workspaces", headers=auth_headers)
+            assert response.status_code == 200
+    """
+    return get_auth_headers(test_user)
+
+
+@pytest_asyncio.fixture
+async def auth_client(test_db, test_user):
+    """
+    Create an authenticated test client with pre-configured auth headers.
+
+    This fixture creates a client that automatically includes JWT auth headers
+    for the test_user in every request.
+
+    Usage:
+        async def test_something(auth_client, test_user):
+            response = await auth_client.get("/api/v1/workspaces")
+            assert response.status_code == 200
+    """
+
+    async def override_get_db():
+        yield test_db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    headers = get_auth_headers(test_user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers=headers,
+    ) as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+# =============================================================================
+# Test Data Helpers
+# =============================================================================
+
+
+@pytest_asyncio.fixture
+async def test_workspace(test_db, test_user):
+    """
+    Create a test workspace with the test_user as owner.
+    """
+    import uuid
+
+    from app.models import Membership, Role, Workspace, WorkspaceType
+
+    workspace = Workspace(
+        id=str(uuid.uuid4()),
+        name="Test Workspace",
+        type=WorkspaceType.TEAM,
+        visible_to_org=False,
+        is_paid=False,
+    )
+    test_db.add(workspace)
+    await test_db.flush()
+
+    membership = Membership(
+        id=str(uuid.uuid4()),
+        user_id=test_user.id,
+        workspace_id=workspace.id,
+        role=Role.OWNER,
+    )
+    test_db.add(membership)
+    await test_db.commit()
+    await test_db.refresh(workspace)
+    return workspace
+
+
+@pytest_asyncio.fixture
+async def test_environment(test_db, test_workspace):
+    """
+    Create a test environment in the test workspace.
+    """
+    import uuid
+
+    from app.models import Environment
+
+    environment = Environment(
+        id=str(uuid.uuid4()),
+        workspace_id=test_workspace.id,
+        name="Production",
+        is_default=True,
+        auto_discovery_enabled=True,
+    )
+    test_db.add(environment)
+    await test_db.commit()
+    await test_db.refresh(environment)
+    return environment
