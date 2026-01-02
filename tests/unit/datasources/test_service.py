@@ -3,10 +3,6 @@ Unit tests for datasources service.
 Focuses on pure functions and validation logic (no database operations).
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
 from app.datasources.service import DatasourcesService
 
 

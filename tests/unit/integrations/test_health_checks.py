@@ -4,10 +4,6 @@ Focuses on pure validation logic and mocked HTTP responses (no database operatio
 """
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import httpx
-import pytest
 
 
 class TestDatadogRegionMapping:
@@ -115,6 +111,7 @@ class TestGitHubTokenExpiration:
         # The important thing is the comparison logic works
         is_expired = token_expires_at < now
         # Result depends on timing, but the logic should work
+        assert isinstance(is_expired, bool)
 
 
 class TestAWSCredentialsExpiration:

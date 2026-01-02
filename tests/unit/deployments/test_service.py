@@ -4,10 +4,8 @@ Focuses on pure functions and validation logic (no database operations).
 """
 
 import hashlib
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 
 from app.deployments.service import DeploymentService
 from app.models import DeploymentSource, DeploymentStatus

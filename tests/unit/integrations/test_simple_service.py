@@ -5,8 +5,6 @@ Focuses on data transformation and aggregation logic (no database operations).
 
 from datetime import datetime, timezone
 
-import pytest
-
 
 class TestIntegrationSummaryTransformation:
     """Tests for integration summary data transformation."""

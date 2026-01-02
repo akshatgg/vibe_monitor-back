@@ -5,7 +5,6 @@ Focuses on pure functions, validation logic, and schema validation (no DB).
 """
 
 import pytest
-from pydantic import ValidationError
 
 from app.onboarding.schemas.schemas import (
     Role,
@@ -303,7 +302,10 @@ class TestPersonalWorkspaceValidationLogic:
     def test_team_workspace_can_have_domain(self):
         """Test that team workspaces can have domain."""
         ws = WorkspaceCreate(
-            name="Team", type=WorkspaceType.TEAM, domain="company.com", visible_to_org=True
+            name="Team",
+            type=WorkspaceType.TEAM,
+            domain="company.com",
+            visible_to_org=True,
         )
         assert ws.domain == "company.com"
         assert ws.visible_to_org is True

@@ -3,11 +3,6 @@ Unit tests for integrations service.
 Focuses on validation logic and status mapping (no database operations).
 """
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
 
 class TestIntegrationProviderRouting:
     """Tests for routing to correct health check based on provider."""

@@ -7,7 +7,6 @@ Focuses on pure functions, validation logic, and schema validation (no DB).
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pydantic import ValidationError
 
 from app.models import Role as DBRole
 from app.onboarding.schemas.schemas import (
