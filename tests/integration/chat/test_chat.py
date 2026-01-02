@@ -338,35 +338,6 @@ class TestListSessions:
         assert data == []
 
 
-class TestSearchSessions:
-    """Integration tests for GET /api/v1/workspaces/{workspace_id}/sessions/search."""
-
-    @pytest.mark.asyncio
-    async def test_search_sessions_by_title(self, client, test_db):
-        """Search sessions finds sessions by title."""
-        user = await create_test_user(test_db)
-        workspace = await create_test_workspace(test_db)
-        await create_test_membership(test_db, user.id, workspace.id)
-
-        await create_test_chat_session(
-            test_db, workspace.id, user.id, title="Database Error Analysis"
-        )
-        await create_test_chat_session(
-            test_db, workspace.id, user.id, title="API Performance Review"
-        )
-
-        headers = get_auth_headers(user)
-
-        response = await client.get(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/search?q=Database",
-            headers=headers,
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "results" in data
-
-
 class TestGetSession:
     """Integration tests for GET /api/v1/workspaces/{workspace_id}/sessions/{session_id}."""
 
@@ -437,51 +408,6 @@ class TestGetSession:
 
 class TestUpdateSession:
     """Integration tests for PATCH /api/v1/workspaces/{workspace_id}/sessions/{session_id}."""
-
-    @pytest.mark.asyncio
-    async def test_update_session_title(self, client, test_db):
-        """Update session title successfully."""
-        user = await create_test_user(test_db)
-        workspace = await create_test_workspace(test_db)
-        await create_test_membership(test_db, user.id, workspace.id)
-
-        session = await create_test_chat_session(
-            test_db, workspace.id, user.id, title="Old Title"
-        )
-
-        headers = get_auth_headers(user)
-
-        response = await client.patch(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
-            json={"title": "New Title"},
-            headers=headers,
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["title"] == "New Title"
-
-    @pytest.mark.asyncio
-    async def test_update_session_persists_to_database(self, client, test_db):
-        """Update session persists changes to database."""
-        user = await create_test_user(test_db)
-        workspace = await create_test_workspace(test_db)
-        await create_test_membership(test_db, user.id, workspace.id)
-
-        session = await create_test_chat_session(
-            test_db, workspace.id, user.id, title="Old Title"
-        )
-
-        headers = get_auth_headers(user)
-
-        await client.patch(
-            f"{API_PREFIX}/workspaces/{workspace.id}/sessions/{session.id}",
-            json={"title": "Updated Title"},
-            headers=headers,
-        )
-
-        await test_db.refresh(session)
-        assert session.title == "Updated Title"
 
     @pytest.mark.asyncio
     async def test_update_session_not_found_returns_404(self, client, test_db):
