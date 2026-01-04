@@ -16,7 +16,7 @@ from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
 from app.models import Job, JobSource, JobStatus, TurnStatus
 from app.services.rca.agent import rca_agent_service
-from app.services.rca.callbacks import SlackProgressCallback
+from app.services.rca.callbacks import SlackProgressCallback, markdown_to_slack
 from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.services.sqs.client import sqs_client
@@ -547,6 +547,9 @@ class RCAOrchestratorWorker(BaseWorker):
                             logger.info(f"📤 Job {job_id} result sent to web client")
                         elif team_id and channel_id:
                             # Slack: update turn status and send message with feedback buttons
+                            # Convert Markdown to Slack format
+                            slack_output = markdown_to_slack(final_output)
+
                             turn_id = requested_context.get("turn_id")
                             if turn_id:
                                 # Update turn status and response
@@ -562,7 +565,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 await slack_event_service.send_message_with_feedback_button(
                                     team_id=team_id,
                                     channel=channel_id,
-                                    text=final_output,
+                                    text=slack_output,
                                     turn_id=turn_id,
                                     thread_ts=thread_ts,
                                 )
@@ -574,7 +577,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 await slack_event_service.send_message(
                                     team_id=team_id,
                                     channel=channel_id,
-                                    text=final_output,
+                                    text=slack_output,
                                     thread_ts=thread_ts,
                                 )
                                 logger.info(f"📤 Job {job_id} result sent to Slack")
