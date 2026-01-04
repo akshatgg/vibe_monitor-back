@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+import random
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google.service import AuthService
 from app.core.database import get_db
+from app.github.webhook.router import limiter
 
 from .schemas import (
+    CheckEmailRequest,
+    CheckEmailResponse,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
@@ -23,6 +29,44 @@ router = APIRouter(prefix="/auth", tags=["credential-authentication"])
 # Initialize services
 jwt_service = AuthService()
 credential_service = CredentialAuthService(jwt_service)
+
+
+@router.post("/check-email", response_model=CheckEmailResponse)
+@limiter.limit("10/minute")
+async def check_email(
+    request: Request,
+    body: CheckEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Check if email exists and return available auth methods.
+
+    This endpoint is rate limited to prevent email enumeration attacks.
+
+    - Returns whether the email exists
+    - Returns available auth methods (password, google, github)
+    - Returns user name for personalization (if exists)
+    """
+    try:
+        # Add random delay (50-150ms) to prevent timing attacks
+        await asyncio.sleep(random.uniform(0.05, 0.15))
+
+        result = await credential_service.check_email(email=body.email, db=db)
+
+        return CheckEmailResponse(
+            exists=result["exists"],
+            auth_methods=result["auth_methods"],
+            has_password=result["has_password"],
+            name=result["name"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check email: {str(e)}",
+        )
 
 
 @router.post(

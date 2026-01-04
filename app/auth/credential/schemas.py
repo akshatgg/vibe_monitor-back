@@ -1,4 +1,24 @@
+from enum import Enum
+from typing import List, Optional
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+class AuthMethod(str, Enum):
+    PASSWORD = "password"
+    GOOGLE = "google"
+    GITHUB = "github"
+
+
+class CheckEmailRequest(BaseModel):
+    email: EmailStr
+
+
+class CheckEmailResponse(BaseModel):
+    exists: bool
+    auth_methods: List[AuthMethod]
+    has_password: bool
+    name: Optional[str] = None
 
 
 class SignupRequest(BaseModel):

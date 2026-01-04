@@ -201,6 +201,52 @@ class CredentialAuthService:
 
     # ============== USER OPERATIONS ==============
 
+    async def check_email(self, email: str, db: AsyncSession) -> Dict[str, any]:
+        """
+        Check if email exists and determine available auth methods.
+
+        Args:
+            email: Email address to check
+            db: Database session
+
+        Returns:
+            Dict with:
+            - exists: bool - whether user exists
+            - auth_methods: List[str] - available auth methods
+            - has_password: bool - whether user has password set
+            - name: Optional[str] - user's name if exists
+        """
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return {
+                "exists": False,
+                "auth_methods": [],
+                "has_password": False,
+                "name": None,
+            }
+
+        # Determine auth methods
+        auth_methods = []
+        has_password = user.password_hash is not None
+
+        if has_password:
+            auth_methods.append("password")
+
+        # If user has no password, they must have signed up via OAuth
+        # We can't distinguish Google vs GitHub from password_hash alone
+        # For now, assume OAuth users without password used Google (most common)
+        if not has_password:
+            auth_methods.append("google")
+
+        return {
+            "exists": True,
+            "auth_methods": auth_methods,
+            "has_password": has_password,
+            "name": user.name,
+        }
+
     async def signup(
         self, email: str, password: str, name: str, db: AsyncSession
     ) -> Tuple[Dict[str, any], User]:
