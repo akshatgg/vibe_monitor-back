@@ -1,0 +1,15 @@
+Hey!
+
+Welcome to VibeMonitor - thanks for signing up!
+
+I'm Ankesh, the founder. I wanted to personally welcome you and see if there's anything I can help with as you get started.
+
+Whether you're setting up integrations, exploring our AI-powered root cause analysis, or just figuring out how VibeMonitor fits your workflow - I'm happy to hop on a quick 15-minute call or answer questions over email.
+
+What are you hoping to achieve with your observability setup? I'd love to hear about your challenges so we can make this as useful as possible for you.
+
+Just hit reply - no pressure, genuinely here to help.
+
+Best,
+{{sender_name}}
+Founder, Vibemonitor.ai

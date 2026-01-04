@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     PERSONAL_EMAIL_FROM_NAME: str = "Ankesh Khemani"
 
     # Email Subjects (uses PERSONAL settings - templates in app/email/templates/text_body/)
+    WELCOME_EMAIL_SUBJECT: str = "Welcome to VibeMonitor - quick intro"
     USER_HELP_EMAIL_SUBJECT: str = "Quick question about your setup"
     USAGE_FEEDBACK_EMAIL_SUBJECT: str = "How's it going so far?"
 

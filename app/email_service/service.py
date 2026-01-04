@@ -184,7 +184,7 @@ class EmailService:
 
     async def send_welcome_email(self, user_id: str, db: AsyncSession) -> dict:
         """
-        Send a welcome email to a user.
+        Send a personalized welcome email to a new user.
 
         Args:
             user_id: User ID to send welcome email to
@@ -199,24 +199,23 @@ class EmailService:
         if not user:
             raise ValueError(f"User with id {user_id} not found")
 
-        # Email content
-        subject = "Welcome to VibeMonitor!"
+        subject = settings.WELCOME_EMAIL_SUBJECT
 
-        # Load and render HTML template
-        template = self._load_template("welcome.html")
-        html_content = self._render_template(
-            template,
-            user_name=user.name,
-            app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
-            api_base_url=settings.API_BASE_URL,
+        # Load plain text template for personalized welcome
+        text_template = self._load_template("text_body/welcome.txt")
+        email_text_body = self._render_template(
+            text_template,
+            sender_name=settings.PERSONAL_EMAIL_FROM_NAME,
         )
 
         try:
+            # Send from personal email address for human touch
             response = await self.send_email(
                 to_email=user.email,
                 subject=subject,
-                text="",
-                html_body=html_content,
+                text=email_text_body,
+                from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
+                from_name=settings.PERSONAL_EMAIL_FROM_NAME,
             )
 
             # Store email record in database
