@@ -53,10 +53,13 @@ auth_service = AuthService()
       -d '{
         "environment": "production",
         "repository": "owner/repo",
-        "branch": "main",
-        "commit_sha": "abc123def456..."
+        "commit_sha": "'$GITHUB_SHA'",
+        "branch": "main"
       }'
     ```
+
+    **Note:** `commit_sha` is required as it uniquely identifies the deployed code.
+    `branch` is optional context. In GitHub Actions, use `$GITHUB_SHA` for the commit.
     """,
 )
 async def create_deployment_webhook(

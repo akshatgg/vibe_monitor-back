@@ -16,9 +16,6 @@ class EnvironmentCreate(BaseModel):
     is_default: bool = Field(
         default=False, description="Whether this is the default environment for RCA"
     )
-    auto_discovery_enabled: bool = Field(
-        default=True, description="Whether to auto-add new repos when discovered"
-    )
 
 
 class EnvironmentUpdate(BaseModel):
@@ -29,9 +26,6 @@ class EnvironmentUpdate(BaseModel):
     )
     is_default: Optional[bool] = Field(
         None, description="Whether this is the default environment for RCA"
-    )
-    auto_discovery_enabled: Optional[bool] = Field(
-        None, description="Whether to auto-add new repos"
     )
 
 
@@ -57,7 +51,6 @@ class EnvironmentResponse(BaseModel):
     workspace_id: str
     name: str
     is_default: bool
-    auto_discovery_enabled: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
     repository_configs: List[EnvironmentRepositoryResponse] = []
@@ -73,7 +66,6 @@ class EnvironmentSummaryResponse(BaseModel):
     workspace_id: str
     name: str
     is_default: bool
-    auto_discovery_enabled: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -98,10 +90,11 @@ class EnvironmentRepositoryCreate(BaseModel):
         description="Repository full name (owner/repo)",
     )
     branch_name: Optional[str] = Field(
-        None, max_length=255, description="Branch name (can be set later)"
+        None, max_length=255, description="Branch name (optional context, not required)"
     )
     is_enabled: bool = Field(
-        default=False, description="Whether the repository is enabled (requires branch)"
+        default=True,
+        description="Whether the repository is enabled for this environment",
     )
 
 

@@ -136,7 +136,6 @@ class EnvironmentService:
             workspace_id=workspace_id,
             name=data.name,
             is_default=data.is_default,
-            auto_discovery_enabled=data.auto_discovery_enabled,
         )
 
         self.db.add(environment)
@@ -168,9 +167,6 @@ class EnvironmentService:
                     detail=f"Environment with name '{data.name}' already exists in this workspace",
                 )
             environment.name = data.name
-
-        if data.auto_discovery_enabled is not None:
-            environment.auto_discovery_enabled = data.auto_discovery_enabled
 
         if data.is_default is not None:
             if data.is_default:
@@ -261,13 +257,6 @@ class EnvironmentService:
                 detail=f"Repository '{data.repo_full_name}' already exists in this environment",
             )
 
-        # Validate: cannot enable without branch
-        if data.is_enabled and not data.branch_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot enable repository without a configured branch",
-            )
-
         # Create repository configuration
         repo_config = EnvironmentRepository(
             id=str(uuid.uuid4()),
@@ -318,17 +307,6 @@ class EnvironmentService:
             repo_config.branch_name = data.branch_name
 
         if data.is_enabled is not None:
-            # Validate: cannot enable without branch
-            effective_branch = (
-                data.branch_name
-                if data.branch_name is not None
-                else repo_config.branch_name
-            )
-            if data.is_enabled and not effective_branch:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot enable repository without a configured branch",
-                )
             repo_config.is_enabled = data.is_enabled
 
         await self.db.flush()

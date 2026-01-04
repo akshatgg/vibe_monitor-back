@@ -1308,9 +1308,6 @@ class Environment(Base):
     is_default = Column(
         Boolean, default=False, nullable=False
     )  # Only one per workspace can be default
-    auto_discovery_enabled = Column(
-        Boolean, default=True, nullable=False
-    )  # Auto-add new repos when discovered
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1334,9 +1331,10 @@ class Environment(Base):
 class EnvironmentRepository(Base):
     """
     Repository configuration within an environment.
-    Maps a repository to a specific branch for that environment.
+    Links a repository to an environment for deployment tracking.
 
-    Repositories are disabled by default until a branch is configured.
+    Branch is optional context - the commit SHA in deployments is the
+    source of truth for identifying deployed code.
     When auto_discovery_enabled is true on the parent Environment,
     new repositories are automatically added here when discovered.
     """
@@ -1350,10 +1348,10 @@ class EnvironmentRepository(Base):
     repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
     branch_name = Column(
         String(255), nullable=True
-    )  # e.g., "main", "develop" - nullable until configured
+    )  # Optional context, e.g., "main", "develop"
     is_enabled = Column(
-        Boolean, default=False, nullable=False
-    )  # Disabled until branch configured
+        Boolean, default=True, nullable=False
+    )  # Whether repo is active in this environment
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -20,11 +20,14 @@ class DeploymentCreate(BaseModel):
         max_length=255,
         description="Repository full name (owner/repo)",
     )
-    branch: Optional[str] = Field(
-        None, max_length=255, description="Deployed branch name"
+    commit_sha: str = Field(
+        ...,
+        min_length=7,
+        max_length=40,
+        description="Commit SHA - the unique identifier for the deployed code snapshot",
     )
-    commit_sha: Optional[str] = Field(
-        None, min_length=7, max_length=40, description="Commit SHA"
+    branch: Optional[str] = Field(
+        None, max_length=255, description="Deployed branch name (optional context)"
     )
     status: DeploymentStatus = Field(
         default=DeploymentStatus.SUCCESS, description="Deployment status"
@@ -50,11 +53,14 @@ class WebhookDeploymentCreate(BaseModel):
         max_length=255,
         description="Repository full name (owner/repo)",
     )
-    branch: Optional[str] = Field(
-        None, max_length=255, description="Deployed branch name"
+    commit_sha: str = Field(
+        ...,
+        min_length=7,
+        max_length=40,
+        description="Commit SHA - available as $GITHUB_SHA in GitHub Actions",
     )
-    commit_sha: Optional[str] = Field(
-        None, min_length=7, max_length=40, description="Commit SHA"
+    branch: Optional[str] = Field(
+        None, max_length=255, description="Deployed branch name (optional context)"
     )
     status: Optional[str] = Field(
         "success",
