@@ -111,6 +111,134 @@ async def scan_repositories_in_batches(
     return service_repo_mapping
 
 
+async def fetch_environment_context(workspace_id: str, db: AsyncSessionLocal) -> dict:
+    """
+    Fetch environment context for RCA agent including:
+    - List of all environments
+    - Default environment
+    - Deployed commits for each environment
+
+    This function queries the database directly (bypassing service layer membership checks)
+    since it runs in the internal RCA agent context where the job has already been authenticated.
+
+    Args:
+        workspace_id: Workspace identifier
+        db: Database session
+
+    Returns:
+        Dictionary with environment context for the RCA agent
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models import (
+        Deployment,
+        DeploymentStatus,
+        Environment,
+    )
+
+    environment_context = {
+        "environments": [],
+        "default_environment": None,
+        "deployed_commits_by_environment": {},
+    }
+
+    try:
+        # Fetch all environments for the workspace (direct query, no membership check)
+        result = await db.execute(
+            select(Environment)
+            .options(selectinload(Environment.repository_configs))
+            .where(Environment.workspace_id == workspace_id)
+            .order_by(Environment.created_at)
+        )
+        environments = list(result.scalars().all())
+
+        if not environments:
+            logger.info(f"No environments configured for workspace {workspace_id}")
+            return environment_context
+
+        # Build environment list and find default
+        for env in environments:
+            env_info = {"name": env.name, "is_default": env.is_default}
+            environment_context["environments"].append(env_info)
+
+            if env.is_default:
+                environment_context["default_environment"] = env.name
+
+        logger.info(
+            f"Found {len(environments)} environments for workspace {workspace_id}, "
+            f"default: {environment_context['default_environment']}"
+        )
+
+        # Fetch deployed commits for each environment
+        for env in environments:
+            env_commits = {}
+
+            # Get repository configs (already loaded via selectinload)
+            repo_configs = env.repository_configs or []
+
+            if not repo_configs:
+                logger.debug(f"No repositories configured for environment {env.name}")
+                environment_context["deployed_commits_by_environment"][env.name] = {}
+                continue
+
+            # For each repository, get the latest successful deployment
+            for repo_config in repo_configs:
+                if not repo_config.is_enabled:
+                    continue
+
+                try:
+                    # Get latest successful deployment for this repo in this environment
+                    result = await db.execute(
+                        select(Deployment)
+                        .where(
+                            Deployment.environment_id == env.id,
+                            Deployment.repo_full_name == repo_config.repo_full_name,
+                            Deployment.status == DeploymentStatus.SUCCESS,
+                        )
+                        .order_by(Deployment.deployed_at.desc())
+                        .limit(1)
+                    )
+                    latest_deployment = result.scalar_one_or_none()
+
+                    if latest_deployment and latest_deployment.commit_sha:
+                        deployed_at = (
+                            latest_deployment.deployed_at.isoformat()
+                            if latest_deployment.deployed_at
+                            else "unknown"
+                        )
+                        env_commits[repo_config.repo_full_name] = {
+                            "commit_sha": latest_deployment.commit_sha,
+                            "deployed_at": deployed_at,
+                        }
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch latest deployment for {repo_config.repo_full_name} "
+                        f"in environment {env.name}: {e}"
+                    )
+
+            environment_context["deployed_commits_by_environment"][env.name] = (
+                env_commits
+            )
+            logger.info(f"Environment {env.name}: {len(env_commits)} deployed commits")
+
+        total_commits = sum(
+            len(commits)
+            for commits in environment_context[
+                "deployed_commits_by_environment"
+            ].values()
+        )
+        logger.info(
+            f"✅ Environment context complete: {len(environments)} environments, "
+            f"{total_commits} total deployed commits"
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching environment context: {e}", exc_info=True)
+
+    return environment_context
+
+
 class RCAOrchestratorWorker(BaseWorker):
     def __init__(self):
         """
@@ -464,6 +592,14 @@ class RCAOrchestratorWorker(BaseWorker):
                                 unhealthy_providers=unhealthy_optional
                             )
 
+                    # PRE-PROCESSING: Fetch environment context (environments + deployed commits)
+                    logger.info(
+                        f"🌍 Pre-processing: Fetching environment context for workspace {workspace_id}"
+                    )
+                    environment_context = await fetch_environment_context(
+                        workspace_id=workspace_id, db=db
+                    )
+
                     # Perform RCA analysis using AI agent
                     # Determine which LLM to use based on whether images are present
                     has_images = job.requested_context.get("has_images", False)
@@ -480,11 +616,12 @@ class RCAOrchestratorWorker(BaseWorker):
                         )
                         selected_agent = rca_agent_service
 
-                    # Add workspace_id and service mapping to context for RCA tools
+                    # Add workspace_id, service mapping, and environment context for RCA tools
                     analysis_context = {
                         **(job.requested_context or {}),
                         "workspace_id": workspace_id,
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
+                        "environment_context": environment_context,  # Environments + deployed commits
                     }
 
                     # Create appropriate progress callback based on job source

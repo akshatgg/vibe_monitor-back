@@ -61,12 +61,13 @@ class GeminiRCAAgentService:
             )
             logger.info(f"Using {settings.GEMINI_LLM_MODEL} for image analysis")
 
-            # Create chat prompt template with system message, service mapping, and thread history
+            # Create chat prompt template with system message, environment context, service mapping, and thread history
             self.prompt = ChatPromptTemplate.from_messages(
                 [
                     (
                         "system",
                         RCA_SYSTEM_PROMPT
+                        + "\n\n{environment_context_text}"
                         + "\n\n## 📋 SERVICE→REPOSITORY MAPPING\n\n{service_mapping_text}\n\n{thread_history_text}",
                     ),
                     ("human", "{input}"),
@@ -79,6 +80,88 @@ class GeminiRCAAgentService:
         except Exception as e:
             logger.error(f"Failed to initialize Gemini RCA agent LLM: {e}")
             raise
+
+    def _format_environment_context(self, environment_context: Dict[str, Any]) -> str:
+        """
+        Format environment context for injection into the prompt.
+
+        Args:
+            environment_context: Dictionary containing:
+                - environments: List of {name, is_default} dicts
+                - default_environment: Name of the default environment
+                - deployed_commits_by_environment: Dict of env_name -> {repo_full_name -> {commit_sha, deployed_at}}
+
+        Returns:
+            Formatted string for the prompt
+        """
+        if not environment_context:
+            return "## 🌍 AVAILABLE ENVIRONMENTS\n\n(No environments configured - code will be read from HEAD)"
+
+        environments = environment_context.get("environments", [])
+        default_env = environment_context.get("default_environment")
+        deployed_commits_by_env = environment_context.get(
+            "deployed_commits_by_environment", {}
+        )
+
+        lines = ["## 🌍 AVAILABLE ENVIRONMENTS", ""]
+
+        if environments:
+            for env in environments:
+                name = env.get("name", "unknown")
+                is_default = env.get("is_default", False)
+                suffix = " (default)" if is_default else ""
+                lines.append(f"- `{name}`{suffix}")
+        else:
+            lines.append("(No environments configured)")
+
+        if default_env:
+            lines.append(
+                f"\n**Default environment for investigation:** `{default_env}`"
+            )
+
+        if deployed_commits_by_env:
+            lines.append("\n## 📦 DEPLOYED COMMITS BY ENVIRONMENT")
+            lines.append("")
+            lines.append(
+                "Use these commit SHAs when reading repository code (pass as `ref` parameter to `download_file_tool`):"
+            )
+
+            total_commits = 0
+            for env_name, commits in deployed_commits_by_env.items():
+                # Find if this environment is the default
+                is_default = any(
+                    e.get("name") == env_name and e.get("is_default")
+                    for e in environments
+                )
+                suffix = " (default)" if is_default else ""
+                lines.append(f"\n**{env_name}**{suffix}:")
+
+                if commits:
+                    for repo, commit_info in commits.items():
+                        if isinstance(commit_info, dict):
+                            sha = commit_info.get("commit_sha", "HEAD")
+                            deployed_at = commit_info.get("deployed_at", "unknown")
+                            lines.append(
+                                f"- `{repo}` → `{sha}` (deployed: {deployed_at})"
+                            )
+                        else:
+                            # Handle legacy format where commit_info is just the sha string
+                            lines.append(f"- `{repo}` → `{commit_info}`")
+                        total_commits += 1
+                else:
+                    lines.append("- (No deployments recorded)")
+        else:
+            lines.append("\n## 📦 DEPLOYED COMMITS")
+            lines.append("")
+            lines.append("(No deployment data available - code will be read from HEAD)")
+            total_commits = 0
+
+        logger.info(
+            f"Formatted environment context: {len(environments)} environments, "
+            f"default={default_env}, {total_commits} total deployed commits across all environments"
+        )
+
+        return "\n".join(lines)
 
     async def _create_agent_executor_for_workspace(
         self,
@@ -337,6 +420,12 @@ class GeminiRCAAgentService:
                 )
                 logger.warning("No service→repo mapping provided in context")
 
+            # Extract and format environment context
+            environment_context = (context or {}).get("environment_context", {})
+            environment_context_text = self._format_environment_context(
+                environment_context
+            )
+
             # Extract and format thread history from context
             thread_history = (context or {}).get("thread_history", [])
 
@@ -513,6 +602,7 @@ class GeminiRCAAgentService:
 
                 agent_input = {
                     "input": enhanced_query,
+                    "environment_context_text": environment_context_text,
                     "service_mapping_text": service_mapping_text,
                     "thread_history_text": thread_history_text,
                 }
@@ -521,6 +611,7 @@ class GeminiRCAAgentService:
                 # Standard text-only input
                 agent_input = {
                     "input": user_query,
+                    "environment_context_text": environment_context_text,
                     "service_mapping_text": service_mapping_text,
                     "thread_history_text": thread_history_text,
                 }
@@ -528,6 +619,7 @@ class GeminiRCAAgentService:
             # Log context details before LLM API call for debugging context length issues
             # Model context windows: llama-3.3-70b-versatile = 128K tokens, gemini-2.0-flash-exp = 1M tokens
             system_prompt_len = len(RCA_SYSTEM_PROMPT)
+            environment_context_len = len(environment_context_text)
             thread_history_len = len(thread_history_text)
             service_mapping_len = len(service_mapping_text)
             user_query_len = len(
@@ -535,6 +627,7 @@ class GeminiRCAAgentService:
             )  # Use actual input (may include image analysis)
             total_chars = (
                 system_prompt_len
+                + environment_context_len
                 + thread_history_len
                 + service_mapping_len
                 + user_query_len
@@ -546,6 +639,7 @@ class GeminiRCAAgentService:
             logger.info(
                 f"📊 Context size before LLM call (model: {settings.GEMINI_LLM_MODEL}):\n"
                 f"  - System prompt: {system_prompt_len} chars\n"
+                f"  - Environment context: {environment_context_len} chars\n"
                 f"  - Thread history: {thread_history_len} chars ({len(thread_history)} messages)\n"
                 f"  - Service mapping: {service_mapping_len} chars ({len(service_repo_mapping)} services)\n"
                 f"  - User query (with images if any): {user_query_len} chars\n"
@@ -596,6 +690,7 @@ class GeminiRCAAgentService:
                     f"Model: {settings.GEMINI_LLM_MODEL}\n"
                     f"Max output tokens configured: {settings.RCA_AGENT_MAX_TOKENS}\n"
                     f"System prompt length: {len(RCA_SYSTEM_PROMPT)} chars\n"
+                    f"Environment context length: {len(environment_context_text)} chars\n"
                     f"Thread history length: {len(thread_history_text)} chars\n"
                     f"Service mapping length: {len(service_mapping_text)} chars\n"
                     f"User query length: {len(user_query)} chars\n"
