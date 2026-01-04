@@ -41,6 +41,27 @@ def sanitize_error_for_user(error_msg: Optional[str]) -> str:
     return "Something went wrong while processing your request"
 
 
+def markdown_to_slack(text: str) -> str:
+    """
+    Convert Markdown formatting to Slack mrkdwn format.
+
+    Slack uses different syntax than standard Markdown:
+    - Bold: *text* (not **text**)
+    - Italic: _text_ (not *text*)
+    - Strikethrough: ~text~ (same)
+    - Code: `text` (same)
+
+    Args:
+        text: Text with Markdown formatting
+
+    Returns:
+        Text with Slack mrkdwn formatting
+    """
+    # Convert **bold** to *bold*
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    return text
+
+
 class SlackProgressCallback(AsyncCallbackHandler):
     """
     Callback handler that sends agent thinking process to Slack in real-time
@@ -134,6 +155,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         if self.circuit_open:
             logger.debug(f"Circuit breaker open, skipping Slack message: {context}")
             return
+
+        # Convert Markdown to Slack format
+        text = markdown_to_slack(text)
 
         try:
             # Update previous message with checkmark if this is a new step
