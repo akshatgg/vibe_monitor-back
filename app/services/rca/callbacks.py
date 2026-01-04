@@ -50,6 +50,7 @@ def markdown_to_slack(text: str) -> str:
     - Italic: _text_ (not *text*)
     - Strikethrough: ~text~ (same)
     - Code: `text` (same)
+    - Bullets: • (not * at line start)
 
     Args:
         text: Text with Markdown formatting
@@ -59,6 +60,8 @@ def markdown_to_slack(text: str) -> str:
     """
     # Convert **bold** to *bold*
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    # Convert markdown bullets (* item) to Slack bullets (• item)
+    text = re.sub(r"^(\s*)\* ", r"\1• ", text, flags=re.MULTILINE)
     return text
 
 

@@ -80,3 +80,42 @@ Users are unable to view tickets. `desk-service` is returning 404 errors.
 • Deploy and monitor"""
 
         assert markdown_to_slack(text) == expected
+
+    def test_converts_markdown_bullets(self):
+        """Markdown bullets (* ) should convert to Slack bullets (• )"""
+        text = "* First item\n* Second item"
+        expected = "• First item\n• Second item"
+        assert markdown_to_slack(text) == expected
+
+    def test_converts_bullets_with_bold(self):
+        """Bullets with bold text should convert both"""
+        text = "* **Log analysis** – query logs"
+        expected = "• *Log analysis* – query logs"
+        assert markdown_to_slack(text) == expected
+
+    def test_preserves_asterisk_in_middle_of_line(self):
+        """Asterisks not at line start should not become bullets"""
+        text = "This has a * in the middle"
+        assert markdown_to_slack(text) == text
+
+    def test_converts_indented_bullets(self):
+        """Indented bullets should also be converted"""
+        text = "  * Indented item\n    * More indented"
+        expected = "  • Indented item\n    • More indented"
+        assert markdown_to_slack(text) == expected
+
+    def test_real_world_bulleted_list(self):
+        """Test realistic LLM output with bullets and bold"""
+        text = """Here's what I can do:
+
+* **Log & metric analysis** – query recent logs
+* **Code inspection** – read files from GitHub
+* **Change detection** – list recent commits"""
+
+        expected = """Here's what I can do:
+
+• *Log & metric analysis* – query recent logs
+• *Code inspection* – read files from GitHub
+• *Change detection* – list recent commits"""
+
+        assert markdown_to_slack(text) == expected
