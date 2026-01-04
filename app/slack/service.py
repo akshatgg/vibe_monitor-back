@@ -700,10 +700,7 @@ class SlackEventService:
                             f"Analyzing logs, metrics, and recent changes. I'll provide my findings shortly."
                         )
                     else:
-                        return (
-                            f'🔍 Got it! I\'m analyzing: *"{clean_message[:100]}..."*\n\n'
-                            f"This may take a moment while I investigate."
-                        )
+                        return "👋 Let me help with that!"
                 else:
                     logger.error(f"❌ Failed to enqueue job {job_id} to SQS")
                     # Mark job as failed since we couldn't enqueue it
