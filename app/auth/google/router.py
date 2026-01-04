@@ -208,3 +208,72 @@ async def logout(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Logout failed: {str(e)}")
+
+
+@router.post("/one-tap")
+async def one_tap_signin(
+    credential: str = Query(..., description="Google ID token from One Tap"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Google One Tap Sign-In endpoint
+
+    Accepts a Google ID token (credential) from Google One Tap/Sign In With Google
+    and exchanges it for our JWT access and refresh tokens.
+
+    Parameters:
+    - credential: The ID token returned by Google One Tap
+
+    Returns:
+    - access_token, refresh_token, and user information as JSON
+    """
+    try:
+        # Validate the Google ID token
+        id_token_payload = await auth_service.validate_id_token(credential)
+
+        # Extract user info from the validated ID token
+        email = id_token_payload.get("email")
+        name = id_token_payload.get("name", "")
+
+        if not email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email not found in ID token",
+            )
+
+        # Build user info dict matching the format from get_user_info_from_google
+        google_user_info = {
+            "sub": id_token_payload.get("sub"),
+            "email": email,
+            "name": name,
+            "picture": id_token_payload.get("picture"),
+        }
+
+        # Create or get user
+        user = await auth_service.create_or_get_user(
+            google_user_info=google_user_info, db=db
+        )
+
+        # Generate our own JWT tokens
+        access_token = auth_service.create_access_token(
+            data={"sub": user.id, "email": user.email}
+        )
+        refresh_token = await auth_service.create_refresh_token(
+            data={"sub": user.id, "email": user.email}, db=db
+        )
+
+        # Return tokens as JSON
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "last_visited_workspace_id": user.last_visited_workspace_id,
+            "user": user,
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error("One Tap sign-in failed", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"One Tap sign-in failed: {str(e)}")
