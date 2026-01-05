@@ -12,6 +12,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -23,13 +24,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create billing tables and seed default plans."""
-    # Create plantype enum
-    op.execute(sa.text("CREATE TYPE plantype AS ENUM ('free', 'pro')"))
-
-    # Create subscriptionstatus enum
+    # Create plantype enum (if not exists to handle partial migrations)
     op.execute(
         sa.text(
-            "CREATE TYPE subscriptionstatus AS ENUM ('active', 'past_due', 'canceled', 'incomplete', 'trialing')"
+            "DO $$ BEGIN CREATE TYPE plantype AS ENUM ('free', 'pro'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
+
+    # Create subscriptionstatus enum (if not exists to handle partial migrations)
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE subscriptionstatus AS ENUM ('active', 'past_due', 'canceled', 'incomplete', 'trialing'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
 
@@ -40,7 +45,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(50), nullable=False),
         sa.Column(
             "plan_type",
-            sa.Enum("free", "pro", name="plantype", create_type=False),
+            ENUM("free", "pro", name="plantype", create_type=False),
             nullable=False,
         ),
         sa.Column("stripe_price_id", sa.String(255), nullable=True),
@@ -72,7 +77,7 @@ def upgrade() -> None:
         sa.Column("stripe_subscription_id", sa.String(255), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(
+            ENUM(
                 "active",
                 "past_due",
                 "canceled",
