@@ -37,6 +37,10 @@ def upgrade() -> None:
         )
     )
 
+    # Register existing role enum with SQLAlchemy (checkfirst=True means no-op if exists)
+    role_enum = sa.Enum("OWNER", "MEMBER", name="role")
+    role_enum.create(op.get_bind(), checkfirst=True)
+
     # Create workspace_invitations table
     op.create_table(
         "workspace_invitations",
