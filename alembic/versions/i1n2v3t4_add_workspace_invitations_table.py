@@ -13,6 +13,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -37,11 +38,8 @@ def upgrade() -> None:
         )
     )
 
-    # Register existing role enum with SQLAlchemy (checkfirst=True means no-op if exists)
-    role_enum = sa.Enum("OWNER", "MEMBER", name="role")
-    role_enum.create(op.get_bind(), checkfirst=True)
-
     # Create workspace_invitations table
+    # Note: 'role' enum already exists from initial schema, just reference it with create_type=False
     op.create_table(
         "workspace_invitations",
         sa.Column("id", sa.String(), nullable=False),
@@ -51,13 +49,13 @@ def upgrade() -> None:
         sa.Column("invitee_id", sa.String(), nullable=True),
         sa.Column(
             "role",
-            sa.Enum("OWNER", "MEMBER", name="role", create_type=False),
+            ENUM("OWNER", "MEMBER", name="role", create_type=False),
             nullable=False,
             server_default="MEMBER",
         ),
         sa.Column(
             "status",
-            sa.Enum(
+            ENUM(
                 "pending",
                 "accepted",
                 "declined",

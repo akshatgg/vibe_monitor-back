@@ -10,6 +10,8 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -21,28 +23,31 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Create deployment_status enum
-    deployment_status = sa.Enum(
-        "pending",
-        "in_progress",
-        "success",
-        "failed",
-        "cancelled",
-        name="deploymentstatus",
+    # Create deployment_status enum (idempotent)
+    op.execute(
+        text("""
+            DO $$ BEGIN
+                CREATE TYPE deploymentstatus AS ENUM (
+                    'pending', 'in_progress', 'success', 'failed', 'cancelled'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END $$;
+        """)
     )
-    deployment_status.create(op.get_bind(), checkfirst=True)
 
-    # Create deployment_source enum
-    deployment_source = sa.Enum(
-        "manual",
-        "webhook",
-        "github_actions",
-        "github_deployments",
-        "argocd",
-        "jenkins",
-        name="deploymentsource",
+    # Create deployment_source enum (idempotent)
+    op.execute(
+        text("""
+            DO $$ BEGIN
+                CREATE TYPE deploymentsource AS ENUM (
+                    'manual', 'webhook', 'github_actions', 'github_deployments', 'argocd', 'jenkins'
+                );
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END $$;
+        """)
     )
-    deployment_source.create(op.get_bind(), checkfirst=True)
 
     # Create deployments table
     op.create_table(
@@ -53,9 +58,34 @@ def upgrade() -> None:
         sa.Column("branch", sa.String(255), nullable=True),
         sa.Column("commit_sha", sa.String(40), nullable=True),
         sa.Column(
-            "status", deployment_status, nullable=False, server_default="success"
+            "status",
+            ENUM(
+                "pending",
+                "in_progress",
+                "success",
+                "failed",
+                "cancelled",
+                name="deploymentstatus",
+                create_type=False,
+            ),
+            nullable=False,
+            server_default="success",
         ),
-        sa.Column("source", deployment_source, nullable=False, server_default="manual"),
+        sa.Column(
+            "source",
+            ENUM(
+                "manual",
+                "webhook",
+                "github_actions",
+                "github_deployments",
+                "argocd",
+                "jenkins",
+                name="deploymentsource",
+                create_type=False,
+            ),
+            nullable=False,
+            server_default="manual",
+        ),
         sa.Column("deployed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("extra_data", sa.JSON(), nullable=True),
         sa.Column(
@@ -111,5 +141,5 @@ def downgrade() -> None:
     op.drop_table("deployments")
 
     # Drop enums
-    sa.Enum(name="deploymentsource").drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name="deploymentstatus").drop(op.get_bind(), checkfirst=True)
+    op.execute(text("DROP TYPE IF EXISTS deploymentsource"))
+    op.execute(text("DROP TYPE IF EXISTS deploymentstatus"))

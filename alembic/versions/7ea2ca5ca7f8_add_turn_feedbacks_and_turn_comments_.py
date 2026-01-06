@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 # revision identifiers, used by Alembic.
@@ -40,7 +41,7 @@ def upgrade() -> None:
         sa.Column("is_positive", sa.Boolean(), nullable=False),
         sa.Column(
             "source",
-            sa.Enum("web", "slack", name="feedbacksource", create_type=False),
+            ENUM("web", "slack", name="feedbacksource", create_type=False),
             nullable=False,
             server_default="web",
         ),
@@ -72,7 +73,7 @@ def upgrade() -> None:
         sa.Column("comment", sa.Text(), nullable=False),
         sa.Column(
             "source",
-            sa.Enum("web", "slack", name="feedbacksource", create_type=False),
+            ENUM("web", "slack", name="feedbacksource", create_type=False),
             nullable=False,
             server_default="web",
         ),
