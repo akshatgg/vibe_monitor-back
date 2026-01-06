@@ -10,8 +10,7 @@ that members of team workspaces are users with different permission levels.
 
 from typing import Sequence, Union
 
-from alembic import op
-from sqlalchemy import text
+from alembic import op  # noqa: F401 - required for Alembic
 
 
 # revision identifiers, used by Alembic.
@@ -22,23 +21,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Rename MEMBER to USER in the role enum."""
-    # PostgreSQL allows renaming enum values with ALTER TYPE
-    # First, add the new value
-    op.execute(text("ALTER TYPE role ADD VALUE IF NOT EXISTS 'USER'"))
+    """No-op: This migration is superseded by f1x3num5_fix_enum_case_mismatch.py
 
-    # Update all existing MEMBER values to USER
-    op.execute(text("UPDATE memberships SET role = 'USER' WHERE role = 'MEMBER'"))
+    Originally tried to ADD VALUE 'USER' + UPDATE, but this fails in PostgreSQL
+    because new enum values can't be used in the same transaction.
 
-    # Note: PostgreSQL doesn't allow removing enum values directly
-    # The old 'MEMBER' value will remain in the enum but won't be used
-    # This is a safe approach that maintains backward compatibility
+    The f1x3num5 migration properly handles this using RENAME VALUE 'MEMBER' TO 'user',
+    which works in a single transaction and also converts to lowercase.
+    """
+    pass
 
 
 def downgrade() -> None:
-    """Rename USER back to MEMBER in the role enum."""
-    # Update all USER values back to MEMBER
-    op.execute(text("UPDATE memberships SET role = 'MEMBER' WHERE role = 'USER'"))
-
-    # Note: We can't remove the 'USER' value from the enum in PostgreSQL
-    # but we've updated all data back to use 'MEMBER'
+    """No-op: See upgrade() for explanation."""
+    pass

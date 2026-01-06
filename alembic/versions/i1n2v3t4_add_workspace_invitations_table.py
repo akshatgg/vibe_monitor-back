@@ -47,9 +47,9 @@ def upgrade() -> None:
         sa.Column("invitee_id", sa.String(), nullable=True),
         sa.Column(
             "role",
-            sa.Enum("OWNER", "USER", name="role", create_type=False),
+            sa.Enum("OWNER", "MEMBER", name="role", create_type=False),
             nullable=False,
-            server_default="USER",
+            server_default="MEMBER",
         ),
         sa.Column(
             "status",
