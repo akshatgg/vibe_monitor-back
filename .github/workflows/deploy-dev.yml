@@ -1,8 +1,6 @@
 name: Deploy to ECS - Dev
 
 on:
-  push:
-    branches: [ "dev" ]
   workflow_dispatch:
 
 permissions:
