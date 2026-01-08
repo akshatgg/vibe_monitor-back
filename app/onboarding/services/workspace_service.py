@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class WorkspaceService:
     async def create_workspace(
         self, workspace_data: WorkspaceCreate, owner_user_id: str, db: AsyncSession
-    ) -> WorkspaceResponse:
+    ) -> WorkspaceWithMembership:
         """Create a new workspace and assign the creator as owner"""
 
         # Get user info to extract domain if needed
@@ -88,7 +88,19 @@ class WorkspaceService:
         # Refresh to get the updated workspace
         await db.refresh(new_workspace)
 
-        return WorkspaceResponse.model_validate(new_workspace)
+        # Return workspace with membership role
+        workspace_data_dict = {
+            "id": new_workspace.id,
+            "name": new_workspace.name,
+            "type": WorkspaceType(new_workspace.type.value),
+            "domain": new_workspace.domain,
+            "visible_to_org": new_workspace.visible_to_org,
+            "is_paid": new_workspace.is_paid,
+            "created_at": new_workspace.created_at,
+            "user_role": Role.OWNER,  # Creator is always the owner
+        }
+
+        return WorkspaceWithMembership.model_validate(workspace_data_dict)
 
     async def _get_user_personal_workspace(
         self, user_id: str, db: AsyncSession
@@ -324,7 +336,7 @@ class WorkspaceService:
 
     async def create_personal_workspace(
         self, user: User, db: AsyncSession
-    ) -> WorkspaceResponse:
+    ) -> WorkspaceWithMembership:
         """Create a personal workspace for a user"""
 
         # Use full name for workspace name

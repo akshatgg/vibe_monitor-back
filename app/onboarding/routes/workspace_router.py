@@ -20,7 +20,7 @@ workspace_service = WorkspaceService()
 auth_service = AuthService()
 
 
-@router.post("/", response_model=WorkspaceResponse)
+@router.post("/", response_model=WorkspaceWithMembership)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
     current_user: User = Depends(auth_service.get_current_user),
