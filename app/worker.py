@@ -601,13 +601,22 @@ class RCAOrchestratorWorker(BaseWorker):
                     )
 
                     # Perform RCA analysis using AI agent
-                    # Determine which LLM to use based on whether images are present
+                    # Determine which LLM to use based on whether images/videos are present
                     has_images = job.requested_context.get("has_images", False)
                     files = job.requested_context.get("files", [])
 
-                    if has_images and files:
+                    if has_images:
+                        # Count images and videos
+                        image_count = sum(1 for f in files if f.get("file_type") == "image")
+                        video_count = sum(1 for f in files if f.get("file_type") == "video")
+                        media_desc = []
+                        if image_count > 0:
+                            media_desc.append(f"{image_count} image(s)")
+                        if video_count > 0:
+                            media_desc.append(f"{video_count} video(s)")
+
                         logger.info(
-                            f"🖼️ Invoking Gemini RCA agent for job {job_id} (workspace: {workspace_id}) - {len(files)} image(s) detected"
+                            f"🎬 Invoking Gemini RCA agent for job {job_id} (workspace: {workspace_id}) - {' and '.join(media_desc)} detected"
                         )
                         selected_agent = gemini_rca_agent_service
                     else:

@@ -235,6 +235,52 @@ class Settings(BaseSettings):
         5  # Maximum redirects to follow when downloading Slack images
     )
 
+    # File Upload Limits
+    MAX_FILES_PER_MESSAGE: int = 10
+    MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB (increased for video support)
+    DAILY_UPLOAD_LIMIT_BYTES: int = 100 * 1024 * 1024  # 100MB per day per workspace
+    MAX_GEMINI_FILE_SIZE_BYTES: int = (
+        20 * 1024 * 1024
+    )  # 20MB limit for Gemini processing to prevent memory exhaustion
+    ALLOWED_FILE_EXTENSIONS: List[str] = [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",  # Images
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",  # Videos
+        ".wmv",
+        ".flv",
+        ".mpeg",
+        ".mpg",  # More videos
+        ".pdf",
+        ".txt",
+        ".md",
+        ".csv",  # Documents
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",  # Code
+        ".json",
+        ".yaml",
+        ".yml",
+        ".log",  # Data
+    ]
+
+    # AWS S3 (Chat File Uploads)
+    CHAT_UPLOADS_BUCKET: Optional[str] = None
+    CHAT_UPLOADS_URL_EXPIRY_SECONDS: int = 3600  # 1 hour
+
+    # Text Extraction Settings
+    TEXT_EXTRACTION_MAX_CHARS: int = (
+        50000  # Maximum characters to extract from files (PDFs, text, JSON, YAML)
+    )
+
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
 

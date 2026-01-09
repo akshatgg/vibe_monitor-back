@@ -2,8 +2,8 @@
 Chat service for managing sessions, turns, and message processing.
 """
 
+import html
 import logging
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
@@ -87,15 +87,25 @@ class ChatService:
         """
         Generate session title from first message.
 
-        Sanitizes input to prevent XSS by removing dangerous characters.
-        Frontend should still sanitize before rendering (defense in depth).
+        Sanitizes HTML to prevent stored XSS (defense in depth).
+        Frontend should still escape when rendering.
         """
-        # Remove special characters that could cause XSS issues
-        title = re.sub(r'[<>"\'&]', "", message.strip())
+        # Strip whitespace
+        title = message.strip()
+
+        # Validate not empty
+        if not title:
+            return "Untitled Chat"
+
+        # Sanitize HTML entities to prevent stored XSS
+        # Uses html.escape() which converts: < > & " ' to HTML entities
+        title = html.escape(title)
+
         # Truncate if needed
         if len(title) > max_length:
-            title = title[: max_length - 3] + "..."
-        return title or "Untitled Chat"  # Handle empty string after sanitization
+            title = title[:max_length - 3] + "..."
+
+        return title
 
     async def create_turn(
         self,
@@ -208,7 +218,9 @@ class ChatService:
         )
 
         if include_turns:
-            query = query.options(selectinload(ChatSession.turns))
+            query = query.options(
+                selectinload(ChatSession.turns).selectinload(ChatTurn.files)
+            )
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -239,8 +251,8 @@ class ChatService:
                 ChatSession.user_id == user_id,
             )
             .options(
-                selectinload(ChatSession.turns)
-            )  # Eagerly load turns to avoid MissingGreenlet error
+                selectinload(ChatSession.turns).selectinload(ChatTurn.files)
+            )  # Eagerly load turns and files
             .order_by(desc(ChatSession.updated_at), desc(ChatSession.created_at))
             .limit(limit)
             .offset(offset)
@@ -332,6 +344,7 @@ class ChatService:
                 ChatSession.workspace_id == workspace_id,
                 ChatSession.user_id == user_id,
             )
+            .options(selectinload(ChatTurn.files))  # Eagerly load files for attachments
         )
 
         if include_steps:
@@ -783,7 +796,11 @@ class ChatService:
         Returns:
             ChatTurn or None
         """
-        result = await self.db.execute(select(ChatTurn).where(ChatTurn.id == turn_id))
+        result = await self.db.execute(
+            select(ChatTurn)
+            .where(ChatTurn.id == turn_id)
+            .options(selectinload(ChatTurn.files))  # Eagerly load files for attachments
+        )
         return result.scalar_one_or_none()
 
     # ═══════════════════════════════════════════════════════════════

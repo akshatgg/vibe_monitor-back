@@ -976,6 +976,25 @@ class ChatTurn(Base):
     comments = relationship(
         "TurnComment", back_populates="turn", cascade="all, delete-orphan"
     )
+    files = relationship(
+        "ChatFile", back_populates="turn", cascade="all, delete-orphan"
+    )
+
+    @property
+    def attachments(self):
+        """Compute attachments from files relationship for API compatibility."""
+        if not self.files:
+            return None
+        return [
+            {
+                "name": file.filename,
+                "size": file.size_bytes,
+                "relative_path": file.relative_path,
+                "file_id": file.id,
+                "s3_key": file.s3_key,
+            }
+            for file in self.files
+        ]
 
     # Indexes for query performance
     __table_args__ = (
@@ -983,6 +1002,48 @@ class ChatTurn(Base):
         Index("idx_chat_turns_job", "job_id"),
         Index("idx_chat_turns_status", "status"),
         Index("idx_chat_turns_created_at", "created_at"),
+    )
+
+
+class ChatFile(Base):
+    """
+    File uploaded in chat, stored in S3.
+    Linked to a chat turn with metadata and extracted text for search.
+    """
+
+    __tablename__ = "chat_files"
+
+    id = Column(String, primary_key=True)  # UUID
+    turn_id = Column(
+        String, ForeignKey("chat_turns.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # S3 storage
+    s3_bucket = Column(String, nullable=False)
+    s3_key = Column(String, nullable=False)
+
+    # File metadata
+    filename = Column(String(255), nullable=False)
+    file_type = Column(String(50), nullable=False) 
+    mime_type = Column(String(100), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    relative_path = Column(String(500), nullable=True)
+
+    extracted_text = Column(Text, nullable=True)
+
+    # Audit
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    turn = relationship("ChatTurn", back_populates="files")
+    uploader = relationship("User")
+
+    # for query performance
+    __table_args__ = (
+        Index("idx_chat_files_turn_id", "turn_id"),
+        Index("idx_chat_files_uploaded_by", "uploaded_by"),
+        Index("idx_chat_files_created_at", "created_at"),
     )
 
 

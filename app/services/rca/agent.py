@@ -414,6 +414,20 @@ class RCAAgentService:
                 thread_history_text = ""
                 logger.info("No thread history to format")
 
+            # Handle uploaded files
+            files_data = (context or {}).get("files", [])
+            if files_data:
+                logger.info(f"Processing {len(files_data)} uploaded files from context")
+                for file_info in files_data:
+                    if file_info.get("extracted_text"):
+                        # Append extracted text to user query
+                        filename = file_info.get("filename", "unknown")
+                        extracted_text = file_info["extracted_text"]
+                        user_query += f"\n\n**Uploaded File: {filename}**\n```\n{extracted_text}\n```"
+                        logger.info(
+                            f"Appended {len(extracted_text)} chars from '{filename}' to user query"
+                        )
+
             # Create workspace-specific agent executor with capability-filtered tools
             agent_executor = await self._create_agent_executor_for_workspace(
                 workspace_id=workspace_id,

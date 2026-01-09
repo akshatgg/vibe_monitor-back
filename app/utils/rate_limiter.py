@@ -29,6 +29,7 @@ class ResourceType(str, Enum):
     API_CALL = "api_call"
     EXPORT = "export"
     SLACK_MESSAGE = "slack_message"
+    FILE_UPLOAD_BYTES = "file_upload_bytes"  # Total bytes uploaded per day
 
 
 async def check_rate_limit(
@@ -36,6 +37,7 @@ async def check_rate_limit(
     workspace_id: str,
     resource_type: ResourceType,
     limit: int = None,
+    increment: int = 1,
 ) -> Tuple[bool, int, int]:
     """
     Check if request is allowed and increment counter if yes.
@@ -45,18 +47,29 @@ async def check_rate_limit(
         workspace_id: Workspace ID
         resource_type: Type of resource (RCA_REQUEST, API_CALL, etc.)
         limit: Custom limit (if None, uses workspace.daily_request_limit for RCA)
+        increment: Amount to increment by (default 1, use bytes for FILE_UPLOAD_BYTES)
 
     Returns:
         (allowed: bool, current_count: int, limit: int)
         - allowed: True if request should proceed, False if limit exceeded
-        - current_count: Current usage count
+        - current_count: Current usage count (after increment if allowed)
         - limit: The rate limit
 
     Example:
+        # For request counting
         allowed, count, limit = await check_rate_limit(
             session=db,
             workspace_id="workspace-123",
             resource_type=ResourceType.RCA_REQUEST
+        )
+
+        # For byte counting
+        allowed, bytes_used, bytes_limit = await check_rate_limit(
+            session=db,
+            workspace_id="workspace-123",
+            resource_type=ResourceType.FILE_UPLOAD_BYTES,
+            limit=100_000_000,  # 100MB
+            increment=file_size_bytes
         )
 
         if not allowed:
@@ -103,16 +116,16 @@ async def check_rate_limit(
                     workspace_id=workspace_id,
                     resource_type=resource_type.value,
                     window_key=today,
-                    count=1,  # First request
+                    count=increment,  # Use increment value (1 for requests, bytes for uploads)
                 )
                 session.add(tracking)
                 await session.commit()
 
                 logger.info(
                     f"Rate limit: First {resource_type.value} request for workspace {workspace_id} today. "
-                    f"Count: 1/{limit}"
+                    f"Count: {increment}/{limit}"
                 )
-                return (True, 1, limit)
+                return (True, increment, limit)
 
             except IntegrityError:
                 # Race condition - another request created the record
@@ -120,21 +133,21 @@ async def check_rate_limit(
                 tracking_result = await session.execute(tracking_stmt)
                 tracking = tracking_result.scalar_one()
 
-        # Check if limit exceeded
-        if tracking.count >= limit:
+        # Check if limit would be exceeded after increment
+        if tracking.count + increment > limit:
             logger.warning(
-                f"Rate limit: Workspace {workspace_id} exceeded {resource_type.value} limit. "
-                f"Count: {tracking.count}/{limit}"
+                f"Rate limit: Workspace {workspace_id} would exceed {resource_type.value} limit. "
+                f"Current: {tracking.count}/{limit}, requested: +{increment}"
             )
             return (False, tracking.count, limit)
 
         # Increment and allow
-        tracking.count += 1
+        tracking.count += increment
         await session.commit()
 
         logger.info(
             f"Rate limit: {resource_type.value} request allowed for workspace {workspace_id}. "
-            f"Count: {tracking.count}/{limit}"
+            f"Count: {tracking.count}/{limit} (+{increment})"
         )
 
         return (True, tracking.count, limit)
@@ -242,6 +255,7 @@ async def check_rate_limit_with_byollm_bypass(
     workspace_id: str,
     resource_type: ResourceType,
     limit: int = None,
+    increment: int = 1,
 ) -> Tuple[bool, int, int]:
     """
     Check rate limit with BYOLLM bypass.
@@ -254,6 +268,7 @@ async def check_rate_limit_with_byollm_bypass(
         workspace_id: Workspace ID
         resource_type: Type of resource (RCA_REQUEST, API_CALL, etc.)
         limit: Custom limit (if None, uses workspace.daily_request_limit for RCA)
+        increment: Amount to increment by (default 1, use bytes for FILE_UPLOAD_BYTES)
 
     Returns:
         (allowed: bool, current_count: int, limit: int)
@@ -284,4 +299,5 @@ async def check_rate_limit_with_byollm_bypass(
         workspace_id=workspace_id,
         resource_type=resource_type,
         limit=limit,
+        increment=increment,
     )

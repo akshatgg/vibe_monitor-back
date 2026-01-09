@@ -18,6 +18,7 @@ from app.core.otel_metrics import init_meter
 from app.core.redis import close_redis, get_redis
 from app.github.webhook.router import limiter
 from app.middleware import RequestIDMiddleware
+from app.services.s3.client import s3_client
 from app.services.sqs.client import sqs_client
 from app.worker import RCAOrchestratorWorker
 
@@ -69,6 +70,14 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Redis connection failed: {e}")
 
+        # Validate S3 configuration for chat file uploads
+        if settings.CHAT_UPLOADS_BUCKET is None:
+            logger.warning(
+                "CHAT_UPLOADS_BUCKET not configured - chat file uploads will be disabled"
+            )
+        else:
+            logger.info(f"S3 bucket configured for chat uploads: {settings.CHAT_UPLOADS_BUCKET}")
+
         # Initialize OpenTelemetry (if enabled)
         if settings.OTEL_ENABLED and settings.OTEL_OTLP_ENDPOINT:
             try:
@@ -112,6 +121,10 @@ async def lifespan(app: FastAPI):
             # Close SQS client
             await sqs_client.close()
             logger.info("SQS client closed")
+
+            # Close S3 client
+            await s3_client.close()
+            logger.info("S3 client closed")
 
             # Close Redis client
             await close_redis()

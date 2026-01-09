@@ -67,6 +67,8 @@ opentelemetry-instrumentation-fastapi = "^0.49b0"
 opentelemetry-instrumentation-logging = "^0.49b0"
 argon2-cffi = "^25.1.0"
 python-multipart = "^0.0.21"
+python-magic = "^0.4.27"
+pypdf2 = "^3.0.1"
 
 
 [tool.poetry.group.dev.dependencies]

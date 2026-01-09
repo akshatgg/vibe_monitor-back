@@ -1,5 +1,5 @@
 """
-RCA Agent Service using LangChain with Gemini LLM (supports multimodal inputs: text + images)
+RCA Agent Service using LangChain with Gemini LLM (supports multimodal inputs: text + images + videos)
 
 Updated to use capability-based tool filtering:
 - Tools are selected based on workspace integrations
@@ -8,7 +8,6 @@ Updated to use capability-based tool filtering:
 """
 
 import base64
-import io
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -17,7 +16,6 @@ from urllib.parse import urlparse
 import httpx
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -31,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class GeminiRCAAgentService:
     """
-    Service for Root Cause Analysis using AI agent with Gemini (supports images).
+    Service for Root Cause Analysis using AI agent with Gemini (supports images and videos).
 
     Updated to use capability-based tool filtering:
     - Resolves workspace integrations to capabilities
@@ -472,14 +470,12 @@ class GeminiRCAAgentService:
                 thread_history=thread_history_text,
             )
 
-            # Check if there are images in the context
+            # Check if there are files in the context
             files = (context or {}).get("files", [])
-            images = []
+            media_files = []
 
             if files:
-                logger.info(
-                    f"Detected {len(files)} files in message, processing images..."
-                )
+                logger.info(f"Detected {len(files)} file(s) in message, processing...")
 
                 # Get Slack access token to download images
                 team_id = (context or {}).get("team_id")
@@ -495,11 +491,11 @@ class GeminiRCAAgentService:
                             access_token = token_processor.decrypt(
                                 slack_installation.access_token
                             )
-                            images = await self._download_slack_images(
+                            media_files = await self._download_slack_images(
                                 files, access_token
                             )
                             logger.info(
-                                f"Downloaded {len(images)} images for Gemini processing"
+                                f"Downloaded {len(media_files)} file(s) for Gemini processing"
                             )
                         except Exception as e:
                             logger.error(
@@ -513,91 +509,226 @@ class GeminiRCAAgentService:
                         logger.warning(
                             f"No Slack installation or access token found for team {team_id}"
                         )
+                else:
+                    # Web files: Download from S3 and send directly to Gemini
+                    # Gemini handles all file types the same way - just bytes + MIME type
+                    logger.info("Processing web-uploaded files from context")
+                    import base64
 
-            # Prepare input for the agent
-            # If images are present, we need to use multimodal message format
-            if images:
-                logger.info(
-                    f"Processing query with {len(images)} images using Gemini multimodal"
-                )
+                    import magic
 
-                # For LangChain with multimodal input, we need to bypass the agent
-                # and directly call the LLM with HumanMessage containing images
-                # since AgentExecutor doesn't support multimodal messages natively
+                    from app.services.s3.client import s3_client
+                    from app.services.storage.file_validator import FileValidator
 
-                # We'll call the LLM directly with image content first to get visual analysis
-                from langchain_core.messages import HumanMessage
+                    for file_info in files:
+                        filename = file_info.get("filename", "unknown")
+                        mime_type = file_info.get(
+                            "mime_type", "application/octet-stream"
+                        )
+                        s3_key = file_info.get("s3_key")
+                        file_size = file_info.get("size", 0)
 
-                # Create multimodal content with text and images
-                # Images must be base64-encoded per LangChain Gemini docs
-                content_parts = [{"type": "text", "text": user_query}]
+                        # Skip very large files to prevent memory exhaustion
+                        if file_size > settings.MAX_GEMINI_FILE_SIZE_BYTES:
+                            logger.warning(
+                                f"Skipping '{filename}' ({file_size / (1024 * 1024):.1f}MB) - "
+                                f"exceeds {settings.MAX_GEMINI_FILE_SIZE_BYTES / (1024 * 1024):.0f}MB limit for Gemini processing. "
+                                f"Using extracted text instead if available."
+                            )
+                            # Fall through to extracted_text handling below
+                            if file_info.get("extracted_text"):
+                                extracted_text = file_info["extracted_text"]
+                                user_query += f"\n\n**File: {filename}** (large file - text only)\n```\n{extracted_text}\n```"
+                                logger.info(
+                                    f"Used extracted text for large file '{filename}'"
+                                )
+                            continue
 
-                for img in images:
-                    try:
-                        # Validate image can be opened (ensures it's a valid image)
-                        with Image.open(io.BytesIO(img["data"])) as pil_image:
+                        if s3_key:
+                            # Download from S3 and send to Gemini
+                            try:
+                                logger.info(
+                                    f"Downloading '{filename}' from S3 (key: {s3_key})"
+                                )
+                                file_bytes = await s3_client.download_file(s3_key)
+
+                                if file_bytes:
+                                    # Re-validate MIME type after download for security
+                                    # This prevents processing of malicious files if job context was compromised
+                                    try:
+                                        actual_mime = magic.from_buffer(
+                                            file_bytes, mime=True
+                                        )
+                                        file_category = (
+                                            FileValidator.get_category_from_mime(
+                                                actual_mime
+                                            )
+                                        )
+
+                                        # Verify actual MIME matches expected MIME type category
+                                        expected_category = (
+                                            FileValidator.get_category_from_mime(
+                                                mime_type
+                                            )
+                                        )
+                                        if file_category != expected_category:
+                                            logger.warning(
+                                                f"⚠️ MIME type mismatch for '{filename}': "
+                                                f"expected {mime_type} ({expected_category}), "
+                                                f"got {actual_mime} ({file_category}). Skipping file."
+                                            )
+                                            continue
+
+                                        # Use actual detected MIME type
+                                        mime_type = actual_mime
+                                        logger.info(
+                                            f"✓ MIME type validated: '{filename}' is {actual_mime}"
+                                        )
+                                    except Exception as mime_error:
+                                        logger.error(
+                                            f"✗ MIME validation failed for '{filename}': {mime_error}. Skipping file."
+                                        )
+                                        continue
+
+                                    media_files.append(
+                                        {
+                                            "name": filename,
+                                            "mimetype": mime_type,
+                                            "data": file_bytes,
+                                            "size": len(file_bytes),
+                                        }
+                                    )
+                                    logger.info(
+                                        f"✓ Downloaded '{filename}' ({len(file_bytes)} bytes, {mime_type})"
+                                    )
+                                else:
+                                    logger.error(
+                                        f"✗ Failed to download '{filename}' from S3"
+                                    )
+                            except Exception as e:
+                                logger.error(
+                                    f"✗ Exception downloading '{filename}': {e}",
+                                    exc_info=True,
+                                )
+
+                        elif file_info.get("data"):
+                            # Legacy: base64-encoded file data
+                            try:
+                                file_bytes = base64.b64decode(file_info["data"])
+                                media_files.append(
+                                    {
+                                        "name": filename,
+                                        "mimetype": mime_type,
+                                        "data": file_bytes,
+                                        "size": len(file_bytes),
+                                    }
+                                )
+                                logger.info(
+                                    f"✓ Decoded legacy base64 '{filename}' ({len(file_bytes)} bytes)"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"✗ Failed to decode '{filename}': {e}",
+                                    exc_info=True,
+                                )
+
+                        elif file_info.get("extracted_text"):
+                            # Fallback: append extracted text to query (legacy)
+                            extracted_text = file_info["extracted_text"]
+                            user_query += (
+                                f"\n\n**File: {filename}**\n```\n{extracted_text}\n```"
+                            )
                             logger.info(
-                                f"Validated {img['name']} as valid image "
-                                f"(size: {pil_image.size}, mode: {pil_image.mode}, format: {pil_image.format})"
+                                f"Appended {len(extracted_text)} chars from '{filename}' to query"
                             )
 
-                        # Encode image to base64 for Gemini
-                        encoded = self._encode_base64(img["data"])
+                        else:
+                            logger.error(
+                                f"✗ No S3 key, data, or extracted text for '{filename}'"
+                            )
 
-                        # Format per LangChain docs: nested object with "url" key
-                        # https://github.com/GoogleCloudPlatform/generative-ai/blob/main/gemini/use-cases/retrieval-augmented-generation/multimodal_rag_langchain.ipynb
+                    if media_files:
+                        logger.info(
+                            f"Loaded {len(media_files)} file(s) for Gemini processing"
+                        )
+
+            # Prepare input for the agent
+            # If files are present, use multimodal message format
+            if media_files:
+                logger.info(
+                    f"Processing query with {len(media_files)} file(s) using Gemini multimodal"
+                )
+
+                # For LangChain with multimodal input, we bypass the agent
+                # and directly call the LLM with HumanMessage containing files
+                from langchain_core.messages import HumanMessage
+
+                # Enhance user query to mention attached files
+                file_names = [f["name"] for f in media_files]
+                media_context = f"\n\n**IMPORTANT: The user has attached {len(media_files)} file(s): {', '.join(file_names)}. Please analyze these files carefully as they contain relevant information for answering the question.**"
+                enhanced_query = user_query + media_context
+
+                # Create multimodal content with text and files
+                # Files must be base64-encoded per LangChain Gemini docs
+                content_parts = [{"type": "text", "text": enhanced_query}]
+
+                for media in media_files:
+                    try:
+                        # Encode file to base64 for Gemini
+                        encoded = self._encode_base64(media["data"])
+                        mimetype = media["mimetype"]
+
+                        # Use "media" type for all files (images, PDFs, videos, etc.)
+                        # LangChain ChatGoogleGenerativeAI supports this format for all file types
                         content_parts.append(
                             {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{img['mimetype']};base64,{encoded}"
-                                },
+                                "type": "media",
+                                "data": encoded,
+                                "mime_type": mimetype,
                             }
                         )
+
                         logger.info(
-                            f"Encoded {img['name']} to base64 ({len(encoded)} chars)"
+                            f"Encoded '{media['name']}' ({mimetype}) to base64 ({len(encoded)} chars)"
                         )
                     except Exception as e:
-                        logger.error(f"Failed to process {img['name']}: {e}")
-                        # Skip corrupted images rather than failing entire request
+                        logger.error(f"Failed to encode '{media['name']}': {e}")
                         continue
 
                 # Create HumanMessage with multimodal content
                 multimodal_message = HumanMessage(content=content_parts)
 
-                # Notify user that images are being processed (send to Slack via callback)
+                # Notify user that files are being processed (send to Slack via callback)
                 if callbacks:
                     from app.services.rca.callbacks import SlackProgressCallback
 
                     for callback in callbacks:
                         if isinstance(callback, SlackProgressCallback):
                             await callback.send_image_processing_notification(
-                                len(images)
+                                len(media_files)
                             )
                             break
 
-                # First, get image analysis from Gemini
+                # Get file analysis from Gemini
                 try:
-                    logger.info(
-                        "Sending multimodal message to Gemini for image analysis..."
-                    )
-                    image_analysis_response = await self.llm.ainvoke(
+                    logger.info("Sending multimodal message to Gemini for analysis...")
+                    file_analysis_response = await self.llm.ainvoke(
                         [multimodal_message]
                     )
-                    image_analysis = image_analysis_response.content
+                    file_analysis = file_analysis_response.content
                     logger.info(
-                        f"Gemini image analysis completed: {len(image_analysis)} chars"
+                        f"Gemini analysis completed: {len(file_analysis)} chars"
                     )
                 except Exception as e:
-                    logger.error(f"Failed to analyze images with Gemini: {e}")
-                    image_analysis = f"[Image analysis failed: {str(e)}]"
+                    logger.error(f"Failed to analyze files with Gemini: {e}")
+                    file_analysis = f"[File analysis failed: {str(e)}]"
 
-                # Now append the image analysis to the user query for the agent
+                # Now append the file analysis to the user query for the agent
                 enhanced_query = (
                     f"{user_query}\n\n"
-                    f"**Visual Analysis from {len(images)} attached image(s):**\n"
-                    f"{image_analysis}\n\n"
-                    f"Please use the above visual analysis along with your tools to provide a comprehensive RCA."
+                    f"**Analysis of {len(media_files)} attached file(s):**\n"
+                    f"{file_analysis}\n\n"
+                    f"Please use the above file analysis along with your tools to provide a comprehensive RCA."
                 )
 
                 agent_input = {

@@ -71,6 +71,7 @@ class ChatTurnResponse(BaseModel):
     id: str
     session_id: str
     user_message: str
+    attachments: Optional[List[dict]] = None
     final_response: Optional[str] = None
     status: TurnStatus
     job_id: Optional[str] = None
@@ -87,6 +88,7 @@ class ChatTurnSummary(BaseModel):
 
     id: str
     user_message: str
+    attachments: Optional[List[dict]] = None
     final_response: Optional[str] = None
     status: TurnStatus
     created_at: datetime
@@ -206,3 +208,14 @@ class ChatSearchResponse(BaseModel):
     """Response for chat search."""
 
     results: List[ChatSearchResult] = []
+
+
+class FileDownloadResponse(BaseModel):
+    """Response for file download URL generation."""
+
+    file_id: str = Field(..., description="UUID of the file")
+    filename: str = Field(..., description="Original filename")
+    size_bytes: int = Field(..., description="File size in bytes")
+    mime_type: str = Field(..., description="MIME type of the file")
+    download_url: str = Field(..., description="Presigned S3 download URL (1-hour expiry)")
+    expires_in_seconds: int = Field(..., description="URL expiration time in seconds")
