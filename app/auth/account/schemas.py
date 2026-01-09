@@ -82,11 +82,7 @@ class AccountDeleteRequest(BaseModel):
 
     confirmation: str = Field(
         ...,
-        description="Must be 'DELETE' or user's email to confirm deletion",
-    )
-    password: Optional[str] = Field(
-        None,
-        description="Required for credential-based (password) accounts",
+        description="Must be 'DELETE' to confirm deletion",
     )
 
 

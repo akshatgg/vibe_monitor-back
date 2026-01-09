@@ -7,7 +7,6 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.credential.service import CredentialAuthService
 from app.auth.google.service import AuthService
 from app.core.database import get_db
 
@@ -26,8 +25,7 @@ router = APIRouter(prefix="/account", tags=["account"])
 
 # Initialize services
 auth_service = AuthService()
-credential_auth_service = CredentialAuthService(jwt_service=auth_service)
-account_service = AccountService(credential_auth_service=credential_auth_service)
+account_service = AccountService()
 
 
 def get_auth_provider(user) -> str:
@@ -139,8 +137,7 @@ async def delete_account(
     **WARNING: This action is IRREVERSIBLE. All data will be permanently deleted.**
 
     Requirements:
-    - `confirmation`: Must be 'DELETE' or user's email address
-    - `password`: Required for credential-based (password) accounts, not for OAuth accounts
+    - `confirmation`: Must be 'DELETE' to confirm deletion
 
     The deletion will:
     1. Check for blocking workspaces (sole owner with other members)
@@ -155,7 +152,6 @@ async def delete_account(
         return await account_service.delete_account(
             user_id=current_user.id,
             confirmation=request.confirmation,
-            password=request.password,
             db=db,
         )
     except HTTPException:

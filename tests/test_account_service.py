@@ -298,11 +298,11 @@ class TestDeleteAccount:
 
     @pytest.mark.asyncio
     async def test_delete_requires_correct_confirmation(
-        self, mock_db, mock_user, mock_credential_auth_service
+        self, mock_db, mock_user
     ):
         """Deletion should fail with incorrect confirmation."""
         # Setup
-        service = AccountService(credential_auth_service=mock_credential_auth_service)
+        service = AccountService()
 
         # Mock user query
         user_result = MagicMock()
@@ -314,7 +314,6 @@ class TestDeleteAccount:
             await service.delete_account(
                 user_id=mock_user.id,
                 confirmation="WRONG",
-                password=None,
                 db=mock_db,
             )
 
@@ -370,7 +369,6 @@ class TestDeleteAccount:
         result = await service.delete_account(
             user_id=mock_user.id,
             confirmation="DELETE",
-            password=None,
             db=mock_db,
         )
 
@@ -378,136 +376,6 @@ class TestDeleteAccount:
         assert result.success is True
         assert len(result.deleted_workspaces) == 1
         assert result.deleted_workspaces[0] == mock_personal_workspace.id
-
-    @pytest.mark.asyncio
-    async def test_delete_accepts_email_confirmation(
-        self, mock_db, mock_user, mock_personal_workspace
-    ):
-        """Deletion should work with user's email as confirmation."""
-        # Setup
-        service = AccountService()
-
-        # Create owner membership for personal workspace
-        membership = MagicMock(spec=Membership)
-        membership.id = str(uuid.uuid4())
-        membership.workspace = mock_personal_workspace
-        membership.role = Role.OWNER
-
-        # Mock user query
-        user_result = MagicMock()
-        user_result.scalar_one_or_none.return_value = mock_user
-
-        # Mock membership query
-        memberships_result = MagicMock()
-        memberships_result.scalars.return_value.all.return_value = [membership]
-
-        # Mock stats
-        stats_result = MagicMock()
-        stats_result.scalar.return_value = 1
-
-        # Mock workspace query
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = mock_personal_workspace
-
-        mock_db.execute = AsyncMock(
-            side_effect=[
-                user_result,
-                memberships_result,
-                stats_result,
-                stats_result,
-                MagicMock(),
-                workspace_result,
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                MagicMock(),
-                user_result,
-            ]
-        )
-
-        # Execute (case-insensitive email check)
-        result = await service.delete_account(
-            user_id=mock_user.id,
-            confirmation=mock_user.email.upper(),
-            password=None,
-            db=mock_db,
-        )
-
-        # Assert
-        assert result.success is True
-
-    @pytest.mark.asyncio
-    async def test_delete_credential_user_requires_password(
-        self, mock_db, mock_credential_user, mock_credential_auth_service
-    ):
-        """Credential-based user must provide password."""
-        # Setup
-        service = AccountService(credential_auth_service=mock_credential_auth_service)
-
-        # Mock user query
-        user_result = MagicMock()
-        user_result.scalar_one_or_none.return_value = mock_credential_user
-        mock_db.execute = AsyncMock(return_value=user_result)
-
-        # Execute & Assert
-        with pytest.raises(Exception) as exc_info:
-            await service.delete_account(
-                user_id=mock_credential_user.id,
-                confirmation="DELETE",
-                password=None,  # Missing password
-                db=mock_db,
-            )
-
-        assert "Password is required" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_delete_credential_user_wrong_password(
-        self, mock_db, mock_credential_user, mock_credential_auth_service
-    ):
-        """Credential-based user with wrong password should fail."""
-        # Setup
-        mock_credential_auth_service.verify_password.return_value = False
-        service = AccountService(credential_auth_service=mock_credential_auth_service)
-
-        # Mock user query
-        user_result = MagicMock()
-        user_result.scalar_one_or_none.return_value = mock_credential_user
-        mock_db.execute = AsyncMock(return_value=user_result)
-
-        # Execute & Assert
-        with pytest.raises(Exception) as exc_info:
-            await service.delete_account(
-                user_id=mock_credential_user.id,
-                confirmation="DELETE",
-                password="wrong_password",
-                db=mock_db,
-            )
-
-        assert "Invalid password" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_delete_oauth_user_rejects_password(
-        self, mock_db, mock_user, mock_credential_auth_service
-    ):
-        """OAuth user should not provide password."""
-        # Setup
-        service = AccountService(credential_auth_service=mock_credential_auth_service)
-
-        # Mock user query
-        user_result = MagicMock()
-        user_result.scalar_one_or_none.return_value = mock_user
-        mock_db.execute = AsyncMock(return_value=user_result)
-
-        # Execute & Assert
-        with pytest.raises(Exception) as exc_info:
-            await service.delete_account(
-                user_id=mock_user.id,
-                confirmation="DELETE",
-                password="some_password",  # Should not provide
-                db=mock_db,
-            )
-
-        assert "Password not required for OAuth" in str(exc_info.value.detail)
 
     @pytest.mark.asyncio
     async def test_delete_blocked_by_workspace_ownership(
@@ -553,7 +421,6 @@ class TestDeleteAccount:
             await service.delete_account(
                 user_id=mock_user.id,
                 confirmation="DELETE",
-                password=None,
                 db=mock_db,
             )
 

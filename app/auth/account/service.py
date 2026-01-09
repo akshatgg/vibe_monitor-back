@@ -3,7 +3,6 @@ Account service for handling account deletion with workspace ownership constrain
 """
 
 import logging
-from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
@@ -30,15 +29,6 @@ logger = logging.getLogger(__name__)
 
 class AccountService:
     """Service for account management including deletion."""
-
-    def __init__(self, credential_auth_service=None):
-        """
-        Initialize account service.
-
-        Args:
-            credential_auth_service: Optional CredentialAuthService instance for password verification
-        """
-        self.credential_auth_service = credential_auth_service
 
     async def get_deletion_preview(
         self,
@@ -169,27 +159,24 @@ class AccountService:
         self,
         user_id: str,
         confirmation: str,
-        password: Optional[str],
         db: AsyncSession,
     ) -> AccountDeleteResponse:
         """
         Delete user account with all constraints.
 
         Steps:
-        1. Verify confirmation string (must be 'DELETE' or user's email)
-        2. For password-based accounts, verify password
-        3. Re-run deletion preview to ensure still valid
-        4. If blocking workspaces exist, raise error
-        5. Delete workspaces where user is sole owner
-        6. Remove memberships where user is not sole owner
-        7. Cascade delete: refresh tokens, email verifications, emails, chat sessions
-        8. Delete user record
-        9. Return summary
+        1. Verify confirmation string (must be 'DELETE')
+        2. Re-run deletion preview to ensure still valid
+        3. If blocking workspaces exist, raise error
+        4. Delete workspaces where user is sole owner
+        5. Remove memberships where user is not sole owner
+        6. Cascade delete: refresh tokens, email verifications, emails, chat sessions
+        7. Delete user record
+        8. Return summary
 
         Args:
             user_id: ID of the user to delete
-            confirmation: Must be 'DELETE' or user's email
-            password: Required for credential-based accounts
+            confirmation: Must be 'DELETE'
             db: Database session
 
         Returns:
@@ -206,40 +193,11 @@ class AccountService:
             )
 
         # Verify confirmation string
-        if confirmation != "DELETE" and confirmation.lower() != user.email.lower():
+        if confirmation != "DELETE":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Please type 'DELETE' or your email address to confirm account deletion.",
+                detail="Please type 'DELETE' to confirm account deletion.",
             )
-
-        # For credential-based accounts (has password), verify password
-        if user.password_hash is not None:
-            if password is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Password is required for credential-based accounts.",
-                )
-
-            if self.credential_auth_service is None:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Password verification service not available.",
-                )
-
-            if not self.credential_auth_service.verify_password(
-                password, user.password_hash
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid password.",
-                )
-        else:
-            # OAuth user provides password
-            if password is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Password not required for OAuth accounts.",
-                )
 
         # Re-run deletion preview to ensure still valid (state might have changed)
         preview = await self.get_deletion_preview(user_id, db)
@@ -426,5 +384,5 @@ class AccountService:
         await db.flush()
 
 
-# Singleton instance (will be initialized with credential_auth_service later)
+# Singleton instance
 account_service = AccountService()

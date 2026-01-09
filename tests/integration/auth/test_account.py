@@ -411,22 +411,6 @@ class TestDeleteAccount:
         assert result.scalar_one_or_none() is None
 
     @pytest.mark.asyncio
-    async def test_delete_account_with_email_confirmation(self, client, test_db):
-        """Account deleted when confirmation is user's email."""
-        user = await create_test_user(test_db, email="emailconfirm@example.com")
-        headers = get_auth_headers(user)
-
-        response = await client.request(
-            "DELETE",
-            f"{API_PREFIX}/account/",
-            headers=headers,
-            json={"confirmation": "emailconfirm@example.com"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["success"] is True
-
-    @pytest.mark.asyncio
     async def test_delete_account_wrong_confirmation_returns_400(self, client, test_db):
         """Wrong confirmation text returns 400."""
         user = await create_test_user(test_db, email="wrongconfirm@example.com")
@@ -441,68 +425,6 @@ class TestDeleteAccount:
 
         assert response.status_code == 400
         assert "delete" in response.json()["detail"].lower()
-
-    @pytest.mark.asyncio
-    async def test_delete_credential_account_requires_password(self, client, test_db):
-        """Credential user must provide password to delete account."""
-        user = await create_test_user(
-            test_db,
-            email="creddelete@example.com",
-            password_hash=pwd_context.hash("SecurePass123"),
-        )
-        headers = get_auth_headers(user)
-
-        response = await client.request(
-            "DELETE",
-            f"{API_PREFIX}/account/",
-            headers=headers,
-            json={"confirmation": "DELETE"},  # No password
-        )
-
-        assert response.status_code == 400
-        assert "password" in response.json()["detail"].lower()
-
-    @pytest.mark.asyncio
-    async def test_delete_credential_account_with_wrong_password(self, client, test_db):
-        """Credential user with wrong password cannot delete account."""
-        user = await create_test_user(
-            test_db,
-            email="wrongpass@example.com",
-            password_hash=pwd_context.hash("CorrectPass123"),
-        )
-        headers = get_auth_headers(user)
-
-        response = await client.request(
-            "DELETE",
-            f"{API_PREFIX}/account/",
-            headers=headers,
-            json={"confirmation": "DELETE", "password": "WrongPass123"},
-        )
-
-        assert response.status_code == 401
-        assert "invalid" in response.json()["detail"].lower()
-
-    @pytest.mark.asyncio
-    async def test_delete_credential_account_with_correct_password(
-        self, client, test_db
-    ):
-        """Credential user with correct password can delete account."""
-        user = await create_test_user(
-            test_db,
-            email="correctpass@example.com",
-            password_hash=pwd_context.hash("SecurePass123"),
-        )
-        headers = get_auth_headers(user)
-
-        response = await client.request(
-            "DELETE",
-            f"{API_PREFIX}/account/",
-            headers=headers,
-            json={"confirmation": "DELETE", "password": "SecurePass123"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["success"] is True
 
     @pytest.mark.asyncio
     async def test_delete_account_deletes_sole_member_workspaces(self, client, test_db):

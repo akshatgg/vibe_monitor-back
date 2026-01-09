@@ -274,9 +274,3 @@ def mock_settings():
 # =============================================================================
 
 
-@pytest.fixture
-def mock_credential_auth_service():
-    """Create a mock credential auth service."""
-    service = MagicMock()
-    service.verify_password = MagicMock(return_value=True)
-    return service
