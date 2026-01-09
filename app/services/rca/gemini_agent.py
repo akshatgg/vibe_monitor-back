@@ -778,6 +778,38 @@ class GeminiRCAAgentService:
                 f"  - Max output tokens: {settings.RCA_AGENT_MAX_TOKENS}"
             )
 
+            # Record LLM context and token metrics
+            from app.core.otel_metrics import LLM_METRICS
+
+            context_size_bytes = (
+                len(environment_context_text.encode("utf-8"))
+                + len(thread_history_text.encode("utf-8"))
+                + len(service_mapping_text.encode("utf-8"))
+                + len(agent_input["input"].encode("utf-8"))
+            )
+
+            LLM_METRICS["rca_context_size_bytes"].record(
+                context_size_bytes,
+                {
+                    "model": settings.GEMINI_LLM_MODEL,
+                },
+            )
+
+            LLM_METRICS["rca_estimated_input_tokens"].record(
+                estimated_tokens,
+                {
+                    "model": settings.GEMINI_LLM_MODEL,
+                },
+            )
+
+            # Record LLM provider usage
+            LLM_METRICS["rca_llm_provider_usage_total"].add(
+                1,
+                {
+                    "model": settings.GEMINI_LLM_MODEL,
+                },
+            )
+
             # Execute the agent asynchronously with callbacks
             if callbacks:
                 result = await agent_executor.ainvoke(

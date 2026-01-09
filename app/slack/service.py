@@ -534,6 +534,14 @@ class SlackEventService:
                         )
 
                         if not allowed:
+                            from app.core.otel_metrics import SECURITY_METRICS
+                            SECURITY_METRICS["rate_limit_exceeded_total"].add(
+                                1,
+                                {
+                                    "resource_type": ResourceType.SLACK_MESSAGE,
+                                },
+                            )
+
                             logger.warning(
                                 f"RCA rate limit exceeded for workspace {workspace_id}: "
                                 f"{current_count}/{limit}"

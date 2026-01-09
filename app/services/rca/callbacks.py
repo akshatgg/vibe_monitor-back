@@ -5,11 +5,14 @@ Custom LangChain callbacks for streaming RCA agent progress to Slack
 import json
 import logging
 import re
+import time
+import uuid
 from typing import Any, Dict, Optional
 
 from langchain.callbacks.base import AsyncCallbackHandler
 
 from app.core.config import settings
+from app.core.otel_metrics import TOOL_METRICS
 from app.services.rca.get_service_name.enums import TOOL_NAME_TO_MESSAGE
 from app.slack.service import slack_event_service
 
@@ -580,3 +583,83 @@ class SlackProgressCallback(AsyncCallbackHandler):
             ),
             context="degraded integrations warning",
         )
+
+
+class ToolMetricsCallback(AsyncCallbackHandler):
+    """Callback handler for recording tool execution metrics"""
+
+    def __init__(self):
+        super().__init__()
+        self.tool_start_times: Dict[str, float] = {}
+
+    async def on_tool_start(
+        self,
+        serialized: Dict[str, Any],
+        input_str: str,
+        **kwargs: Any,
+    ) -> None:
+        """Record tool start time"""
+        tool_name = serialized.get("name", "unknown")
+        run_id = kwargs.get("run_id", str(uuid.uuid4()))
+        self.tool_start_times[str(run_id)] = time.time()
+
+        logger.debug(f"Tool started: {tool_name}")
+
+    async def on_tool_end(
+        self,
+        output: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Record successful tool execution metrics"""
+
+        run_id = str(kwargs.get("run_id", ""))
+        tool_name = kwargs.get("name", "unknown")
+
+        # Record tool execution count
+        TOOL_METRICS["rca_tool_executions_total"].add(
+            1,
+            {
+                "status": "success",
+            },
+        )
+
+        # Record tool execution duration
+        if run_id in self.tool_start_times:
+            duration = time.time() - self.tool_start_times[run_id]
+            TOOL_METRICS["rca_tool_execution_duration_seconds"].record(
+                duration,
+                {
+                    "tool_name": tool_name,
+                },
+            )
+            del self.tool_start_times[run_id]
+
+    async def on_tool_error(
+        self,
+        error: Exception,
+        **kwargs: Any,
+    ) -> None:
+        """Record tool execution error metrics"""
+        
+        run_id = str(kwargs.get("run_id", ""))
+        tool_name = kwargs.get("name", "unknown")
+        error_type = type(error).__name__
+
+        TOOL_METRICS["rca_tool_executions_total"].add(
+            1,
+            {
+                "status": "failure",
+            },
+        )
+
+        TOOL_METRICS["rca_tool_execution_errors_total"].add(
+            1,
+            {
+                "tool_name": tool_name,
+                "error_type": error_type,
+            },
+        )
+
+        # Clean up start time
+        if run_id in self.tool_start_times:
+            del self.tool_start_times[run_id]

@@ -473,6 +473,36 @@ class RCAAgentService:
                 f"  - Max output tokens: {settings.RCA_AGENT_MAX_TOKENS}"
             )
 
+            from app.core.otel_metrics import LLM_METRICS
+
+            context_size_bytes = (
+                len(environment_context_text.encode("utf-8"))
+                + len(thread_history_text.encode("utf-8"))
+                + len(service_mapping_text.encode("utf-8"))
+                + len(user_query.encode("utf-8"))
+            )
+
+            LLM_METRICS["rca_context_size_bytes"].record(
+                context_size_bytes,
+                {
+                    "model": settings.GROQ_LLM_MODEL,
+                },
+            )
+
+            LLM_METRICS["rca_estimated_input_tokens"].record(
+                estimated_tokens,
+                {
+                    "model": settings.GROQ_LLM_MODEL,
+                },
+            )
+
+            LLM_METRICS["rca_llm_provider_usage_total"].add(
+                1,
+                {
+                    "model": settings.GROQ_LLM_MODEL,
+                },
+            )
+
             # Execute the agent asynchronously with callbacks
             if callbacks:
                 result = await agent_executor.ainvoke(
@@ -622,11 +652,24 @@ class RCAAgentService:
                         f"Attempting fallback to Gemini agent with larger context window..."
                     )
 
+                    # Record retry attempt metrics
+                    from app.core.otel_metrics import LLM_METRICS, AGENT_METRICS
+
+                    if AGENT_METRICS:
+                        AGENT_METRICS["rca_agent_retries_total"].add(1)
+
                     # Try Gemini as fallback
                     try:
                         logger.info(
                             f"🔄 Switching from Groq ({settings.GROQ_LLM_MODEL}) to Gemini ({settings.GEMINI_LLM_MODEL}) "
                             f"due to LLM error: {error_details.get('error_code', 'unknown')}"
+                        )
+
+                        LLM_METRICS["rca_llm_provider_usage_total"].add(
+                            1,
+                            {
+                                "model": settings.GEMINI_LLM_MODEL,
+                            },
                         )
 
                         gemini_result = await gemini_rca_agent_service.analyze(

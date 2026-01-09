@@ -139,6 +139,16 @@ async def check_rate_limit(
                 f"Rate limit: Workspace {workspace_id} would exceed {resource_type.value} limit. "
                 f"Current: {tracking.count}/{limit}, requested: +{increment}"
             )
+
+            from app.core.otel_metrics import SECURITY_METRICS
+
+            SECURITY_METRICS["rate_limit_exceeded_total"].add(
+                1,
+                {
+                    "resource_type": resource_type.value,
+                },
+            )
+
             return (False, tracking.count, limit)
 
         # Increment and allow

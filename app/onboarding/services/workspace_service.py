@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import GitHubIntegration, Membership, Role, User, Workspace
 from app.models import WorkspaceType as DBWorkspaceType
+from app.core.otel_metrics import WORKSPACE_METRICS
 
 from ..schemas.schemas import (
     WorkspaceCreate,
@@ -87,6 +88,17 @@ class WorkspaceService:
 
         # Refresh to get the updated workspace
         await db.refresh(new_workspace)
+
+        WORKSPACE_METRICS["workspace_created_total"].add(
+            1,
+            {
+                "workspace_type": new_workspace.type.value,
+            },
+        )
+
+        WORKSPACE_METRICS["active_workspaces"].add(
+            1, {"workspace_type": new_workspace.type.value}
+        )
 
         # Return workspace with membership role
         workspace_data_dict = {
@@ -389,6 +401,10 @@ class WorkspaceService:
         # Delete the workspace (cascade will handle related records)
         await db.delete(workspace)
         await db.commit()
+
+        WORKSPACE_METRICS["active_workspaces"].add(
+            -1, {"workspace_type": workspace.type.value}
+        )
 
         return True
 

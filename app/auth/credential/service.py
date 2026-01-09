@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.otel_metrics import AUTH_METRICS
 from app.email_service.service import email_service
 from app.models import EmailVerification, RefreshToken, User
 from app.onboarding.services.workspace_service import WorkspaceService
@@ -142,6 +143,10 @@ class CredentialAuthService:
 
         # Verify by decrypting (only 1 token, not thousands)
         if verification:
+            if verification.expires_at <= datetime.now(timezone.utc):
+                AUTH_METRICS["jwt_tokens_expired_total"].add(1, {"token_type": token_type})
+                raise HTTPException(status_code=400, detail="Token has expired")
+        
             try:
                 decrypted_token = token_processor.decrypt(verification.token)
                 if decrypted_token == token:
@@ -269,12 +274,14 @@ class CredentialAuthService:
         if existing_user:
             # If user exists but has no password (Google OAuth user)
             if existing_user.password_hash is None:
+                AUTH_METRICS["auth_failures_total"].add(1)
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="This email is already registered via Google OAuth. To add password login, use 'Forgot Password' to set a password, or continue logging in with Google.",
                 )
             else:
                 # User already has a password-based account
+                AUTH_METRICS["auth_failures_total"].add(1)
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="User with this email already exists. Please login instead.",
@@ -282,6 +289,7 @@ class CredentialAuthService:
 
         # Validate password strength (basic check)
         if len(password) < 8:
+            AUTH_METRICS["auth_failures_total"].add(1)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Password must be at least 8 characters long and contain: one lowercase letter, one uppercase letter, and one digit",
@@ -357,6 +365,7 @@ class CredentialAuthService:
         user = result.scalar_one_or_none()
 
         if not user:
+            AUTH_METRICS["auth_failures_total"].add(1)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
@@ -364,6 +373,7 @@ class CredentialAuthService:
 
         # Check if user has password (credential-based auth)
         if not user.password_hash:
+            AUTH_METRICS["auth_failures_total"].add(1)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Please use Google OAuth to login",
@@ -371,6 +381,7 @@ class CredentialAuthService:
 
         # Verify password
         if not self.verify_password(password, user.password_hash):
+            AUTH_METRICS["auth_failures_total"].add(1)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
@@ -399,6 +410,8 @@ class CredentialAuthService:
                     f"Verification email automatically resent to {email} during login attempt"
                 )
 
+                AUTH_METRICS["auth_failures_total"].add(1)
+
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Your email is not verified. We've sent you a new verification email. Please check your inbox and verify your account before logging in.",
@@ -411,6 +424,9 @@ class CredentialAuthService:
                 logger.error(
                     f"Failed to resend verification email during login: {str(e)}"
                 )
+
+                AUTH_METRICS["auth_failures_total"].add(1)
+
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Please verify your email address before logging in. If you didn't receive a verification email, please use the 'Resend Verification' option.",

@@ -443,6 +443,10 @@ class SubscriptionService:
         invoice: stripe.Invoice,
     ) -> None:
         """Handle invoice.payment_failed webhook event."""
+
+        from app.core.otel_metrics import STRIPE_METRICS
+        STRIPE_METRICS["stripe_payment_failures_total"].add(1)
+
         if not invoice.subscription:
             return  # Not a subscription invoice
 
@@ -513,6 +517,20 @@ class SubscriptionService:
 
         logger.info(f"Synced subscription {subscription.id} from Stripe")
         return subscription
+
+    async def count_active_subscriptions(self, db: AsyncSession) -> int:
+        """
+        Count active Stripe subscriptions for metrics.
+        """
+        from sqlalchemy import func
+
+        result = await db.execute(
+            select(func.count())
+            .select_from(Subscription)
+            .where(Subscription.status == SubscriptionStatus.ACTIVE)
+            .where(Subscription.stripe_subscription_id.isnot(None))
+        )
+        return result.scalar() or 0
 
 
 # Singleton instance

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.otel_metrics import AUTH_METRICS
 from app.core.oauth_state import oauth_state_manager
 
 from .schemas import UserResponse
@@ -122,6 +123,7 @@ async def exchange_code(
         if state:
             is_valid = oauth_state_manager.validate_and_consume_state(state)
             if not is_valid:
+                AUTH_METRICS["auth_failures_total"].add(1)
                 raise HTTPException(
                     status_code=403,
                     detail="Invalid or expired state parameter. Possible CSRF attack.",
@@ -135,6 +137,10 @@ async def exchange_code(
         user_info = await github_auth_service.get_user_info_from_github(
             token_data["access_token"]
         )
+
+        # Check if we got required user info
+        if not user_info or not user_info.get("email"):
+            AUTH_METRICS["auth_failures_total"].add(1)
 
         # Create or get user
         user = await github_auth_service.create_or_get_user(
@@ -162,6 +168,7 @@ async def exchange_code(
     except HTTPException as he:
         raise he
     except Exception as e:
+        AUTH_METRICS["auth_failures_total"].add(1)
         logger.error("OAuth token exchange failed", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {str(e)}")
 

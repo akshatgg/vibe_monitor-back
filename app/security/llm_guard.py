@@ -160,6 +160,18 @@ Your response must be exactly one word: true OR false"""
                 logger.info(
                     f"Security event stored: {event_type.value} (severity: {severity})"
                 )
+
+                from app.core.otel_metrics import SECURITY_METRICS
+                SECURITY_METRICS["security_events_created_total"].add(1)
+
+                SECURITY_METRICS["llm_guard_blocked_messages_total"].add(
+                    1,
+                    {
+                        "event_type": event_type.value,
+                        "severity": severity,
+                    },
+                )
+
         except Exception as e:
             logger.error(f"Failed to store security event: {e}", exc_info=True)
             # Don't raise - we don't want database errors to break the guard

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.oauth_state import oauth_state_manager
+from app.core.otel_metrics import AUTH_METRICS
 
 from .schemas import RefreshTokenRequest, UserResponse
 from .service import AuthService
@@ -119,6 +120,7 @@ async def callback(
         if state:
             is_valid = oauth_state_manager.validate_and_consume_state(state)
             if not is_valid:
+                AUTH_METRICS["auth_failures_total"].add(1)
                 raise HTTPException(
                     status_code=403,
                     detail="Invalid or expired state parameter. Possible CSRF attack.",
@@ -132,6 +134,10 @@ async def callback(
         user_info = await auth_service.get_user_info_from_google(
             token_data["access_token"]
         )
+
+        # Check if we got required user info
+        if not user_info or not user_info.get("email"):
+            AUTH_METRICS["auth_failures_total"].add(1)
 
         # Validate ID token if present
         if "id_token" in token_data:
@@ -161,6 +167,7 @@ async def callback(
     except HTTPException as he:
         raise he
     except Exception as e:
+        AUTH_METRICS["auth_failures_total"].add(1)
         logger.error("OAuth callback failed", exc_info=True)
         raise HTTPException(status_code=400, detail=f"OAuth callback failed: {str(e)}")
 

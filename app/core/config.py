@@ -177,6 +177,9 @@ class Settings(BaseSettings):
         None  # Hostname for resource attributes (auto-detected if None)
     )
 
+    # Database Instrumentation
+    DB_INSTRUMENTATION_ENABLED: bool = True  # Toggle database metrics instrumentation
+
     # Sentry Configuration
     SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
 

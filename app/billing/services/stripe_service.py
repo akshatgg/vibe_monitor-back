@@ -12,6 +12,7 @@ from stripe import Customer
 from stripe import Subscription as StripeSubscription
 from stripe.billing_portal import Session as BillingPortalSession
 
+from app.billing.stripe_instrumentation import stripe_api_metric
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class StripeService:
                 "STRIPE_SECRET_KEY not configured - Stripe operations will fail"
             )
 
+    @stripe_api_metric("create_customer")
     async def create_customer(
         self,
         workspace_id: str,
@@ -114,6 +116,7 @@ class StripeService:
         customer = await self.create_customer(workspace_id, email, name)
         return customer.id
 
+    @stripe_api_metric("create_subscription")
     async def create_subscription(
         self,
         customer_id: str,
@@ -170,6 +173,7 @@ class StripeService:
             logger.error(f"Failed to retrieve Stripe subscription: {e}")
             raise
 
+    @stripe_api_metric("update_subscription")
     async def update_subscription(
         self,
         subscription_id: str,
@@ -219,6 +223,7 @@ class StripeService:
             logger.error(f"Failed to update Stripe subscription: {e}")
             raise
 
+    @stripe_api_metric("cancel_subscription")
     async def cancel_subscription(
         self,
         subscription_id: str,
@@ -281,6 +286,7 @@ class StripeService:
             logger.error(f"Failed to reactivate Stripe subscription: {e}")
             raise
 
+    @stripe_api_metric("create_billing_portal_session")
     async def create_billing_portal_session(
         self,
         customer_id: str,
@@ -307,6 +313,7 @@ class StripeService:
             logger.error(f"Failed to create billing portal session: {e}")
             raise
 
+    @stripe_api_metric("create_checkout_session")
     async def create_checkout_session(
         self,
         customer_id: str,

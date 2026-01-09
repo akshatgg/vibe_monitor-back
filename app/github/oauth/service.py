@@ -309,6 +309,10 @@ class GitHubAppService:
                 raise Exception("Failed to decrypt GitHub credentials")
 
         # Token expired or missing - get a new one
+
+        from app.core.otel_metrics import GITHUB_METRICS
+        GITHUB_METRICS["github_token_refreshes_total"].add(1)
+
         token_data = await self.get_installation_access_token(
             integration.installation_id
         )

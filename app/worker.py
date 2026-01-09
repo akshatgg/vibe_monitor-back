@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import signal
+import time
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -10,13 +11,17 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
-from app.core.otel_metrics import JOB_METRICS
+from app.core.otel_metrics import JOB_METRICS, AGENT_METRICS
 from app.engagement.service import engagement_service
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
 from app.models import Job, JobSource, JobStatus, TurnStatus
 from app.services.rca.agent import rca_agent_service
-from app.services.rca.callbacks import SlackProgressCallback, markdown_to_slack
+from app.services.rca.callbacks import (
+    SlackProgressCallback,
+    ToolMetricsCallback,
+    markdown_to_slack,
+)
 from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.services.sqs.client import sqs_client
@@ -338,6 +343,13 @@ class RCAOrchestratorWorker(BaseWorker):
 
         if not job_id:
             logger.error("No job_id in SQS message, skipping")
+
+            # Record schema validation error
+            from app.core.otel_metrics import SQS_METRICS
+
+            if SQS_METRICS:
+                SQS_METRICS["sqs_message_parse_errors_total"].add(1)
+
             return
 
         # Set job_id in context variables
@@ -394,6 +406,9 @@ class RCAOrchestratorWorker(BaseWorker):
                     job.status = JobStatus.RUNNING
                     job.started_at = datetime.now(timezone.utc)
                     await db.commit()
+
+                    # Initialize start time for agent duration tracking
+                    agent_start_time = time.time()
 
                     # Extract context from job
                     team_id = requested_context.get("team_id")
@@ -607,8 +622,12 @@ class RCAOrchestratorWorker(BaseWorker):
 
                     if has_images:
                         # Count images and videos
-                        image_count = sum(1 for f in files if f.get("file_type") == "image")
-                        video_count = sum(1 for f in files if f.get("file_type") == "video")
+                        image_count = sum(
+                            1 for f in files if f.get("file_type") == "image"
+                        )
+                        video_count = sum(
+                            1 for f in files if f.get("file_type") == "video"
+                        )
                         media_desc = []
                         if image_count > 0:
                             media_desc.append(f"{image_count} image(s)")
@@ -661,10 +680,18 @@ class RCAOrchestratorWorker(BaseWorker):
                                 send_tool_output=False,
                             )
 
+                    # Create metrics callback for tool execution tracking
+                    metrics_callback = ToolMetricsCallback()
+
+                    # Combine callbacks (metrics + progress)
+                    callbacks = [metrics_callback]
+                    if progress_callback:
+                        callbacks.append(progress_callback)
+
                     result = await selected_agent.analyze_with_retry(
                         user_query=query,
                         context=analysis_context,
-                        callbacks=[progress_callback] if progress_callback else None,
+                        callbacks=callbacks,
                         db=db,  # Pass db session for capability-based tool resolution
                     )
 
@@ -676,6 +703,18 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.status = JobStatus.COMPLETED
                         job.finished_at = datetime.now(timezone.utc)
                         await db.commit()
+
+                        agent_duration = time.time() - agent_start_time
+                        if AGENT_METRICS:
+                            AGENT_METRICS["rca_agent_invocations_total"].add(
+                                1,
+                                {
+                                    "status": "success",
+                                },
+                            )
+                            AGENT_METRICS["rca_agent_duration_seconds"].record(
+                                agent_duration
+                            )
 
                         JOB_METRICS["jobs_succeeded_total"].add(
                             1,
@@ -741,6 +780,18 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.finished_at = datetime.now(timezone.utc)
                         job.error_message = error_msg
                         await db.commit()
+
+                        agent_duration = time.time() - agent_start_time
+                        if AGENT_METRICS:
+                            AGENT_METRICS["rca_agent_invocations_total"].add(
+                                1,
+                                {
+                                    "status": "failure",
+                                },
+                            )
+                            AGENT_METRICS["rca_agent_duration_seconds"].record(
+                                agent_duration
+                            )
 
                         JOB_METRICS["jobs_failed_total"].add(
                             1,

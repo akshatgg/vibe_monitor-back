@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.otel_metrics import AUTH_METRICS
 from app.email_service.service import email_service
 from app.models import RefreshToken, User
 from app.onboarding.services.workspace_service import WorkspaceService
@@ -315,7 +316,16 @@ class GitHubAuthService:
 
             return payload
 
-        except JWTError:
+        except JWTError as e:
+            error_str = str(e).lower()
+            if "expired" in error_str:
+                AUTH_METRICS["jwt_tokens_expired_total"].add(
+                    1,
+                    {
+                        "token_type": token_type,
+                    },
+                )
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
@@ -380,6 +390,13 @@ class GitHubAuthService:
 
         # Check if token has expired
         if stored_token.expires_at < datetime.now(timezone.utc):
+            AUTH_METRICS["jwt_tokens_expired_total"].add(
+                1,
+                {
+                    "token_type": "refresh",
+                },
+            )
+
             # Remove expired token
             await db.delete(stored_token)
             await db.commit()

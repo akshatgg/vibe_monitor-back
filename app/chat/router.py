@@ -143,6 +143,15 @@ async def send_message(
         )
 
         if not allowed:
+            from app.core.otel_metrics import SECURITY_METRICS
+
+            SECURITY_METRICS["rate_limit_exceeded_total"].add(
+                1,
+                {
+                    "resource_type": ResourceType.RCA_REQUEST,
+                },
+            )
+
             logger.warning(
                 f"RCA rate limit exceeded for workspace {workspace_id}: "
                 f"{current_count}/{limit}"
