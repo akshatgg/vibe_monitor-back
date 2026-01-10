@@ -498,6 +498,41 @@ alembic history  # What migrations exist
 alembic upgrade head  # Creates all tables and applies all migrations
 ```
 
+**Debugging Deployment Failures**
+
+When a deployment fails, use the helper script to debug task-specific logs:
+
+```bash
+# List recent tasks
+./scripts/debug-deployment.sh dev
+
+# Debug specific task
+./scripts/debug-deployment.sh dev TASK_ID
+```
+
+**Why task-specific logs matter:**
+- CloudWatch log group `/ecs/vm-api-logs-{env}` contains logs from ALL tasks (old and new)
+- Tailing the entire log group mixes logs from different deployments
+- Each task has its own log stream: `ecs/app/{task-id}`
+- Always verify which Docker image a task is running before analyzing its logs
+
+**Manual debugging commands:**
+```bash
+# 1. Find recent task IDs
+aws ecs describe-services --cluster vm-api-cluster-dev --services vm-api-svc-dev \
+  --region us-west-1 --output json | \
+  jq -r '.services[0].events[] | select(.message | contains("has started 1 tasks")) | "\(.createdAt) - \(.message)"' | head -5
+
+# 2. Get logs from specific task
+aws logs get-log-events --log-group-name /ecs/vm-api-logs-dev \
+  --log-stream-name ecs/app/TASK_ID --region us-west-1 --limit 200 --output json | \
+  jq -r '.events[].message'
+
+# 3. Verify what image a task is running
+aws ecs describe-tasks --cluster vm-api-cluster-dev --tasks TASK_ID \
+  --region us-west-1 --query 'tasks[0].[containers[0].image,taskDefinitionArn]'
+```
+
 
 
 
