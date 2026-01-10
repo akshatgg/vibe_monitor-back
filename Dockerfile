@@ -11,7 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install build deps and Poetry
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential \
+    && apt-get install --no-install-recommends -y build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install "poetry==$POETRY_VERSION"
 
