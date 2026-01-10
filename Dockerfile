@@ -22,8 +22,8 @@ COPY pyproject.toml poetry.lock* ./
 RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && poetry install --only=main --no-root --no-ansi \
-    && python -m spacy download en_core_web_sm \
-    && python -c "import spacy; spacy.load('en_core_web_sm')" \
+    && python -m spacy download en_core_web_lg \
+    && python -c "import spacy; spacy.load('en_core_web_lg')" \
     && poetry cache clear pypi --all
 
 FROM python:3.12-slim AS runtime
