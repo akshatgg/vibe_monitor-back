@@ -52,6 +52,7 @@ langchain-core = "^0.3.78"
 openai = "^1.0.0"  # For BYOLLM verification (OpenAI and Azure OpenAI)
 google-generativeai = "^0.8.0"  # For BYOLLM verification (Gemini)
 greenlet = "^3.2.4"
+langfuse = "^2.0.0"
 redis = "^5.0.0"
 slowapi = "^0.1.9"
 tenacity = "^9.0.0"

@@ -184,6 +184,14 @@ class Settings(BaseSettings):
     # Sentry Configuration
     SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
 
+    # Langfuse Configuration (Agent Observability)
+    LANGFUSE_ENABLED: bool = True  # Enable/disable Langfuse tracing
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None  # Langfuse public key
+    LANGFUSE_SECRET_KEY: Optional[str] = None  # Langfuse secret key
+    LANGFUSE_HOST: str = (
+        "https://us.cloud.langfuse.com"  # Langfuse host URL (US region)
+    )
+
     # RCA Service Discovery Settings
     RCA_MAX_REPOS_TO_FETCH: int = (
         50  # Maximum number of repositories to fetch for service discovery

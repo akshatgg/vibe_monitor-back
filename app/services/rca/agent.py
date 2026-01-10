@@ -29,6 +29,7 @@ from app.utils.data_masker import redact_query_for_log
 from .builder import AgentExecutorBuilder
 from .capabilities import IntegrationCapabilityResolver
 from .gemini_agent import gemini_rca_agent_service
+from .langfuse_handler import get_langfuse_callback
 from .prompts import RCA_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -509,10 +510,28 @@ class RCAAgentService:
                 },
             )
 
+            # Build callbacks list with Langfuse handler for observability
+            all_callbacks = list(callbacks) if callbacks else []
+
+            # Add Langfuse callback for agent tracing
+            langfuse_callback = get_langfuse_callback(
+                session_id=(context or {}).get("thread_ts"),  # Group by Slack thread
+                user_id=(context or {}).get("user_id"),
+                metadata={
+                    "workspace_id": workspace_id,
+                    "channel_id": (context or {}).get("channel_id"),
+                    "source": (context or {}).get("source", "unknown"),
+                    "model": settings.GROQ_LLM_MODEL,
+                },
+                tags=["rca", "groq"],
+            )
+            if langfuse_callback:
+                all_callbacks.append(langfuse_callback)
+
             # Execute the agent asynchronously with callbacks
-            if callbacks:
+            if all_callbacks:
                 result = await agent_executor.ainvoke(
-                    agent_input, config={"callbacks": callbacks}
+                    agent_input, config={"callbacks": all_callbacks}
                 )
             else:
                 result = await agent_executor.ainvoke(agent_input)
