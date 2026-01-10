@@ -4,14 +4,12 @@ Tracks transaction metrics, connection pool usage, and active connections.
 """
 
 import logging
-import time
 from contextvars import ContextVar
 from typing import Optional
 
 from opentelemetry.metrics import CallbackOptions, Observation
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +35,10 @@ def get_pool_size_callback(options: CallbackOptions):
 
         # Get pool statistics
         pool_size = pool.size()
-        checked_out = pool.checkedout() 
+        checked_out = pool.checkedout()
         overflow = pool.overflow()
 
-        # Total connections = base + overflow 
+        # Total connections = base + overflow
         total_connections = pool_size + overflow
 
         return [
@@ -57,6 +55,10 @@ def get_pool_size_callback(options: CallbackOptions):
 def setup_database_instrumentation(engine: Engine):
     """
     Must be called AFTER otel_metrics.init_meter()
+
+    Note: AsyncSession does not support session-level events like after_begin,
+    before_commit, etc. We only instrument connection pool events which work
+    for both sync and async engines.
     """
     from app.core.otel_metrics import DB_METRICS
 
@@ -65,90 +67,9 @@ def setup_database_instrumentation(engine: Engine):
 
     logger.info("Setting up database instrumentation with SQLAlchemy event listeners")
 
-    # ==================== SESSION LIFECYCLE EVENTS ====================
-    @event.listens_for(AsyncSession, "after_begin", propagate=True)
-    def receive_after_begin(session, transaction, connection):
-        """
-        Track transaction start time for duration calculation.
-        """
-        try:
-            # Only track top-level transactions
-            if not transaction.nested:
-                _transaction_start_time.set(time.time())
-
-                logger.debug(f"Transaction started for session {id(session)}")
-        except Exception as e:
-            logger.error(f"Error in after_begin event: {e}", exc_info=True)
-
-    @event.listens_for(AsyncSession, "before_commit", propagate=True)
-    def receive_before_commit(session):
-        """
-        Record transaction duration and increment commit counter.
-        """
-        try:
-            start_time = _transaction_start_time.get()
-            if start_time:
-                duration = time.time() - start_time
-
-                DB_METRICS["db_transaction_duration_seconds"].record(
-                    duration,
-                    {"transaction_type": "commit"}
-                )
-
-                DB_METRICS["db_transactions_total"].add(
-                    1,
-                    {"transaction_type": "commit"}    
-                )
-
-                logger.debug(
-                    f"Transaction committed in {duration:.3f}s for session {id(session)}"
-                )
-        except Exception as e:
-            logger.error(f"Error in before_commit event: {e}", exc_info=True)
-
-    @event.listens_for(AsyncSession, "after_commit", propagate=True)
-    def receive_after_commit(session):
-        """
-        Clear transaction start time after commit completes.
-        """
-        try:
-            _transaction_start_time.set(None)
-        except Exception as e:
-            logger.error(f"Error in after_commit event: {e}", exc_info=True)
-
-    @event.listens_for(AsyncSession, "after_rollback", propagate=True)
-    def receive_after_rollback(session):
-        """
-        Record rollback metrics and clear transaction start time.
-        Fires after a transaction is rolled back.
-        """
-        try:
-            start_time = _transaction_start_time.get()
-            if start_time:
-                duration = time.time() - start_time
-
-                DB_METRICS["db_transaction_duration_seconds"].record(
-                    duration,
-                    {"transaction_type": "rollback"}
-                )
-
-                logger.debug(
-                    f"Transaction rolled back after {duration:.3f}s for session {id(session)}"
-                )
-
-            DB_METRICS["db_transactions_total"].add(
-                1,
-                {"transaction_type": "rollback"}
-            )
-            DB_METRICS["db_rollbacks_total"].add(1)
-
-            # Clear start time
-            _transaction_start_time.set(None)
-
-        except Exception as e:
-            logger.error(f"Error in after_rollback event: {e}", exc_info=True)
-
     # ==================== CONNECTION POOL EVENTS ====================
+    # Note: Session-level events (after_begin, before_commit, etc.) are NOT available
+    # for AsyncSession. We only track connection pool metrics which work with async.
 
     @event.listens_for(engine.sync_engine.pool, "checkout")
     def receive_checkout(dbapi_conn, connection_record, connection_proxy):
