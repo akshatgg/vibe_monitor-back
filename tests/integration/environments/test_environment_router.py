@@ -101,14 +101,12 @@ async def test_create_environment(auth_client, test_user, test_workspace):
         json={
             "name": "Staging",
             "is_default": False,
-            "auto_discovery_enabled": True,
         },
     )
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Staging"
     assert data["is_default"] is False
-    assert data["auto_discovery_enabled"] is True
     assert data["workspace_id"] == test_workspace.id
 
 
@@ -120,7 +118,6 @@ async def test_create_environment_as_default(auth_client, test_user, test_worksp
         json={
             "name": "New Production",
             "is_default": True,
-            "auto_discovery_enabled": False,
         },
     )
     assert response.status_code == 201
@@ -162,14 +159,14 @@ async def test_update_environment_name(
 async def test_update_environment_auto_discovery(
     auth_client, test_user, test_workspace, test_environment
 ):
-    """Test updating auto_discovery_enabled setting."""
+    """Test updating is_default setting."""
     response = await auth_client.patch(
         f"{API_PREFIX}/workspaces/{test_workspace.id}/environments/{test_environment.id}",
-        json={"auto_discovery_enabled": False},
+        json={"is_default": False},
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["auto_discovery_enabled"] is False
+    assert data["is_default"] is False
 
 
 @pytest.mark.asyncio
@@ -274,7 +271,7 @@ async def test_add_repository_to_environment(
 async def test_add_repository_without_branch(
     auth_client, test_user, test_workspace, test_environment
 ):
-    """Test adding a repository without a branch (disabled by default)."""
+    """Test adding a repository without a branch (enabled by default)."""
     response = await auth_client.post(
         f"{API_PREFIX}/workspaces/{test_workspace.id}/environments/{test_environment.id}/repositories",
         json={
@@ -285,7 +282,7 @@ async def test_add_repository_without_branch(
     data = response.json()
     assert data["repo_full_name"] == "owner/no-branch-repo"
     assert data["branch_name"] is None
-    assert data["is_enabled"] is False
+    assert data["is_enabled"] is True  # Default is True per schema
 
 
 @pytest.mark.asyncio

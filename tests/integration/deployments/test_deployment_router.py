@@ -54,6 +54,7 @@ async def test_create_deployment_minimal(
         f"{API_PREFIX}/deployments/workspaces/{test_workspace.id}/environments/{test_environment.id}",
         json={
             "repo_full_name": "owner/minimal-repo",
+            "commit_sha": "abc1234def5678",
         },
     )
     assert response.status_code == 201
@@ -72,6 +73,7 @@ async def test_create_deployment_with_metadata(
         f"{API_PREFIX}/deployments/workspaces/{test_workspace.id}/environments/{test_environment.id}",
         json={
             "repo_full_name": "owner/meta-repo",
+            "commit_sha": "xyz9876abc1234",
             "branch": "release",
             "extra_data": {
                 "ci_run_id": "12345",
@@ -310,6 +312,7 @@ async def test_webhook_deployment_invalid_key(client, test_db, test_workspace):
         json={
             "environment": "production",
             "repository": "owner/repo",
+            "commit_sha": "abc1234567890",
             "branch": "main",
         },
         headers={"X-Workspace-Key": "invalid-key"},
@@ -487,11 +490,12 @@ async def test_deployment_statuses(
     """Test creating deployments with different statuses."""
     statuses = ["pending", "in_progress", "success", "failed", "cancelled"]
 
-    for status in statuses:
+    for i, status in enumerate(statuses):
         response = await auth_client.post(
             f"{API_PREFIX}/deployments/workspaces/{test_workspace.id}/environments/{test_environment.id}",
             json={
                 "repo_full_name": f"owner/{status}-repo",
+                "commit_sha": f"commit{i:07d}",
                 "status": status,
             },
         )

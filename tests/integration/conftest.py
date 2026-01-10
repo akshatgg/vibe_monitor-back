@@ -269,7 +269,6 @@ async def test_environment(test_db, test_workspace):
         workspace_id=test_workspace.id,
         name="Production",
         is_default=True,
-        auto_discovery_enabled=True,
     )
     test_db.add(environment)
     await test_db.commit()

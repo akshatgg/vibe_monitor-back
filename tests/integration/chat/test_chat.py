@@ -793,7 +793,7 @@ class TestSendMessage:
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/chat",
-            json={"message": "What caused the database timeout?"},
+            data={"message": "What caused the database timeout?"},
             headers=headers,
         )
 
@@ -817,7 +817,7 @@ class TestSendMessage:
 
         response = await client.post(
             f"{API_PREFIX}/workspaces/{workspace.id}/chat",
-            json={"message": "Rate limited message"},
+            data={"message": "Rate limited message"},
             headers=headers,
         )
 

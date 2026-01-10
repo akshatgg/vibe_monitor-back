@@ -43,7 +43,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (
+# Initialize metrics BEFORE importing any app modules that use them
+from opentelemetry.sdk.metrics import MeterProvider
+from app.core.otel_metrics import init_meter
+
+meter_provider = MeterProvider()
+meter = meter_provider.get_meter("test-meter")
+init_meter(meter)
+
+from app.models import (  # noqa: E402
     User,
     Workspace,
     Membership,
@@ -272,5 +280,3 @@ def mock_settings():
 # =============================================================================
 # Auth Fixtures
 # =============================================================================
-
-

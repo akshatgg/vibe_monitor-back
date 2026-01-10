@@ -45,24 +45,25 @@ class TestChatServiceGenerateTitle:
         assert result == "This is..."
 
     def test_generate_title_removes_angle_brackets(self):
-        """XSS: Removes < and > characters."""
+        """XSS: Escapes < and > characters to HTML entities."""
         result = self.service._generate_title("<script>alert('xss')</script>")
         assert "<" not in result
         assert ">" not in result
-        assert result == "scriptalert(xss)/script"
+        # HTML escaped string is 51 chars, so it gets truncated to 50 with "..."
+        assert result == "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script..."
 
     def test_generate_title_removes_quotes(self):
-        """XSS: Removes single and double quotes."""
+        """XSS: Escapes single and double quotes to HTML entities."""
         result = self.service._generate_title("Test \"message\" with 'quotes'")
         assert '"' not in result
         assert "'" not in result
-        assert result == "Test message with quotes"
+        assert result == "Test &quot;message&quot; with &#x27;quotes&#x27;"
 
     def test_generate_title_removes_ampersand(self):
-        """XSS: Removes & character."""
+        """XSS: Escapes & character to HTML entity."""
         result = self.service._generate_title("Tom & Jerry")
-        assert "&" not in result
-        assert result == "Tom  Jerry"
+        # Note: & is present in the entity &amp; but not as a standalone character
+        assert result == "Tom &amp; Jerry"
 
     def test_generate_title_xss_attack_vector_script_tag(self):
         """XSS: Script tag injection is neutralized."""
@@ -83,9 +84,10 @@ class TestChatServiceGenerateTitle:
         assert "'" not in result
 
     def test_generate_title_empty_after_sanitization_returns_default(self):
-        """Returns 'Untitled Chat' if message is empty after sanitization."""
+        """HTML entities are escaped, not removed, so this test now checks entity encoding."""
         result = self.service._generate_title("<>\"'&")
-        assert result == "Untitled Chat"
+        # With html.escape(), characters are converted to entities, not removed
+        assert result == "&lt;&gt;&quot;&#x27;&amp;"
 
     def test_generate_title_empty_string_returns_default(self):
         """Empty string returns 'Untitled Chat'."""
@@ -103,9 +105,9 @@ class TestChatServiceGenerateTitle:
         assert result == "Hello World!"
 
     def test_generate_title_mixed_content(self):
-        """Mixed content with valid and invalid characters."""
+        """Mixed content with valid and invalid characters - entities are escaped."""
         result = self.service._generate_title("Hello <World> & 'Friends'")
-        assert result == "Hello World  Friends"
+        assert result == "Hello &lt;World&gt; &amp; &#x27;Friends&#x27;"
 
     def test_generate_title_exactly_max_length(self):
         """Message exactly at max_length is not truncated."""

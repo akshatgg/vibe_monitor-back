@@ -24,16 +24,12 @@ class TestEnvironmentCreateSchema:
         env = EnvironmentCreate(name="production")
         assert env.name == "production"
         assert env.is_default is False
-        assert env.auto_discovery_enabled is True
 
     def test_environment_create_with_all_fields(self):
         """Test creating environment with all fields specified."""
-        env = EnvironmentCreate(
-            name="staging", is_default=True, auto_discovery_enabled=False
-        )
+        env = EnvironmentCreate(name="staging", is_default=True)
         assert env.name == "staging"
         assert env.is_default is True
-        assert env.auto_discovery_enabled is False
 
     def test_environment_create_empty_name_fails(self):
         """Test that empty name fails validation."""
@@ -63,7 +59,6 @@ class TestEnvironmentUpdateSchema:
         update = EnvironmentUpdate()
         assert update.name is None
         assert update.is_default is None
-        assert update.auto_discovery_enabled is None
 
     def test_environment_update_partial(self):
         """Test partial update."""
@@ -90,7 +85,7 @@ class TestEnvironmentRepositoryCreateSchema:
         repo = EnvironmentRepositoryCreate(repo_full_name="owner/repo")
         assert repo.repo_full_name == "owner/repo"
         assert repo.branch_name is None
-        assert repo.is_enabled is False
+        assert repo.is_enabled is True  # Default is True per schema
 
     def test_repository_create_with_branch(self):
         """Test creating repository config with branch."""
