@@ -23,6 +23,59 @@ from app.github.tools.router import (
 logger = logging.getLogger(__name__)
 
 
+def _format_tool_error(tool_name: str, error: Exception, context: str = "") -> str:
+    """
+    Format tool errors in a way that helps the LLM understand and recover.
+
+    Returns actionable error messages without exposing internal secrets.
+    """
+    error_str = str(error)
+
+    # Handle specific error types with helpful suggestions
+    if "400" in error_str:
+        return (
+            f"⚠️ {tool_name}: Invalid request. "
+            f"The parameters provided for {context or 'this request'} may be incorrect. "
+            "Try using 'HEAD:' for the default branch or verify the input format."
+        )
+    if "404" in error_str:
+        return (
+            f"⚠️ {tool_name}: Resource not found. "
+            f"The requested {context or 'resource'} doesn't exist or isn't accessible. "
+            "Try using 'HEAD:' as the expression for the default branch, "
+            "or verify the repository/file path is correct."
+        )
+    if "401" in error_str or "403" in error_str:
+        return (
+            f"⚠️ {tool_name}: Access denied. "
+            "The GitHub integration may not have permission to access this resource. "
+            "Try a different repository or check if the repository is private."
+        )
+    if "422" in error_str:
+        return (
+            f"⚠️ {tool_name}: Invalid input. "
+            f"The {context or 'request'} contains invalid data. "
+            "Check that file paths and branch names are correct."
+        )
+    if "rate limit" in error_str.lower():
+        return (
+            f"⚠️ {tool_name}: GitHub rate limit reached. "
+            "Please wait a moment before trying again, or try a different approach."
+        )
+    if "timeout" in error_str.lower():
+        return (
+            f"⚠️ {tool_name}: Request timed out. "
+            "The repository might be large. Try requesting a specific subdirectory instead."
+        )
+
+    # Generic fallback - still helpful but doesn't expose internal details
+    logger.error(f"Tool error in {tool_name}: {error_str}")
+    return (
+        f"⚠️ {tool_name}: Unable to complete request. "
+        "Try a different approach or use alternative tools to gather the information."
+    )
+
+
 def _format_repositories_response(response: dict) -> str:
     """Format repository list response for LLM consumption"""
     try:
@@ -251,8 +304,7 @@ async def list_repositories_tool(
         return _format_repositories_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_repositories_tool: {e}")
-        return f"Error fetching repositories: {str(e)}"
+        return _format_tool_error("list_repositories", e, "repository list")
 
 
 @tool
@@ -297,8 +349,7 @@ async def read_repository_file_tool(
         return _format_file_content_response(response)
 
     except Exception as e:
-        logger.error(f"Error in read_repository_file_tool: {e}")
-        return f"Error reading file '{file_path}': {str(e)}"
+        return _format_tool_error("read_repository_file", e, f"file '{file_path}'")
 
 
 @tool
@@ -347,8 +398,7 @@ async def search_code_tool(
         return _format_code_search_response(response)
 
     except Exception as e:
-        logger.error(f"Error in search_code_tool: {e}")
-        return f"Error searching code: {str(e)}"
+        return _format_tool_error("search_code", e, "code search")
 
 
 @tool
@@ -393,8 +443,7 @@ async def get_repository_commits_tool(
         return _format_commits_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_commits_tool: {e}")
-        return f"Error fetching commits: {str(e)}"
+        return _format_tool_error("get_repository_commits", e, "commit history")
 
 
 @tool
@@ -442,8 +491,7 @@ async def list_pull_requests_tool(
         return _format_pull_requests_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_pull_requests_tool: {e}")
-        return f"Error fetching pull requests: {str(e)}"
+        return _format_tool_error("list_pull_requests", e, "pull requests")
 
 
 @tool
@@ -488,8 +536,7 @@ async def download_file_tool(
         return _format_file_content_response(response)
 
     except Exception as e:
-        logger.error(f"Error in download_file_tool: {e}")
-        return f"Error downloading file '{file_path}': {str(e)}"
+        return _format_tool_error("download_file", e, f"file '{file_path}'")
 
 
 def _format_tree_response(response: dict) -> str:
@@ -636,8 +683,7 @@ async def get_repository_tree_tool(
         return _format_tree_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_tree_tool: {e}")
-        return f"Error fetching repository tree for expression '{expression}': {str(e)}"
+        return _format_tool_error("get_repository_tree", e, f"path '{expression}'")
 
 
 @tool
@@ -687,8 +733,7 @@ async def get_branch_recent_commits_tool(
         return _format_commits_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_branch_recent_commits_tool: {e}")
-        return f"Error fetching commits from branch '{ref}': {str(e)}"
+        return _format_tool_error("get_branch_recent_commits", e, f"branch '{ref}'")
 
 
 @tool
@@ -731,5 +776,4 @@ async def get_repository_metadata_tool(
         return _format_metadata_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_metadata_tool: {e}")
-        return f"Error fetching repository metadata: {str(e)}"
+        return _format_tool_error("get_repository_metadata", e, "repository metadata")
