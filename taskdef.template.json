@@ -64,10 +64,8 @@
         {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-webhook-secret"},
         {"name": "STRIPE_PRO_PLAN_PRICE_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-pro-plan-price-id"},
         {"name": "STRIPE_ADDITIONAL_SERVICE_PRICE_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-additional-service-price-id"},
-        {"name": "NEW_RELIC_LICENSE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-relic-license-key"}
         {"name": "NEW_RELIC_LICENSE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-relic-license-key"},
-        {"name": "CHAT_UPLOADS_BUCKET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/chat-uploads-bucket"
-        }
+        {"name": "CHAT_UPLOADS_BUCKET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/chat-uploads-bucket"}
       ]
     }
   ]
