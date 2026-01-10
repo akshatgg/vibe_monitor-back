@@ -28,6 +28,11 @@ RUN python -m venv /opt/venv \
 
 FROM python:3.12-slim AS runtime
 
+# Install runtime system dependencies
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Service metadata for observability and service discovery
 LABEL service.name="vm-api"
 LABEL service.description="VibeMonitor API - Observability and APM platform"
