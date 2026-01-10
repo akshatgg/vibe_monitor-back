@@ -531,10 +531,25 @@ class RCAAgentService:
                     "error": None,
                 }
 
+            output = result.get("output", "Analysis completed but no output generated.")
+
+            # Handle LangChain's max iterations message - provide a better response
+            if "stopped due to" in output.lower() and (
+                "iteration" in output.lower() or "time limit" in output.lower()
+            ):
+                logger.warning(
+                    f"Agent hit iteration/time limit for workspace {workspace_id}"
+                )
+                # Provide a more helpful message to the user
+                output = (
+                    "I gathered some information but couldn't complete the full analysis "
+                    "within the allowed processing time. Here's what I found so far:\n\n"
+                    "Please try asking a more specific question, or break down your request "
+                    "into smaller parts for better results."
+                )
+
             return {
-                "output": result.get(
-                    "output", "Analysis completed but no output generated."
-                ),
+                "output": output,
                 "intermediate_steps": result.get("intermediate_steps", []),
                 "success": True,
                 "error": None,
