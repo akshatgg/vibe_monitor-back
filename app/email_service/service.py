@@ -119,7 +119,7 @@ class EmailService:
             "X-Postmark-Server-Token": self.server_token,
         }
 
-        logger.info(f"Sending email - From: {from_address}, To: {to_email}")
+        logger.info(f"Sending email - Subject: {payload.get('Subject', 'N/A')}")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -137,7 +137,7 @@ class EmailService:
                         return {"id": result.get("MessageID"), **result}
         except httpx.HTTPError as e:
             logger.error(f"Failed to send email via Postmark: {str(e)}")
-            logger.error(f"Request details - From: {from_address}, To: {to_email}")
+            logger.error(f"Request details - Subject: {payload.get('Subject', 'N/A')}")
             logger.error(
                 f"Response status: {e.response.status_code if hasattr(e, 'response') else 'N/A'}"
             )
@@ -230,7 +230,7 @@ class EmailService:
             db.add(email_record)
             await db.commit()
 
-            logger.info(f"Welcome email sent to user {user_id} ({user.email})")
+            logger.info(f"Welcome email sent to user {user_id}")
 
             return {
                 "success": True,
@@ -306,7 +306,7 @@ class EmailService:
             db.add(email_record)
             await db.commit()
 
-            logger.info(f"Verification email sent to {user.email}")
+            logger.info(f"Verification email sent to user {user_id}")
 
             return {
                 "success": True,
@@ -382,7 +382,7 @@ class EmailService:
             db.add(email_record)
             await db.commit()
 
-            logger.info(f"Password reset email sent to {user.email}")
+            logger.info(f"Password reset email sent to user {user_id}")
 
             return {
                 "success": True,
@@ -458,9 +458,7 @@ class EmailService:
             db.add(email_record)
             await db.commit()
 
-            logger.info(
-                f"Slack integration email sent to user {user_id} ({user.email})"
-            )
+            logger.info(f"Slack integration email sent to user {user_id}")
 
             return {
                 "success": True,
@@ -541,7 +539,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 html_body=html_content,
             )
 
-            logger.info(f"Contact form email sent from {work_email} to {support_email}")
+            logger.info("Contact form email sent successfully")
 
             return {
                 "success": True,
@@ -551,9 +549,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
             }
 
         except Exception as e:
-            logger.error(
-                f"Failed to send contact form email from {work_email}: {str(e)}"
-            )
+            logger.error(f"Failed to send contact form email: {str(e)}")
             raise
 
     async def send_user_help_email(self, user_id: str, db: AsyncSession) -> dict:

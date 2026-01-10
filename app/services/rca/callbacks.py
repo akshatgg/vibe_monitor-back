@@ -1,7 +1,10 @@
 """
-Custom LangChain callbacks for streaming RCA agent progress to Slack
+Custom LangChain callbacks for streaming RCA agent progress to Slack.
+
+All sensitive data is masked before logging or sending to Slack.
 """
 
+import ast
 import json
 import logging
 import re
@@ -15,6 +18,7 @@ from app.core.config import settings
 from app.core.otel_metrics import TOOL_METRICS
 from app.services.rca.get_service_name.enums import TOOL_NAME_TO_MESSAGE
 from app.slack.service import slack_event_service
+from app.utils.data_masker import redact_query_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -207,10 +211,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
         """Called when a tool starts executing"""
         tool_name = serialized.get("name", "unknown_tool")
 
-        # Log for debugging
-        logger.info(
-            f"Tool start - name: {tool_name}, input_str: {input_str[:200] if input_str else 'None'}, kwargs keys: {list(kwargs.keys())}"
-        )
+        # Redact tool input for logging
+        redacted_input = redact_query_for_log(input_str) if input_str else "[EMPTY]"
+        logger.info(f"Tool start - name: {tool_name}, input: {redacted_input}")
 
         # Get user-friendly message from enum mapping
         enum_message = TOOL_NAME_TO_MESSAGE.get(tool_name)
@@ -251,40 +254,27 @@ class SlackProgressCallback(AsyncCallbackHandler):
             Formatted context string (e.g., "`service-name`" or "`repo-name`")
         """
         try:
-            # Log the input for debugging
-            logger.info(
-                f"Extracting context for {tool_name} with input: {input_str[:200] if input_str else 'None'}"
-            )
-            if kwargs:
-                logger.info(f"kwargs: {kwargs}")
-
             # Try multiple parsing strategies
             input_data = {}
 
             # Strategy 0: Check if there's an 'inputs' dict in kwargs (LangChain standard)
             if "inputs" in kwargs and isinstance(kwargs["inputs"], dict):
                 input_data = kwargs["inputs"]
-                logger.info(f"Using inputs from kwargs: {input_data}")
 
             # Strategy 1: Check if there's a tool_input in kwargs
             elif "tool_input" in kwargs:
                 tool_input = kwargs["tool_input"]
                 if isinstance(tool_input, dict):
                     input_data = tool_input
-                    logger.info(f"Using tool_input from kwargs: {input_data}")
 
             # Strategy 2: Try to parse input_str as JSON
             elif input_str:
                 try:
                     input_data = json.loads(input_str)
-                    logger.info(f"Successfully parsed JSON: {input_data}")
                 except (json.JSONDecodeError, TypeError, ValueError):
                     # Strategy 3: Try to parse as Python literal (handles single quotes)
                     try:
-                        import ast
-
                         input_data = ast.literal_eval(input_str)
-                        logger.info(f"Successfully parsed Python literal: {input_data}")
                     except (ValueError, SyntaxError):
                         # Strategy 4: Try to extract from dict-like string representation
                         # Match patterns like service_name='value' or service_name="value"
@@ -293,17 +283,13 @@ class SlackProgressCallback(AsyncCallbackHandler):
                         )
                         if matches:
                             input_data = dict(matches)
-                            logger.info(f"Extracted from regex: {input_data}")
                         else:
                             # Strategy 5: Try to extract from key=value pairs
                             matches = re.findall(r"(\w+)\s*[:=]\s*(\S+)", input_str)
                             if matches:
                                 input_data = {k: v.strip(",") for k, v in matches}
-                                logger.info(
-                                    f"Extracted from key=value pairs: {input_data}"
-                                )
 
-            # Extract service name for logs/metrics tools
+            # Extract service name for logs/metrics tools (don't log values to avoid PII)
             if tool_name in [
                 "fetch_error_logs_tool",
                 "fetch_logs_tool",
@@ -314,12 +300,9 @@ class SlackProgressCallback(AsyncCallbackHandler):
             ]:
                 service_name = input_data.get("service_name")
                 if service_name:
-                    logger.info(f"Found service_name: {service_name}")
                     return f"for `{service_name}`"
-                else:
-                    logger.warning(f"No service_name found in input_data: {input_data}")
 
-            # Extract repo name for GitHub tools
+            # Extract repo name for GitHub tools (don't log values to avoid PII)
             if tool_name in [
                 "discover_service_name_tool",
                 "scan_repository_for_services_tool",
@@ -336,18 +319,11 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 file_path = input_data.get("file_path") or input_data.get("path")
 
                 if repo and file_path:
-                    logger.info(f"Found repo: {repo}, file_path: {file_path}")
                     return f"in `{repo}` → `{file_path}`"
                 elif repo:
-                    logger.info(f"Found repo: {repo}")
                     return f"in `{repo}`"
                 elif file_path:
-                    logger.info(f"Found file_path: {file_path}")
                     return f"`{file_path}`"
-                else:
-                    logger.warning(
-                        f"No repo/file_path found in input_data: {input_data}"
-                    )
 
             return ""
 
@@ -640,7 +616,7 @@ class ToolMetricsCallback(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Record tool execution error metrics"""
-        
+
         run_id = str(kwargs.get("run_id", ""))
         tool_name = kwargs.get("name", "unknown")
         error_type = type(error).__name__

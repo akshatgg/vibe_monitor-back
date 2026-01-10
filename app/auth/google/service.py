@@ -207,11 +207,11 @@ class AuthService:
                 await db.commit()
                 await db.refresh(existing_user)
                 logger.info(
-                    f"Existing unverified user now verified via Google OAuth: {email}"
+                    f"Existing unverified user {existing_user.id} now verified via Google OAuth"
                 )
             else:
                 logger.info(
-                    f"Existing verified user logging in via Google OAuth: {email}"
+                    f"Existing verified user {existing_user.id} logging in via Google OAuth"
                 )
             return UserResponse.model_validate(existing_user)
 
@@ -240,7 +240,7 @@ class AuthService:
         # Send welcome email to new user
         try:
             await email_service.send_welcome_email(user_id=user_id, db=db)
-            logger.info(f"Welcome email queued for user {user_id} ({email})")
+            logger.info(f"Welcome email queued for user {user_id}")
         except Exception as e:
             # Log the error but don't fail user creation
             logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")

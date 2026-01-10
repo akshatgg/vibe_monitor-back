@@ -22,7 +22,9 @@ from langchain_groq import ChatGroq
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.otel_metrics import AGENT_METRICS, LLM_METRICS
 from app.llm.providers import get_llm_for_workspace
+from app.utils.data_masker import redact_query_for_log
 
 from .builder import AgentExecutorBuilder
 from .capabilities import IntegrationCapabilityResolver
@@ -348,8 +350,10 @@ class RCAAgentService:
                     "error": error_msg,
                 }
 
+            # Redact user query for logging (prevents PII leakage)
+            redacted_query = redact_query_for_log(user_query)
             logger.info(
-                f"Starting RCA analysis for query: '{user_query}' (workspace: {workspace_id})"
+                f"Starting RCA analysis for {redacted_query} (workspace: {workspace_id})"
             )
 
             # Extract service→repo mapping from context
@@ -386,6 +390,8 @@ class RCAAgentService:
                 )
 
                 # Format thread messages as conversation history
+                # Note: Thread history is already masked at entry point (slack/service.py)
+                # with the same PIIMapper, so placeholders are consistent
                 history_lines = ["## 🧵 CONVERSATION HISTORY", ""]
                 history_lines.append(
                     "This is a follow-up question in an existing thread. Here's the previous conversation:"
@@ -393,7 +399,6 @@ class RCAAgentService:
                 history_lines.append("")
 
                 for msg in thread_history:
-                    user_id = msg.get("user", "unknown")
                     text = msg.get("text", "")
                     bot_id = msg.get("bot_id")
 
@@ -401,15 +406,16 @@ class RCAAgentService:
                     clean_text = re.sub(
                         settings.SLACK_USER_MENTION_PATTERN, "", text
                     ).strip()
+
                     # Identify if message is from bot or user
                     if bot_id:
                         history_lines.append(f"**Assistant**: {clean_text}")
                     else:
-                        history_lines.append(f"**User ({user_id})**: {clean_text}")
+                        history_lines.append(f"**User**: {clean_text}")
                     history_lines.append("")
 
                 thread_history_text = "\n".join(history_lines)
-                logger.info("Thread history formatted and ready for injection")
+                logger.info("Thread history formatted for LLM")
             else:
                 thread_history_text = ""
                 logger.info("No thread history to format")
@@ -437,6 +443,8 @@ class RCAAgentService:
             )
 
             # Prepare input for the agent
+            # NOTE: user_query is already masked at entry point (slack/service.py)
+            # with PIIMapper - no additional masking needed here
             agent_input = {
                 "input": user_query,
                 "environment_context_text": environment_context_text,
@@ -472,8 +480,6 @@ class RCAAgentService:
                 f"  - Total input: {total_chars} chars (~{estimated_tokens} tokens est.)\n"
                 f"  - Max output tokens: {settings.RCA_AGENT_MAX_TOKENS}"
             )
-
-            from app.core.otel_metrics import LLM_METRICS
 
             context_size_bytes = (
                 len(environment_context_text.encode("utf-8"))
@@ -653,8 +659,6 @@ class RCAAgentService:
                     )
 
                     # Record retry attempt metrics
-                    from app.core.otel_metrics import LLM_METRICS, AGENT_METRICS
-
                     if AGENT_METRICS:
                         AGENT_METRICS["rca_agent_retries_total"].add(1)
 

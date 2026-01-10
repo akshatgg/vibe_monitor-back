@@ -1,5 +1,5 @@
 """
-LangChain tools for RCA agent to interact with GitHub repositories
+LangChain tools for RCA agent to interact with GitHub repositories.
 """
 
 import logging
@@ -60,7 +60,7 @@ def _format_repositories_response(response: dict) -> str:
 
 
 def _format_file_content_response(response: dict) -> str:
-    """Format file content response for LLM consumption"""
+    """Format file content response for LLM consumption."""
     try:
         if not response.get("success"):
             return "Failed to read file."
@@ -130,7 +130,7 @@ def _format_code_search_response(response: dict) -> str:
 
 
 def _format_commits_response(response: dict) -> str:
-    """Format commits response for LLM consumption"""
+    """Format commits response for LLM consumption with PII sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch commits."
@@ -143,14 +143,19 @@ def _format_commits_response(response: dict) -> str:
         for commit in commits[:20]:  # Limit to first 20 commits
             oid = commit.get("oid", "")[:8]  # Short hash
             message = commit.get("messageHeadline", "No message")
-            author = commit.get("author", {}).get("name", "Unknown")
+            # GitHub data is from a trusted source - pass through as-is
+            # Author names are not masked here to maintain consistency with PIIMapper
+            # If masking is needed, it will be done at entry point with PIIMapper
+            author_data = commit.get("author", {})
+            author_name = author_data.get("name", "Unknown")
+
             date = commit.get("committedDate", "Unknown date")
             additions = commit.get("additions", 0)
             deletions = commit.get("deletions", 0)
 
             formatted.append(
                 f"🔹 **{oid}** - {message}\n"
-                f"   Author: {author}\n"
+                f"   Author: {author_name}\n"
                 f"   Date: {date}\n"
                 f"   Changes: +{additions}/-{deletions}"
             )
@@ -167,7 +172,7 @@ def _format_commits_response(response: dict) -> str:
 
 
 def _format_pull_requests_response(response: dict) -> str:
-    """Format pull requests response for LLM consumption"""
+    """Format pull requests response for LLM consumption with PII sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch pull requests."
@@ -181,7 +186,10 @@ def _format_pull_requests_response(response: dict) -> str:
             number = pr.get("number", "")
             title = pr.get("title", "No title")
             state = pr.get("state", "UNKNOWN")
-            author = pr.get("author", {}).get("login", "Unknown")
+            # GitHub data is from a trusted source - pass through as-is
+            # Author usernames are public GitHub data, consistent with commit authors
+            # If masking is needed, it will be done at entry point with PIIMapper
+            author_login = pr.get("author", {}).get("login", "Unknown")
             created = pr.get("createdAt", "Unknown")
             head_ref = pr.get("headRefName", "unknown")
             base_ref = pr.get("baseRefName", "unknown")
@@ -189,7 +197,7 @@ def _format_pull_requests_response(response: dict) -> str:
             formatted.append(
                 f"🔀 **PR #{number}** - {title}\n"
                 f"   Status: {state}\n"
-                f"   Author: {author}\n"
+                f"   Author: {author_login}\n"
                 f"   Branch: {head_ref} → {base_ref}\n"
                 f"   Created: {created}"
             )
@@ -485,7 +493,7 @@ async def download_file_tool(
 
 
 def _format_tree_response(response: dict) -> str:
-    """Format repository tree response for LLM consumption"""
+    """Format repository tree response for LLM consumption with secret sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch repository tree."

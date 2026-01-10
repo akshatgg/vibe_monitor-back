@@ -34,6 +34,7 @@ from app.slack.schemas import (
     SlackInstallationCreate,
     SlackInstallationResponse,
 )
+from app.utils.data_masker import PIIMapper, redact_query_for_log
 from app.utils.rate_limiter import ResourceType, check_rate_limit_with_byollm_bypass
 from app.utils.retry_decorator import retry_external_api
 from app.utils.token_processor import token_processor
@@ -147,7 +148,11 @@ class SlackEventService:
 
             # Extract message context
             event_context = payload.extract_message_context()
-            logger.info(f"Received Slack event: {event_context}")
+            # Redact user query text before logging (centralized filter handles other PII)
+            masked_context = {**event_context}
+            if "text" in masked_context and masked_context["text"]:
+                masked_context["text"] = redact_query_for_log(masked_context["text"])
+            logger.info(f"Received Slack event: {masked_context}")
 
             team_id = event_context.get("team_id")
             channel_id = event_context.get("channel_id")
@@ -208,7 +213,9 @@ class SlackEventService:
             # Handle app_mention events (explicit @bot mentions)
             if event_type == "app_mention":
                 user_message_ex = event_context.get("text", "").strip()
-                logger.info(f"Received app_mention with text: '{user_message_ex}'")
+                logger.info(
+                    f"Received app_mention with {redact_query_for_log(user_message_ex)}"
+                )
 
                 # Process the message and generate response
                 bot_response = await SlackEventService.process_user_message(
@@ -339,6 +346,26 @@ class SlackEventService:
             settings.SLACK_USER_MENTION_PATTERN, "", user_message
         ).strip()
 
+        # Mask customer PII at entry point (before LLM Guard)
+        # Creates reversible placeholders like email1, ip1, user1, etc.
+        try:
+            pii_mapper = PIIMapper()
+            masked_message = pii_mapper.mask(clean_message)
+            pii_mapping = pii_mapper.get_reverse_mapping()
+
+            if pii_mapping:
+                logger.info(
+                    f"PII masked in query: {len(pii_mapping)} entities detected "
+                    f"(placeholders: {list(pii_mapping.keys())})"
+                )
+        except RuntimeError as e:
+            # PII masking failed - cannot process query safely
+            logger.error(f"PII masking failed for user query: {e}", exc_info=True)
+            return (
+                "⚠️ I'm currently unable to process queries safely due to a technical issue. "
+                "Please try again later or contact support if this persists."
+            )
+
         # Check if this is an image-only message
         files = event_context.get("files", [])
         has_images = any(f.get("mimetype", "").startswith("image/") for f in files)
@@ -367,7 +394,7 @@ class SlackEventService:
             )
         else:
             logger.info(
-                f"Processing explicit mention from user {user_id}: '{clean_message}'"
+                f"Processing explicit mention from user {user_id}: {redact_query_for_log(clean_message)}"
             )
 
         # Simple command handling (only for explicit mentions)
@@ -404,19 +431,17 @@ class SlackEventService:
                     f"• Message received at: {timestamp}"
                 )
 
-        # ═══════════════════════════════════════════════════════════════
-        # SECURITY: LLM Guard - Validate message for prompt injection
-        # ═══════════════════════════════════════════════════════════════
+        # LLM Guard - Validate message for prompt injection
         # Get Slack installation details for security event tracking
         slack_integration = await SlackEventService.get_installation(team_id)
         slack_integration_id = slack_integration.id if slack_integration else None
         workspace_id = slack_integration.workspace_id if slack_integration else None
 
         logger.info(
-            f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'"
+            f"[SECURITY] Validating message with LLM Guard: {redact_query_for_log(masked_message)}"
         )
         guard_result = await llm_guard.validate_message(
-            user_message=clean_message,
+            user_message=masked_message,  # Use masked message - LLM Guard never sees raw PII
             context=f"Slack message from user {user_id} in channel {channel_id}",
             workspace_id=workspace_id,
             slack_integration_id=slack_integration_id,
@@ -444,7 +469,7 @@ class SlackEventService:
         # Process RCA query (works for both mentions and auto-detected alerts)
         if True:  # Always process as RCA for non-command messages
             # This looks like an RCA query - create Job record and enqueue to SQS
-            logger.info(f"Creating RCA job for query: '{clean_message}'")
+            logger.info(f"Creating RCA job for {redact_query_for_log(masked_message)}")
 
             # Check if this is a thread reply and fetch conversation history
             thread_history = None
@@ -535,6 +560,7 @@ class SlackEventService:
 
                         if not allowed:
                             from app.core.otel_metrics import SECURITY_METRICS
+
                             SECURITY_METRICS["rate_limit_exceeded_total"].add(
                                 1,
                                 {
@@ -602,8 +628,10 @@ class SlackEventService:
                     )
 
                     # Build job context with alert info if auto-detected
+                    # Use masked_message for LLM, store pii_mapping for unmasking response
                     job_context = {
-                        "query": clean_message,
+                        "query": masked_message,  # Masked query - LLM never sees raw PII
+                        "pii_mapping": pii_mapping,  # For unmasking LLM response
                         "user_id": user_id,
                         "team_id": team_id,
                         "turn_id": turn.id,  # Link to turn for feedback
@@ -616,11 +644,30 @@ class SlackEventService:
                         job_context["auto_detected"] = True
 
                     # Add thread history to context if available
+                    # Mask thread history with same PIIMapper for consistent placeholders
                     if thread_history:
-                        job_context["thread_history"] = thread_history
-                        logger.info(
-                            f"Added {len(thread_history)} thread messages to job context"
-                        )
+                        try:
+                            for msg in thread_history:
+                                if msg.get("text"):
+                                    msg["text"] = pii_mapper.mask(msg["text"])
+                            # Update pii_mapping after masking thread history (may have new PII)
+                            job_context["pii_mapping"] = (
+                                pii_mapper.get_reverse_mapping()
+                            )
+                            job_context["thread_history"] = thread_history
+                            logger.info(
+                                f"Added {len(thread_history)} thread messages to job context (masked with same PIIMapper)"
+                            )
+                        except RuntimeError as e:
+                            # PII masking failed for thread history - log but continue without it
+                            logger.error(
+                                f"PII masking failed for thread history: {e}",
+                                exc_info=True,
+                            )
+                            # Continue without thread history rather than failing entirely
+                            logger.warning(
+                                "Proceeding without thread history due to PII masking failure"
+                            )
 
                     # Add files (images) to context if present
                     files = event_context.get("files", [])

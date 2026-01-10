@@ -144,9 +144,11 @@ class CredentialAuthService:
         # Verify by decrypting (only 1 token, not thousands)
         if verification:
             if verification.expires_at <= datetime.now(timezone.utc):
-                AUTH_METRICS["jwt_tokens_expired_total"].add(1, {"token_type": token_type})
+                AUTH_METRICS["jwt_tokens_expired_total"].add(
+                    1, {"token_type": token_type}
+                )
                 raise HTTPException(status_code=400, detail="Token has expired")
-        
+
             try:
                 decrypted_token = token_processor.decrypt(verification.token)
                 if decrypted_token == token:
@@ -332,9 +334,11 @@ class CredentialAuthService:
             await email_service.send_verification_email(
                 user_id=user_id, verification_url=verification_url, db=db
             )
-            logger.info(f"Verification email sent to {email}")
+            logger.info(f"Verification email sent to user {user_id}")
         except Exception as e:
-            logger.error(f"Failed to send verification email: {str(e)}")
+            logger.error(
+                f"Failed to send verification email to user {user_id}: {str(e)}"
+            )
             # Don't fail signup if email fails
 
         # Don't generate tokens for unverified users
@@ -407,7 +411,7 @@ class CredentialAuthService:
                 )
 
                 logger.info(
-                    f"Verification email automatically resent to {email} during login attempt"
+                    f"Verification email automatically resent to user {user.id} during login attempt"
                 )
 
                 AUTH_METRICS["auth_failures_total"].add(1)
@@ -544,7 +548,7 @@ class CredentialAuthService:
             user_id=user.id, verification_url=verification_url, db=db
         )
 
-        logger.info(f"Verification email resent to {email}")
+        logger.info(f"Verification email resent to user {user.id}")
 
         return {"message": "Verification email sent"}
 
@@ -586,7 +590,7 @@ class CredentialAuthService:
             user_id=user.id, reset_url=reset_url, db=db
         )
 
-        logger.info(f"Password reset email sent to {email}")
+        logger.info(f"Password reset email sent to user {user.id}")
 
         return {"message": "Password reset link sent to your email"}
 

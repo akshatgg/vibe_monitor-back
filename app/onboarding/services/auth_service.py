@@ -201,7 +201,7 @@ class AuthService:
         # Send welcome email to new user
         try:
             await email_service.send_welcome_email(user_id=user_id, db=db)
-            logger.info(f"Welcome email queued for user {user_id} ({email})")
+            logger.info(f"Welcome email queued for user {user_id}")
         except Exception as e:
             # Log the error but don't fail user creation
             logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")

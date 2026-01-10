@@ -11,7 +11,7 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
-from app.core.otel_metrics import JOB_METRICS, AGENT_METRICS
+from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
 from app.engagement.service import engagement_service
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
@@ -26,6 +26,7 @@ from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.services.sqs.client import sqs_client
 from app.slack.service import slack_event_service
+from app.utils.data_masker import PIIMapper, redact_query_for_log
 from app.workers.base_worker import BaseWorker
 
 logger = logging.getLogger(__name__)
@@ -400,7 +401,9 @@ class RCAOrchestratorWorker(BaseWorker):
                     requested_context = job.requested_context or {}
                     query = requested_context.get("query", "")
 
-                    logger.info(f"🔍 Processing job {job_id}: {query}")
+                    # Redact user query in logs to prevent PII leakage
+                    redacted_query = redact_query_for_log(query)
+                    logger.info(f"🔍 Processing job {job_id}: {redacted_query}")
 
                     # Update job status to RUNNING
                     job.status = JobStatus.RUNNING
@@ -723,8 +726,34 @@ class RCAOrchestratorWorker(BaseWorker):
                             },
                         )
 
-                        # Send final response based on source
+                        # Get LLM output
                         final_output = result.get("output", "Analysis completed.")
+
+                        # Unmask PII: replace placeholders with original values
+                        pii_mapping = requested_context.get("pii_mapping", {})
+                        if pii_mapping:
+                            try:
+                                pii_mapper = PIIMapper.from_mapping(pii_mapping)
+                                final_output = pii_mapper.unmask(final_output)
+                                logger.info(
+                                    f"PII unmasked in response: {len(pii_mapping)} placeholders restored"
+                                )
+                            except Exception as e:
+                                # If unmasking fails, log error but still send response
+                                # This prevents user from getting stuck with placeholders
+                                logger.error(
+                                    f"Failed to unmask PII in response: {e}",
+                                    exc_info=True,
+                                )
+                                # Add warning to response so user knows something went wrong
+                                final_output = (
+                                    "⚠️ Note: Unable to restore some sensitive data. "
+                                    "Placeholders may be visible. "
+                                    "Please contact support if this issue persists.\n\n"
+                                    + final_output
+                                )
+
+                        # Send final response based on source
 
                         if job.source == JobSource.WEB and web_callback:
                             # Web: send via SSE/Redis

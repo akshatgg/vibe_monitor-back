@@ -19,6 +19,7 @@ from langchain_groq import ChatGroq
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import SecurityEvent, SecurityEventType
+from app.utils.data_masker import redact_query_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ Your response must be exactly one word: true OR false"""
                 )
 
                 from app.core.otel_metrics import SECURITY_METRICS
+
                 SECURITY_METRICS["security_events_created_total"].add(1)
 
                 SECURITY_METRICS["llm_guard_blocked_messages_total"].add(
@@ -257,7 +259,7 @@ Your response must be exactly one word: true OR false"""
                 f"[DEBUG] LLM Guard - Calling Groq with model={self.model}, temperature={self.temperature}, {token_info}"
             )
             logger.info(
-                f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, Message to validate: '{user_message[:50]}...'"
+                f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, {redact_query_for_log(user_message)}"
             )
 
             # Call Groq via LangChain (completely separate from main RCA agent)
@@ -287,7 +289,7 @@ Your response must be exactly one word: true OR false"""
                         "security_event": True,
                         "reason": "invalid_guard_response",
                         "guard_response": llm_response,
-                        "message_preview": user_message[:100],
+                        "message_preview": redact_query_for_log(user_message),
                     },
                 )
 
@@ -322,7 +324,7 @@ Your response must be exactly one word: true OR false"""
                         "alert_type": "prompt_injection",
                         "security_event": True,
                         "context": context or "None",
-                        "message_preview": user_message[:100],
+                        "message_preview": redact_query_for_log(user_message),
                     },
                 )
 

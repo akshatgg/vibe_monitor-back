@@ -1,5 +1,5 @@
 """
-LangChain tools for RCA agent to interact with logs and metrics services
+LangChain tools for RCA agent to interact with logs and metrics services.
 """
 
 import logging
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _format_logs_response(response, limit: int = 50) -> str:
-    """Format log query response for LLM consumption"""
+    """Format log query response for LLM consumption."""
     try:
         # Response is already a LogQueryResponse object
         if not response.data or not response.data.result:

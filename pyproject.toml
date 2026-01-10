@@ -69,6 +69,8 @@ argon2-cffi = "^25.1.0"
 python-multipart = "^0.0.21"
 python-magic = "^0.4.27"
 pypdf2 = "^3.0.1"
+presidio-analyzer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
+presidio-anonymizer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
 
 
 [tool.poetry.group.dev.dependencies]
