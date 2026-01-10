@@ -1219,27 +1219,68 @@ class SlackEventService:
             return None
 
         # Build message blocks with feedback buttons (comment option appears after feedback)
-        blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {"type": "divider"},
-            {
-                "type": "actions",
-                "elements": [
+        # Slack section blocks have a 3000 char limit, split long text into multiple blocks
+        MAX_SECTION_LENGTH = 2900  # Leave buffer for markdown formatting
+        blocks = []
+
+        # Split text into chunks that fit within section block limits
+        if len(text) <= MAX_SECTION_LENGTH:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+        else:
+            # Split on paragraph boundaries where possible
+            remaining = text
+            while remaining:
+                if len(remaining) <= MAX_SECTION_LENGTH:
+                    blocks.append(
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": remaining},
+                        }
+                    )
+                    break
+
+                # Find a good split point (paragraph or line break)
+                split_point = remaining.rfind("\n\n", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = remaining.rfind("\n", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = remaining.rfind(" ", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = MAX_SECTION_LENGTH
+
+                blocks.append(
                     {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👍", "emoji": True},
-                        "action_id": "feedback_thumbs_up",
-                        "value": turn_id,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👎", "emoji": True},
-                        "action_id": "feedback_thumbs_down",
-                        "value": turn_id,
-                    },
-                ],
-            },
-        ]
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": remaining[:split_point].rstrip(),
+                        },
+                    }
+                )
+                remaining = remaining[split_point:].lstrip()
+
+        blocks.extend(
+            [
+                {"type": "divider"},
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "👍", "emoji": True},
+                            "action_id": "feedback_thumbs_up",
+                            "value": turn_id,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "👎", "emoji": True},
+                            "action_id": "feedback_thumbs_down",
+                            "value": turn_id,
+                        },
+                    ],
+                },
+            ]
+        )
 
         try:
             async with httpx.AsyncClient() as client:
