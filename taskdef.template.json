@@ -31,6 +31,7 @@
         {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-anon-key"},
         {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-service-key"},
         {"name": "POSTMARK_SERVER_TOKEN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/postmark-server-token"},
+        {"name": "POSTMARK_BROADCAST_STREAM", "valueFrom": "/vm-api-ENV_PLACEHOLDER/postmark-broadcast-stream"},
         {"name": "SCHEDULER_SECRET_TOKEN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/scheduler-secret-token"},
         {"name": "GROQ_API_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/groq-api-key"},
         {"name": "GROQ_LLM_MODEL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/groq-llm-model"},

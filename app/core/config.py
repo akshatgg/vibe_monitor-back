@@ -66,6 +66,7 @@ class Settings(BaseSettings):
 
     # Postmark Email Configuration
     POSTMARK_SERVER_TOKEN: Optional[str] = None
+    POSTMARK_BROADCAST_STREAM: str = "broadcast"  # Stream for marketing emails
 
     # Company Email Settings (for automated/system emails)
     COMPANY_EMAIL_FROM_ADDRESS: str = "support@vibemonitor.ai"

@@ -11,3 +11,7 @@ Just hit reply and let me know — no pressure, just genuinely here to help.
 Best,
 {{sender_name}}
 Founder, Vibemonitor.ai
+
+---
+You're receiving this email because you signed up for VibeMonitor.
+To unsubscribe from marketing emails: {{unsubscribe_url}}

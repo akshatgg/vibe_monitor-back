@@ -14,3 +14,7 @@ Thanks for being part of the journey.
 Best,
 {{sender_name}}
 Founder, Vibemonitor.ai
+
+---
+You're receiving this email because you signed up for VibeMonitor.
+To unsubscribe from marketing emails: {{unsubscribe_url}}

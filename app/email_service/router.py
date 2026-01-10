@@ -4,8 +4,10 @@ Email API routes.
 
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,13 +15,20 @@ from app.auth.google.service import AuthService
 from app.core.config import settings
 from app.core.database import get_db
 from app.email_service.schemas import ContactFormRequest, EmailResponse
-from app.email_service.service import email_service, verify_scheduler_token
+from app.email_service.service import (
+    decode_unsubscribe_token,
+    email_service,
+    verify_scheduler_token,
+)
 from app.models import Email, Membership, RefreshToken, SlackInstallation, User
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
 
-router = APIRouter(prefix="/email", tags=["email"])
+# Templates directory
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+router = APIRouter(prefix="/email-service", tags=["email"])
 
 
 @router.post("/nudge-email", response_model=EmailResponse)
@@ -362,3 +371,81 @@ async def send_usage_feedback_emails(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process usage feedback emails: {str(e)}",
         )
+
+
+@router.get("/unsubscribe/{token}", response_class=HTMLResponse)
+async def unsubscribe_from_marketing_emails(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One-click unsubscribe from marketing emails.
+
+    This endpoint is accessed via a link in marketing emails.
+    It decodes the JWT token to identify the user and disables
+    their newsletter_subscribed preference.
+
+    Args:
+        token: Signed JWT token containing user_id
+        db: Async database session
+
+    Returns:
+        HTML page confirming unsubscription
+    """
+    # Decode and validate token
+    user_id = decode_unsubscribe_token(token)
+    if not user_id:
+        # Return a simple error page for invalid/expired tokens
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Invalid Link - VibeMonitor</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Invalid or Expired Link</h1>
+                <p>This unsubscribe link is no longer valid.</p>
+                <p>Please contact support@vibemonitor.ai if you need help.</p>
+            </body>
+            </html>
+            """,
+            status_code=400,
+        )
+
+    # Find user and update preference
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html>
+            <head><title>User Not Found - VibeMonitor</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>User Not Found</h1>
+                <p>We couldn't find your account.</p>
+                <p>Please contact support@vibemonitor.ai if you need help.</p>
+            </body>
+            </html>
+            """,
+            status_code=404,
+        )
+
+    # Update user preference
+    user.newsletter_subscribed = False
+    await db.commit()
+
+    logger.info(f"User {user_id} ({user.email}) unsubscribed from marketing emails")
+
+    # Load and render success template
+    template_path = TEMPLATES_DIR / "unsubscribe_success.html"
+    with open(template_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Replace template variables
+    html_content = html_content.replace("{{api_base_url}}", settings.API_BASE_URL or "")
+    html_content = html_content.replace(
+        "{{app_url}}", settings.WEB_APP_URL or "https://vibemonitor.ai"
+    )
+
+    return HTMLResponse(content=html_content)

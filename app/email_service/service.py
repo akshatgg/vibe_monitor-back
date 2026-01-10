@@ -3,9 +3,10 @@ Email service for sending emails via Postmark.
 """
 
 import html
+import jwt
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -54,6 +55,61 @@ def verify_scheduler_token(x_scheduler_token: str = Header(...)):
     return True
 
 
+def generate_unsubscribe_token(user_id: str) -> str:
+    """
+    Generate a signed JWT token for one-click unsubscribe.
+
+    Args:
+        user_id: User ID to encode in token
+
+    Returns:
+        str: Signed JWT token
+    """
+    payload = {
+        "sub": user_id,
+        "type": "unsubscribe",
+        "exp": datetime.now(timezone.utc) + timedelta(days=365),  # 1 year expiry
+    }
+    return jwt.encode(
+        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
+
+
+def decode_unsubscribe_token(token: str) -> str | None:
+    """
+    Decode and validate an unsubscribe token.
+
+    Args:
+        token: JWT token to decode
+
+    Returns:
+        str: User ID if valid, None if invalid/expired
+    """
+    try:
+        payload = jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+        if payload.get("type") != "unsubscribe":
+            return None
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        return None
+
+
+def get_unsubscribe_url(user_id: str) -> str:
+    """
+    Generate full unsubscribe URL for a user.
+
+    Args:
+        user_id: User ID
+
+    Returns:
+        str: Full unsubscribe URL
+    """
+    token = generate_unsubscribe_token(user_id)
+    return f"{settings.API_BASE_URL}/email-service/unsubscribe/{token}"
+
+
 class EmailService:
     """Service for sending emails via Postmark API"""
 
@@ -72,6 +128,8 @@ class EmailService:
         html_body: str = None,
         from_email: str = None,
         from_name: str = None,
+        message_stream: str = "outbound",
+        unsubscribe_url: str = None,
     ) -> dict:
         """
         Send an email using Postmark API.
@@ -83,6 +141,8 @@ class EmailService:
             html_body: HTML content (optional)
             from_email: Custom from email address (optional)
             from_name: Custom from name (optional)
+            message_stream: Postmark message stream (default: "outbound", use broadcast stream for marketing)
+            unsubscribe_url: One-click unsubscribe URL (optional, for marketing emails)
 
         Returns:
             dict: Response from Postmark API
@@ -104,7 +164,7 @@ class EmailService:
             "From": from_address,
             "To": to_email,
             "Subject": subject,
-            "MessageStream": "outbound",
+            "MessageStream": message_stream,
         }
 
         if text:
@@ -112,6 +172,20 @@ class EmailService:
 
         if html_body:
             payload["HtmlBody"] = html_body
+
+        # Add List-Unsubscribe headers for marketing emails (RFC 2369 & RFC 8058)
+        # This enables Gmail's one-click unsubscribe and "report spam" unsubscribe option
+        if unsubscribe_url:
+            payload["Headers"] = [
+                {
+                    "Name": "List-Unsubscribe",
+                    "Value": f"<{unsubscribe_url}>",
+                },
+                {
+                    "Name": "List-Unsubscribe-Post",
+                    "Value": "List-Unsubscribe=One-Click",
+                },
+            ]
 
         headers = {
             "Accept": "application/json",
@@ -412,6 +486,7 @@ class EmailService:
     ) -> dict:
         """
         Send a Slack integration nudge email to a user.
+        This is a marketing email - respects user's newsletter_subscribed preference.
 
         Args:
             user_id: User ID to send email to
@@ -426,8 +501,23 @@ class EmailService:
         if not user:
             raise ValueError(f"User with id {user_id} not found")
 
+        # Check if user has opted out of marketing emails
+        if not user.newsletter_subscribed:
+            logger.info(
+                f"Skipping slack integration email for user {user_id} - marketing emails disabled"
+            )
+            return {
+                "success": False,
+                "message": "User has opted out of marketing emails",
+                "email": user.email,
+                "skipped": True,
+            }
+
         # Email content
         subject = "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
+
+        # Generate unsubscribe URL
+        unsubscribe_url = get_unsubscribe_url(user_id)
 
         # Load and render HTML template
         template = self._load_template("slack_integration.html")
@@ -436,6 +526,7 @@ class EmailService:
             user_name=user.name,
             app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
             api_base_url=settings.API_BASE_URL,
+            unsubscribe_url=unsubscribe_url,
         )
 
         try:
@@ -444,6 +535,8 @@ class EmailService:
                 subject=subject,
                 text="",
                 html_body=html_content,
+                message_stream=settings.POSTMARK_BROADCAST_STREAM,
+                unsubscribe_url=unsubscribe_url,
             )
 
             # Store email record in database
@@ -555,6 +648,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
     async def send_user_help_email(self, user_id: str, db: AsyncSession) -> dict:
         """
         Send an email to users offering help with setup and understanding their needs.
+        This is a marketing email - respects user's newsletter_subscribed preference.
 
         Args:
             user_id: User ID to send email to
@@ -569,11 +663,27 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         if not user:
             raise ValueError(f"User with id {user_id} not found")
 
+        # Check if user has opted out of marketing emails
+        if not user.newsletter_subscribed:
+            logger.info(
+                f"Skipping user help email for user {user_id} - marketing emails disabled"
+            )
+            return {
+                "success": False,
+                "message": "User has opted out of marketing emails",
+                "email": user.email,
+                "skipped": True,
+            }
+
         email_subject = settings.USER_HELP_EMAIL_SUBJECT
+        # Generate unsubscribe URL
+        unsubscribe_url = get_unsubscribe_url(user_id)
         # Load text template from file
         text_template = self._load_template("text_body/user_help.txt")
         email_text_body = self._render_template(
-            text_template, sender_name=settings.PERSONAL_EMAIL_FROM_NAME
+            text_template,
+            sender_name=settings.PERSONAL_EMAIL_FROM_NAME,
+            unsubscribe_url=unsubscribe_url,
         )
 
         try:
@@ -584,6 +694,8 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 text=email_text_body,
                 from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
                 from_name=settings.PERSONAL_EMAIL_FROM_NAME,
+                message_stream=settings.POSTMARK_BROADCAST_STREAM,
+                unsubscribe_url=unsubscribe_url,
             )
 
             email_record = Email(
@@ -623,6 +735,7 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
     async def send_usage_feedback_email(self, user_id: str, db: AsyncSession) -> dict:
         """
         Send usage feedback email to active users after 7+ days on platform.
+        This is a marketing email - respects user's newsletter_subscribed preference.
 
         Args:
             user_id: User ID to send email to
@@ -637,11 +750,27 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         if not user:
             raise ValueError(f"User with id {user_id} not found")
 
+        # Check if user has opted out of marketing emails
+        if not user.newsletter_subscribed:
+            logger.info(
+                f"Skipping usage feedback email for user {user_id} - marketing emails disabled"
+            )
+            return {
+                "success": False,
+                "message": "User has opted out of marketing emails",
+                "email": user.email,
+                "skipped": True,
+            }
+
         email_subject = settings.USAGE_FEEDBACK_EMAIL_SUBJECT
+        # Generate unsubscribe URL
+        unsubscribe_url = get_unsubscribe_url(user_id)
         # Load text template from file
         text_template = self._load_template("text_body/usage_feedback.txt")
         email_text_body = self._render_template(
-            text_template, sender_name=settings.PERSONAL_EMAIL_FROM_NAME
+            text_template,
+            sender_name=settings.PERSONAL_EMAIL_FROM_NAME,
+            unsubscribe_url=unsubscribe_url,
         )
 
         try:
@@ -652,6 +781,8 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
                 text=email_text_body,
                 from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
                 from_name=settings.PERSONAL_EMAIL_FROM_NAME,
+                message_stream=settings.POSTMARK_BROADCAST_STREAM,
+                unsubscribe_url=unsubscribe_url,
             )
 
             email_record = Email(
