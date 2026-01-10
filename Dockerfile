@@ -57,6 +57,7 @@ COPY entrypoint.sh ./
 RUN useradd -r -u 10001 -g users appuser \
     && mkdir -p /app/data \
     && chown -R appuser:users /app \
+    && chown -R appuser:users /opt/venv \
     && chmod +x /app/entrypoint.sh
 USER appuser
 
