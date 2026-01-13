@@ -4,6 +4,7 @@
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
@@ -131,8 +132,29 @@ export ENVIRONMENT="local"
 echo -e "${GREEN}✓ Environment configured${NC}"
 echo ""
 
-# Step 4: Start uvicorn server
-echo -e "${YELLOW}[4/4] Starting uvicorn server...${NC}"
+# Step 4: Run database migrations
+echo -e "${YELLOW}[4/5] Running database migrations...${NC}"
+echo -e "${YELLOW}This ensures your local schema matches the latest changes${NC}"
+
+# Check current migration state
+echo -e "${YELLOW}Current migration state:${NC}"
+$POETRY_CMD run alembic current || echo "No migrations applied yet"
+
+echo ""
+echo -e "${YELLOW}Running: alembic upgrade head${NC}"
+# Run migrations
+$POETRY_CMD run alembic upgrade head
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ Database migrations applied successfully${NC}"
+else
+    echo -e "${RED}✗ Migration failed! Please check alembic errors above.${NC}"
+    exit 1
+fi
+echo ""
+
+# Step 5: Start uvicorn server
+echo -e "${YELLOW}[5/5] Starting uvicorn server...${NC}"
 echo ""
 echo -e "${BLUE}========================================${NC}"
 echo -e "${GREEN}Server starting on http://localhost:8000${NC}"

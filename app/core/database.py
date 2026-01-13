@@ -81,7 +81,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_database():
-    """Initialize database with tables"""
+    """
+    Initialize database with tables.
+
+    IMPORTANT: In production, tables are created by Alembic migrations
+    (see entrypoint.sh). This create_all() call serves as a safety net
+    and is a no-op when migrations have already run.
+    """
     logger = logging.getLogger(__name__)
 
     try:
