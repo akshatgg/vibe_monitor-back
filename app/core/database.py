@@ -1,10 +1,7 @@
-import logging
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-
-from app.models import Base
 
 from .config import settings
 
@@ -65,12 +62,6 @@ engine = create_async_engine(
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def create_tables():
-    """Create all database tables"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session"""
     async with AsyncSessionLocal() as session:
@@ -78,21 +69,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
-
-
-async def init_database():
-    """
-    Initialize database with tables.
-
-    IMPORTANT: In production, tables are created by Alembic migrations
-    (see entrypoint.sh). This create_all() call serves as a safety net
-    and is a no-op when migrations have already run.
-    """
-    logger = logging.getLogger(__name__)
-
-    try:
-        await create_tables()
-        logger.info("Database tables created successfully")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to initialize database: {e}") from e

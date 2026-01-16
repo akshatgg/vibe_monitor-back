@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.routers.routers import api_router
 from app.core.config import settings
-from app.core.database import engine, init_database
+from app.core.database import engine
 from app.core.db_instrumentation import setup_database_instrumentation
 from app.core.logging_config import configure_logging
 from app.core.otel_config import setup_otel_logs, setup_otel_metrics, shutdown_otel
@@ -58,9 +58,6 @@ async def lifespan(app: FastAPI):
     metrics_updater_task = None
 
     try:
-        # Initialize database
-        await init_database()
-        logger.info("Database initialized")
 
         # Validate Redis connection (for web chat SSE streaming)
         if not settings.REDIS_URL:

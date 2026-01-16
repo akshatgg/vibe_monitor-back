@@ -22,15 +22,19 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     # Add column with server_default to handle existing rows
-    op.add_column(
-        "users",
-        sa.Column(
-            "newsletter_subscribed",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("true"),
-        ),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [clm["name"] for clm in inspector.get_columns("users")]
+    if "newsletter_subscribed" not in columns:
+        op.add_column(
+            "users",
+            sa.Column(
+                "newsletter_subscribed",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("true"),
+            ),
+        )
 
 
 def downgrade() -> None:

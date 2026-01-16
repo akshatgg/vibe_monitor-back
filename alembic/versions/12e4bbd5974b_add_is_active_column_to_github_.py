@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -21,13 +22,21 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add is_active column to track GitHub integration suspension status."""
-    # Add is_active column with server_default=True for existing rows
-    op.add_column(
-        "github_integrations",
-        sa.Column(
-            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
-        ),
-    )
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    
+
+    # Check if column exists
+    columns = [c["name"] for c in inspector.get_columns("github_integrations")]
+    if "is_active" not in columns:
+        op.add_column(
+            "github_integrations",
+            sa.Column(
+                "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+            ),
+        )
+    else:
+        print("  ⊘ Column 'github_integrations.is_active' already exists, skipping...")
 
 
 def downgrade() -> None:
