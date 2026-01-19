@@ -361,6 +361,9 @@ async def github_app_installation_callback_endpoint(
         return await github_app_installation_callback(
             installation_id, setup_action, state, workspace_id, jwt_token, db
         )
+    except ValueError as e:
+        # Handle workspace conflict errors
+        raise HTTPException(status_code=409, detail=str(e))
     except HTTPException as he:
         raise he
     except Exception as e:

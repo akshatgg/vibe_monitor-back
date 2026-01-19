@@ -94,18 +94,23 @@ class GitHubAppService:
                 detail="workspace_id is required for GitHub App installation",
             )
 
-        # Check if installation already exists for this specific workspace
+        # Check if installation already exists for ANY workspace
         result = await db.execute(
             select(GitHubIntegration).where(
-                GitHubIntegration.installation_id == installation_id,
-                GitHubIntegration.workspace_id == workspace_id,
+                GitHubIntegration.installation_id == installation_id
             )
         )
         existing_integration = result.scalar_one_or_none()
 
         if existing_integration:
-            # Update existing integration
-            existing_integration.workspace_id = workspace_id
+            if existing_integration.workspace_id != workspace_id:
+                github_account = installation_info.get("account", {}).get("login", "unknown")
+                raise ValueError(
+                    f"This GitHub installation (account: {github_account}) is already connected "
+                    f"to a different workspace. Please disconnect it from the other workspace first, "
+                    f"or use a different GitHub account/organization."
+                )
+
             existing_integration.last_synced_at = datetime.now(timezone.utc)
             existing_integration.github_username = installation_info.get(
                 "account", {}
@@ -116,6 +121,10 @@ class GitHubAppService:
 
             await db.commit()
             await db.refresh(existing_integration)
+            logger.info(
+                f"Updated existing GitHub integration for workspace={workspace_id}, "
+                f"installation_id={installation_id}"
+            )
             return existing_integration
 
         # Check if there's any other integration for this workspace (different installation_id)
@@ -182,7 +191,20 @@ class GitHubAppService:
         )
 
         db.add(new_integration)
-        await db.commit()
+
+        try:
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                github_account = installation_info.get("account", {}).get("login", "unknown")
+                raise ValueError(
+                    f"This GitHub installation (account: {github_account}) is already connected "
+                    f"to a different workspace. Please disconnect it from the other workspace first, "
+                    f"or use a different GitHub account/organization."
+                )
+            raise
+
         await db.refresh(new_integration)
 
         # Run initial health check to populate health_status

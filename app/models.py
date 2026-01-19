@@ -472,8 +472,11 @@ class GitHubIntegration(Base):
         backref=backref("github_integrations", cascade="all, delete-orphan"),
     )
 
-    # Indexes for query performance
-    __table_args__ = (Index("idx_github_integration_installation", "installation_id"),)
+    # Indexes and constraints
+    __table_args__ = (
+        Index("idx_github_integration_installation", "installation_id"),
+        UniqueConstraint("installation_id", name="uq_github_integrations_installation_id"),
+    )
 
 
 class GitHubUserOAuth(Base):
