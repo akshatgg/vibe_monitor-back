@@ -9,7 +9,7 @@ Provides:
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Tuple
+from typing import NamedTuple, Tuple
 
 import httpx
 from sqlalchemy import distinct, func, select
@@ -22,35 +22,34 @@ from app.models import Membership, RefreshToken, User, Workspace
 logger = logging.getLogger(__name__)
 
 
+class TimePeriods(NamedTuple):
+    """Time period boundaries for metrics."""
+
+    one_day_ago: datetime
+    seven_days_ago: datetime
+    thirty_days_ago: datetime
+
+
 class EngagementService:
     """Service for engagement metrics and reporting."""
 
-    async def get_signup_metrics(self, db: AsyncSession) -> MetricPeriod:
-        """
-        Get user signup metrics for different time periods.
-
-        Args:
-            db: Async database session
-
-        Returns:
-            MetricPeriod with signup counts for 1 day, 7 days, 30 days, and total
-        """
+    def _get_time_periods(self) -> TimePeriods:
+        """Get standard time period boundaries for metrics."""
         now = datetime.now(timezone.utc)
-        one_day_ago = now - timedelta(days=1)
-        seven_days_ago = now - timedelta(days=7)
-        thirty_days_ago = now - timedelta(days=30)
+        return TimePeriods(
+            one_day_ago=now - timedelta(days=1),
+            seven_days_ago=now - timedelta(days=7),
+            thirty_days_ago=now - timedelta(days=30),
+        )
 
-        # Get counts for each period
-        last_1_day = await self._count_users_since(db, one_day_ago)
-        last_7_days = await self._count_users_since(db, seven_days_ago)
-        last_30_days = await self._count_users_since(db, thirty_days_ago)
-        total = await self._count_users_since(db, None)
-
+    async def get_signup_metrics(self, db: AsyncSession) -> MetricPeriod:
+        """Get user signup metrics for different time periods."""
+        periods = self._get_time_periods()
         return MetricPeriod(
-            last_1_day=last_1_day,
-            last_7_days=last_7_days,
-            last_30_days=last_30_days,
-            total=total,
+            last_1_day=await self._count_users_since(db, periods.one_day_ago),
+            last_7_days=await self._count_users_since(db, periods.seven_days_ago),
+            last_30_days=await self._count_users_since(db, periods.thirty_days_ago),
+            total=await self._count_users_since(db, None),
         )
 
     async def _count_users_since(self, db: AsyncSession, since: datetime | None) -> int:
@@ -61,36 +60,43 @@ class EngagementService:
 
         result = await db.execute(query)
         return result.scalar() or 0
+    
+    async def get_active_user_metrics(self, db: AsyncSession) -> MetricPeriod:
+        """
+        Get active user metrics for different time periods.
+
+        A user is considered "active" if they have logged in during the period
+        (based on RefreshToken creation).
+        """
+        periods = self._get_time_periods()
+        return MetricPeriod(
+            last_1_day=await self._count_active_users_since(db, periods.one_day_ago),
+            last_7_days=await self._count_active_users_since(db, periods.seven_days_ago),
+            last_30_days=await self._count_active_users_since(db, periods.thirty_days_ago),
+            total=await self._count_users_since(db, None),
+        )
+
+    async def _count_active_users_since(self, db: AsyncSession, since: datetime) -> int:
+        """Count distinct users who have logged in since a given datetime."""
+        query = select(func.count(distinct(RefreshToken.user_id))).where(
+            RefreshToken.created_at >= since
+        )
+        result = await db.execute(query)
+        return result.scalar() or 0
 
     async def get_active_workspace_metrics(self, db: AsyncSession) -> MetricPeriod:
         """
         Get active workspace metrics for different time periods.
 
         A workspace is considered "active" if at least one of its members
-        has logged in during the given time period (based on RefreshToken creation).
-
-        Args:
-            db: Async database session
-
-        Returns:
-            MetricPeriod with active workspace counts for 1 day, 7 days, 30 days, and total
+        has logged in during the period (based on RefreshToken creation).
         """
-        now = datetime.now(timezone.utc)
-        one_day_ago = now - timedelta(days=1)
-        seven_days_ago = now - timedelta(days=7)
-        thirty_days_ago = now - timedelta(days=30)
-
-        # Get counts for each period
-        last_1_day = await self._count_active_workspaces_since(db, one_day_ago)
-        last_7_days = await self._count_active_workspaces_since(db, seven_days_ago)
-        last_30_days = await self._count_active_workspaces_since(db, thirty_days_ago)
-        total = await self._count_total_workspaces(db)
-
+        periods = self._get_time_periods()
         return MetricPeriod(
-            last_1_day=last_1_day,
-            last_7_days=last_7_days,
-            last_30_days=last_30_days,
-            total=total,
+            last_1_day=await self._count_active_workspaces_since(db, periods.one_day_ago),
+            last_7_days=await self._count_active_workspaces_since(db, periods.seven_days_ago),
+            last_30_days=await self._count_active_workspaces_since(db, periods.thirty_days_ago),
+            total=await self._count_total_workspaces(db),
         )
 
     async def _count_active_workspaces_since(
@@ -122,46 +128,42 @@ class EngagementService:
         return result.scalar() or 0
 
     async def generate_engagement_report(self, db: AsyncSession) -> EngagementReport:
-        """
-        Generate a complete engagement report.
-
-        Args:
-            db: Async database session
-
-        Returns:
-            EngagementReport with signup and active workspace metrics
-        """
-        signup_metrics = await self.get_signup_metrics(db)
-        active_workspace_metrics = await self.get_active_workspace_metrics(db)
-
+        """Generate a complete engagement report."""
         return EngagementReport(
             report_date=datetime.now(timezone.utc),
-            signups=signup_metrics,
-            active_workspaces=active_workspace_metrics,
+            signups=await self.get_signup_metrics(db),
+            active_users=await self.get_active_user_metrics(db),
+            active_workspaces=await self.get_active_workspace_metrics(db),
         )
 
     def format_slack_message(self, report: EngagementReport) -> str:
         report_date = report.report_date.strftime("%B %d, %Y")
         return f"""
-    📊 *Daily Engagement Report*  
-    🗓️ _{report_date}_
+📊 *Daily Engagement Report*
+🗓️ _{report_date}_
 
-    ━━━━━━━━━━━━━━━━━━━━━━
-    👤 *User Signups*
-    • *Last 24h:* `{report.signups.last_1_day}`
-    • *Last 7 days:* `{report.signups.last_7_days}`
-    • *Last 30 days:* `{report.signups.last_30_days}`
-    • *Total:* `{report.signups.total}`
+━━━━━━━━━━━━━━━━━━━━━━
+👤 *User Signups*
+• *Last 24h:* `{report.signups.last_1_day}`
+• *Last 7 days:* `{report.signups.last_7_days}`
+• *Last 30 days:* `{report.signups.last_30_days}`
 
-    ━━━━━━━━━━━━━━━━━━━━━━
-    🏢 *Active Workspaces*
-    • *Last 24h:* `{report.active_workspaces.last_1_day}`
-    • *Last 7 days:* `{report.active_workspaces.last_7_days}`
-    • *Last 30 days:* `{report.active_workspaces.last_30_days}`
-    • *Total:* `{report.active_workspaces.total}`
+━━━━━━━━━━━━━━━━━━━━━━
+🟢 *Active Users*
+• *Last 24h:* `{report.active_users.last_1_day}`
+• *Last 7 days:* `{report.active_users.last_7_days}`
+• *Last 30 days:* `{report.active_users.last_30_days}`
+• *Total Users (Active+Inactive):* `{report.active_users.total}`
 
-    ━━━━━━━━━━━━━━━━━━━━━━
-    """.strip()
+━━━━━━━━━━━━━━━━━━━━━━
+🏢 *Active Workspaces*
+• *Last 24h:* `{report.active_workspaces.last_1_day}`
+• *Last 7 days:* `{report.active_workspaces.last_7_days}`
+• *Last 30 days:* `{report.active_workspaces.last_30_days}`
+• *Total Workspaces (Active+Inactive):* `{report.active_workspaces.total}`
+
+━━━━━━━━━━━━━━━━━━━━━━
+""".strip()
 
     async def send_to_slack(self, message: str) -> Tuple[bool, str]:
         """
