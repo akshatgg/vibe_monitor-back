@@ -2,6 +2,7 @@ import json
 import logging
 import secrets
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -582,6 +583,12 @@ async def slack_oauth_callback(
     except httpx.HTTPError as e:
         logger.error(f"HTTP error during OAuth: {e}")
         raise HTTPException(status_code=502, detail="Failed to communicate with Slack")
+    except HTTPException as e:
+        # Handle workspace conflict error (bot already linked to another workspace)
+        logger.warning(f"Slack installation blocked: {e.detail}")
+        error_msg = quote(str(e.detail))
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
     except Exception as e:
         logger.error(f"Unexpected error during OAuth: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")

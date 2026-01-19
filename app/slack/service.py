@@ -833,7 +833,23 @@ class SlackEventService:
                 control_plane_integration = None
 
                 if existing:
-                    # Update existing installation
+                    # Block if bot is already linked to a DIFFERENT VibeMonitor workspace
+                    if (
+                        existing.workspace_id
+                        and workspace_id
+                        and existing.workspace_id != workspace_id
+                    ):
+                        logger.warning(
+                            f"Blocked Slack bot installation: team_id={team_id} is already "
+                            f"linked to workspace {existing.workspace_id}, cannot link to {workspace_id}"
+                        )
+                        raise HTTPException(
+                            status_code=409,
+                            detail="This Slack workspace is already connected to another VibeMonitor workspace. "
+                            "Please disconnect it from the existing workspace first before connecting to a new one."
+                        )
+
+                    # Update existing installation (same workspace or unlinked)
                     existing.team_name = team_name
                     existing.access_token = access_token
                     existing.bot_user_id = bot_user_id
