@@ -237,6 +237,10 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     logging.getLogger("presidio_analyzer.recognizer_registry").setLevel(logging.ERROR)
     logging.getLogger("presidio_analyzer.nlp_engine").setLevel(logging.ERROR)
 
+    # CRITICAL: Suppress Groq library debug logging to prevent OpenTelemetry formatting errors
+    # The groq._base_client logger was causing TypeError due to incompatible log formatting
+    logging.getLogger("groq._base_client").setLevel(logging.WARNING)
+
     logging.info("Logging configured successfully with stdlib logging")
 
 
