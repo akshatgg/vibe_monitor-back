@@ -46,9 +46,9 @@ Complete setup guide for VM-API with Slack bot integration and monitoring stack.
 │                    Your Local Machine                         │
 │                                                              │
 │  ┌──────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │    LGTM      │   │   VM-API    │   │    VM-Webapp    │   │
-│  │ (Grafana:3300│◄──┤ (FastAPI)   ├──►│ (Next.js:3000)  │   │
-│  │  Prom/Loki)  │   │ Port 8000   │   │ Frontend        │   │
+│  │  New Relic   │   │   VM-API    │   │    VM-Webapp    │   │
+│  │ (Cloud SaaS) │◄──┤ (FastAPI)   ├──►│ (Next.js:3000)  │   │
+│  │ OTEL Export  │   │ Port 8000   │   │ Frontend        │   │
 │  └──────────────┘   └──────┬──────┘   └─────────────────┘   │
 │                            │                                  │
 │         ┌──────────────────┼──────────────────┐              │
@@ -151,63 +151,40 @@ curl http://localhost:8000/health
 
 ---
 
-### 2️⃣ Start Monitoring Stack (LGTM)
+### 2️⃣ Setup OpenTelemetry (New Relic Integration)
 
-**Step 1: Clone LGTM Repository**
+VM-API uses OpenTelemetry to export metrics, traces, and logs to New Relic for observability.
 
-```bash
-# Move to home directory and Clone LGTM stack
-git clone git@github.com:Vibe-Monitor/lgtm.git
-```
+**Step 1: Get New Relic License Key**
 
-**Step 2: Clone Service Repositories**
+1. Sign up at https://newrelic.com/ (free tier available)
+2. Go to your account dropdown (top right) → **API Keys**
+3. Copy your **Ingest - License** 
 
-```bash
-# Move to home directory and Clone auth, desk, and marketplace services
-git clone git@github.com:Vibe-Monitor/auth.git
-git clone git@github.com:Vibe-Monitor/desk.git
-git clone git@github.com:Vibe-Monitor/marketplace.git
-```
+**Step 2: Configure OpenTelemetry in .env**
 
-**Step 3: Copy Service Data to LGTM Structure**
+Add/update these lines in your `.env` file:
 
 ```bash
-# Copy auth data to lgtm/services/auth
-cp -r auth/* lgtm/services/auth/
+# OpenTelemetry Configuration
+OTEL_ENABLED=true
+OTEL_OTLP_ENDPOINT=https://otlp.nr-data.net:4318
+OTEL_SERVICE_NAME=vm-api-dev-yourname
 
-# Copy desk data to lgtm/services/servicedesk
-cp -r desk/* lgtm/services/servicedesk/
-
-# Copy marketplace data to lgtm/services/marketplace
-cp -r marketplace/* lgtm/services/marketplace/
+# New Relic
+NEW_RELIC_LICENSE_KEY=NRAK-XXXXXXXXXXXXXXXXXXXXX
+NEW_RELIC_ACCOUNT_ID=your_account_id  # Found in New Relic URL
 ```
 
-**Step 4: Start LGTM Stack**
+**Step 3: Verify New Relic Integration**
 
-```bash
-# Navigate to LGTM directory and start. Cleanup already running services
-cd lgtm
-docker compose down
-docker compose up -d
+After starting VM-API (next step), verify data is flowing:
 
-# Verify services
-docker ps
-# Should show grafana, prometheus, loki
+1. Go to https://one.newrelic.com/
+2. Navigate to **APM & Services** → Find your service (`vm-api-dev-yourname`)
+3. You should see metrics, traces, and logs appearing within 1-2 minutes
 
-# Access Grafana
-# Browser: http://localhost:3300
-# Login: admin/admin
-```
-
-**Create Grafana API Token (for Grafana integration):**
-
-1. Open Grafana at http://localhost:3300
-2. Go to **Administration** → **Users and access** → **Service Accounts**
-3. Click **"Add service account"** → Name: `vm-api`, Role: `Admin`
-4. Click **"Add service account token"** → Generate
-5. **Copy token** (starts with `glsa_...`) - save it for later!
-
-**Note:** The Grafana token will be used when setting up the Grafana integration through the webapp UI.
+**Note:** If `OTEL_ENABLED=false`, VM-API will run without telemetry export (logs only to console).
 
 ---
 
@@ -538,19 +515,13 @@ In Slack:
 
 ## 🔄 Daily Workflow
 
-**Terminal 1 - LGTM Stack:**
-```bash
-cd /path/to/lgtm
-docker compose up -d
-```
-
-**Terminal 2 - Ngrok:**
+**Terminal 1 - Ngrok:**
 ```bash
 ngrok http 8000
 # Copy new URL if changed, update Slack app settings
 ```
 
-**Terminal 3 - VM-API:**
+**Terminal 2 - VM-API:**
 ```bash
 cd /path/to/vm-api
 docker compose -f docker-compose.dev.yml --profile full-docker up -d
@@ -560,7 +531,6 @@ docker compose -f docker-compose.dev.yml --profile full-docker up -d
 ```bash
 curl http://localhost:8000/health                      # VM-API
 curl http://localhost:3000/api/health                  # VM-Webapp (if running)
-curl http://localhost:3300/api/health                  # Grafana (LGTM stack)
 curl https://YOUR_NGROK_URL.ngrok.io/health            # Ngrok tunnel
 ```
 
@@ -588,16 +558,17 @@ chat:write
 groups:read
 ```
 
-### Issue: Grafana Connection Failed
+### Issue: Grafana Integration Connection Failed
 
 **Solution:**
+This is for customer Grafana integration (not internal monitoring). To test:
 ```bash
-# Test Grafana API token (LGTM stack runs on port 3300)
-curl "http://localhost:3300/api/datasources" \
-  -H "Authorization: Bearer YOUR_GRAFANA_TOKEN"
+# Test customer's Grafana API token
+curl "https://CUSTOMER_GRAFANA_URL/api/datasources" \
+  -H "Authorization: Bearer CUSTOMER_GRAFANA_TOKEN"
 
-# If fails, regenerate token in Grafana at http://localhost:3300
-# Update the integration through the webapp UI or directly in database
+# If fails, ask customer to regenerate token in their Grafana instance
+# Update the integration through the webapp UI
 ```
 
 ### Issue: Ngrok URL Changed
@@ -682,8 +653,8 @@ docker compose down
 
 - **API Docs:** http://localhost:8000/docs (when running)
 - **Monitoring Dashboard:** `MONITORING_DASHBOARD.md`
-- **Grafana:** https://grafana.com/docs/
-- **Prometheus:** https://prometheus.io/docs/
+- **New Relic:** https://docs.newrelic.com/
+- **OpenTelemetry:** https://opentelemetry.io/docs/
 - **Slack API:** https://api.slack.com/
 
 ---
@@ -691,14 +662,14 @@ docker compose down
 ## ✨ Summary Checklist
 
 - [ ] VM-API running on port 8000
-- [ ] LGTM stack running (Grafana, Prometheus, Loki)
+- [ ] OpenTelemetry configured (exports to New Relic)
 - [ ] Ngrok tunnel active
 - [ ] Slack app created with correct scopes
 - [ ] Slack URLs configured
 - [ ] `.env` updated with Slack credentials
 - [ ] GitHub app created (optional)
 - [ ] `.env` updated with GitHub credentials (optional)
-- [ ] Database setup (user, workspace, Grafana integration)
+- [ ] Database setup (user, workspace)
 - [ ] Slack bot installed via OAuth
 - [ ] Bot responds in Slack channel
 - [ ] API tests passing

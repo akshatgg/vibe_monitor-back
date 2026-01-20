@@ -1,7 +1,11 @@
 import json
+import logging
 from typing import List, Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -324,10 +328,25 @@ class Settings(BaseSettings):
         None  # price_... for additional services beyond base
     )
 
+    # New Relic
+    NEW_RELIC_LICENSE_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+
+    # --------- Validators ---------
+    @model_validator(mode="after")
+    def validate_otel_config(self):
+        """Validate OpenTelemetry configuration and warn about missing New Relic license key."""
+        if self.OTEL_ENABLED and not self.NEW_RELIC_LICENSE_KEY:
+            logger.warning(
+                "OpenTelemetry is enabled (OTEL_ENABLED=true) but NEW_RELIC_LICENSE_KEY is missing. "
+                "The OTEL Collector will fail to export metrics to New Relic. "
+                "Please set NEW_RELIC_LICENSE_KEY in your environment or disable OTEL by setting OTEL_ENABLED=false."
+            )
+        return self
 
     # --------- Properties ---------
     @property

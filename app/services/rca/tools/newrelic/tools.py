@@ -57,7 +57,7 @@ def _format_logs_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting logs response: {e}")
+        logger.exception(f"Error formatting logs response: {e}")
         return f"Error parsing log entries: {str(e)}"
 
 
@@ -91,7 +91,7 @@ def _format_query_logs_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting query logs: {e}")
+        logger.exception(f"Error formatting query logs: {e}")
         return f"Error parsing query results: {str(e)}"
 
 
@@ -118,7 +118,7 @@ def _format_metrics_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting metrics response: {e}")
+        logger.exception(f"Error formatting metrics response: {e}")
         return f"Error parsing metric results: {str(e)}"
 
 
@@ -169,7 +169,7 @@ def _format_time_series_response(response) -> str:
         return formatted
 
     except Exception as e:
-        logger.error(f"Error formatting time series: {e}")
+        logger.exception(f"Error formatting time series: {e}")
         return f"Error parsing time series data: {str(e)}"
 
 

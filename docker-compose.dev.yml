@@ -25,8 +25,9 @@ services:
       - REDIS_URL=redis://redis:6379
 
       # OpenTelemetry configuration
+      # Points to OTEL Collector which forwards to NewRelic
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
-      - OTEL_OTLP_ENDPOINT=${OTEL_OTLP_ENDPOINT}
+      - OTEL_OTLP_ENDPOINT=${OTEL_OTLP_ENDPOINT:-http://otel-collector:4317}
       - HOSTNAME=${HOSTNAME:-vm-api-local}
     logging:
       driver: json-file
@@ -42,7 +43,6 @@ services:
         condition: service_healthy
     networks:
       - app-network
-      - lgtm_observability
     profiles:
       - full-docker
 
@@ -163,6 +163,28 @@ services:
     networks:
       - app-network
 
+  # OpenTelemetry Collector (for NewRelic)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "13133:13133"  # health check endpoint
+    environment:
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY}
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:13133/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
   # Langfuse Database (separate Postgres for Langfuse)
   langfuse-db:
     image: postgres:15-alpine
@@ -215,5 +237,3 @@ volumes:
 networks:
   app-network:
     driver: bridge
-  lgtm_observability:
-    external: true

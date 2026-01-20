@@ -1,6 +1,6 @@
 """
 OpenTelemetry configuration for VM-API
-Exports metrics and logs via OTLP to LGTM stack
+Exports metrics and logs via OTLP to New Relic
 """
 
 import logging
