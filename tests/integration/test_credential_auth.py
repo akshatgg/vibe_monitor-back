@@ -28,9 +28,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.core.database import Base, get_db
+from app.core.database import get_db
 from app.main import app
-from app.models import EmailVerification, User
+from app.models import Base, EmailVerification, User
 from app.utils.token_processor import token_processor
 
 

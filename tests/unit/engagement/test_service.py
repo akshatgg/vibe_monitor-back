@@ -22,7 +22,12 @@ class TestFormatSlackMessage:
         """Test basic message formatting with typical values."""
         report = EngagementReport(
             report_date=datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            signups=MetricPeriod(last_1_day=5, last_7_days=20, last_30_days=100, total=500),
+            signups=MetricPeriod(
+                last_1_day=5, last_7_days=20, last_30_days=100, total=500
+            ),
+            active_users=MetricPeriod(
+                last_1_day=8, last_7_days=40, last_30_days=120, total=400
+            ),
             active_workspaces=MetricPeriod(
                 last_1_day=10, last_7_days=50, last_30_days=150, total=300
             ),
@@ -34,16 +39,21 @@ class TestFormatSlackMessage:
         assert "Daily Engagement Report" in message
         assert "January 15, 2024" in message
 
-        # Verify signup metrics
+        # Verify signup metrics (no total shown for signups)
         assert "`5`" in message  # last_1_day signups
         assert "`20`" in message  # last_7_days signups
         assert "`100`" in message  # last_30_days signups
-        assert "`500`" in message  # total signups
+
+        # Verify active user metrics
+        assert "`8`" in message  # last_1_day active users
+        assert "`40`" in message  # last_7_days active users
+        assert "`120`" in message  # last_30_days active users
+        assert "`400`" in message  # total users
 
         # Verify active workspace metrics
-        assert "`10`" in message  # last_1_day active
-        assert "`50`" in message  # last_7_days active
-        assert "`150`" in message  # last_30_days active
+        assert "`10`" in message  # last_1_day active workspaces
+        assert "`50`" in message  # last_7_days active workspaces
+        assert "`150`" in message  # last_30_days active workspaces
         assert "`300`" in message  # total workspaces
 
     def test_format_slack_message_zero_values(self):
@@ -51,6 +61,9 @@ class TestFormatSlackMessage:
         report = EngagementReport(
             report_date=datetime(2024, 6, 1, 0, 0, 0, tzinfo=timezone.utc),
             signups=MetricPeriod(last_1_day=0, last_7_days=0, last_30_days=0, total=0),
+            active_users=MetricPeriod(
+                last_1_day=0, last_7_days=0, last_30_days=0, total=0
+            ),
             active_workspaces=MetricPeriod(
                 last_1_day=0, last_7_days=0, last_30_days=0, total=0
             ),
@@ -69,6 +82,9 @@ class TestFormatSlackMessage:
             signups=MetricPeriod(
                 last_1_day=1000, last_7_days=10000, last_30_days=100000, total=1000000
             ),
+            active_users=MetricPeriod(
+                last_1_day=800, last_7_days=8000, last_30_days=80000, total=800000
+            ),
             active_workspaces=MetricPeriod(
                 last_1_day=500, last_7_days=5000, last_30_days=50000, total=500000
             ),
@@ -77,16 +93,22 @@ class TestFormatSlackMessage:
         message = self.service.format_slack_message(report)
 
         # Verify large numbers are formatted
-        assert "`1000`" in message
-        assert "`1000000`" in message
-        assert "`500000`" in message
+        assert "`1000`" in message  # last_1_day signups
+        assert "`100000`" in message  # last_30_days signups
+        assert "`800000`" in message  # total active users
+        assert "`500000`" in message  # total workspaces
 
     def test_format_slack_message_contains_sections(self):
         """Test that message contains expected sections."""
         report = EngagementReport(
             report_date=datetime(2024, 3, 15, 12, 0, 0, tzinfo=timezone.utc),
             signups=MetricPeriod(last_1_day=1, last_7_days=2, last_30_days=3, total=4),
-            active_workspaces=MetricPeriod(last_1_day=5, last_7_days=6, last_30_days=7, total=8),
+            active_users=MetricPeriod(
+                last_1_day=2, last_7_days=3, last_30_days=4, total=5
+            ),
+            active_workspaces=MetricPeriod(
+                last_1_day=5, last_7_days=6, last_30_days=7, total=8
+            ),
         )
 
         message = self.service.format_slack_message(report)
@@ -110,7 +132,12 @@ class TestFormatSlackMessage:
         for report_date, expected_date in test_cases:
             report = EngagementReport(
                 report_date=report_date,
-                signups=MetricPeriod(last_1_day=0, last_7_days=0, last_30_days=0, total=0),
+                signups=MetricPeriod(
+                    last_1_day=0, last_7_days=0, last_30_days=0, total=0
+                ),
+                active_users=MetricPeriod(
+                    last_1_day=0, last_7_days=0, last_30_days=0, total=0
+                ),
                 active_workspaces=MetricPeriod(
                     last_1_day=0, last_7_days=0, last_30_days=0, total=0
                 ),
@@ -151,9 +178,15 @@ class TestEngagementReportSchema:
         report = EngagementReport(
             report_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             signups=MetricPeriod(last_1_day=1, last_7_days=2, last_30_days=3, total=4),
-            active_workspaces=MetricPeriod(last_1_day=5, last_7_days=6, last_30_days=7, total=8),
+            active_users=MetricPeriod(
+                last_1_day=2, last_7_days=3, last_30_days=4, total=5
+            ),
+            active_workspaces=MetricPeriod(
+                last_1_day=5, last_7_days=6, last_30_days=7, total=8
+            ),
         )
         assert report.signups.last_1_day == 1
+        assert report.active_users.total == 5
         assert report.active_workspaces.total == 8
 
     def test_engagement_report_requires_all_fields(self):
@@ -161,6 +194,8 @@ class TestEngagementReportSchema:
         with pytest.raises(Exception):
             EngagementReport(
                 report_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                signups=MetricPeriod(last_1_day=1, last_7_days=2, last_30_days=3, total=4),
+                signups=MetricPeriod(
+                    last_1_day=1, last_7_days=2, last_30_days=3, total=4
+                ),
                 # Missing active_workspaces
             )
