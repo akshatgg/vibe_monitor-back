@@ -14,10 +14,6 @@ from app.auth.google.service import AuthService
 from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import get_db
-from app.integrations.utils import (
-    get_blocked_integration_message,
-    is_integration_allowed,
-)
 from app.models import Integration, Membership, SlackInstallation, Workspace
 from app.slack.schemas import SlackEventPayload
 from app.slack.service import slack_event_service
@@ -60,12 +56,6 @@ async def initiate_slack_install(
 
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-
-    if not is_integration_allowed(workspace.type, "slack"):
-        raise HTTPException(
-            status_code=400,
-            detail=get_blocked_integration_message("slack"),
-        )
 
     state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
@@ -491,13 +481,6 @@ async def slack_oauth_callback(
     if not workspace:
         logger.error(f"Workspace not found: {workspace_id}")
         raise HTTPException(status_code=404, detail="Workspace not found")
-
-    if not is_integration_allowed(workspace.type, "slack"):
-        logger.warning(f"Slack OAuth attempted for personal workspace: {workspace_id}")
-        raise HTTPException(
-            status_code=400,
-            detail=get_blocked_integration_message("slack"),
-        )
 
     membership_result = await db.execute(
         select(Membership).where(

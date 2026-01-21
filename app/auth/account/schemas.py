@@ -31,13 +31,6 @@ class AccountUpdateRequest(BaseModel):
     newsletter_subscribed: Optional[bool] = None
 
 
-class WorkspaceType(str, Enum):
-    """Type of workspace - personal or team"""
-
-    PERSONAL = "personal"
-    TEAM = "team"
-
-
 class Role(str, Enum):
     """Role of user in a workspace"""
 
@@ -50,7 +43,6 @@ class BlockingWorkspace(BaseModel):
 
     id: str
     name: str
-    type: WorkspaceType
     member_count: int
     action_required: str = Field(
         ...,
@@ -63,7 +55,6 @@ class WorkspacePreview(BaseModel):
 
     id: str
     name: str
-    type: WorkspaceType
     user_role: Role
 
 

@@ -41,12 +41,11 @@ async def test_list_environments(
 @pytest.mark.asyncio
 async def test_list_environments_empty(auth_client, test_db, test_user):
     """Test listing environments for a workspace with no environments."""
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Empty Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -343,13 +342,12 @@ async def test_non_member_cannot_access_environments(
     auth_client, test_db, test_user, second_user
 ):
     """Test that a non-member cannot access workspace environments."""
-    from app.models import Environment, Membership, Role, Workspace, WorkspaceType
+    from app.models import Environment, Membership, Role, Workspace
 
     # Create a workspace owned by second_user
     other_workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Other Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(other_workspace)
     await test_db.flush()
@@ -383,12 +381,11 @@ async def test_member_can_list_environments(
     auth_client, test_db, test_user, second_user
 ):
     """Test that a regular member can list environments."""
-    from app.models import Environment, Membership, Role, Workspace, WorkspaceType
+    from app.models import Environment, Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Shared Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -432,12 +429,11 @@ async def test_non_owner_cannot_create_environment(
     auth_client, test_db, test_user, second_user
 ):
     """Test that a non-owner cannot create an environment."""
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Restricted Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()

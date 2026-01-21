@@ -21,13 +21,12 @@ from app.models import (
     Workspace,
     WorkspaceInvitation,
 )
-from app.models import WorkspaceType as DBWorkspaceType
 
 from ..schemas.schemas import InvitationCreate, InvitationResponse
 from ..schemas.schemas import InvitationStatus as SchemaInvitationStatus
 from ..schemas.schemas import MemberResponse, MemberRoleUpdate
 from ..schemas.schemas import Role as SchemaRole
-from ..schemas.schemas import WorkspaceType, WorkspaceWithMembership
+from ..schemas.schemas import WorkspaceWithMembership
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +52,10 @@ class MembershipService:
         Invite a user to a workspace.
 
         Validations:
-        1. Workspace must be TEAM type (not PERSONAL)
-        2. Inviter must be OWNER of workspace
-        3. Invitee must not already be a member
-        4. No pending invitation for same email exists
-        5. Cannot invite yourself
+        1. Inviter must be OWNER of workspace
+        2. Invitee must not already be a member
+        3. No pending invitation for same email exists
+        4. Cannot invite yourself
         """
         # Get workspace and verify it exists
         workspace_result = await db.execute(
@@ -68,14 +66,7 @@ class MembershipService:
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        # Validation 1: Workspace must be TEAM type
-        if workspace.type == DBWorkspaceType.PERSONAL:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot invite members to personal workspace. Create a team workspace to collaborate.",
-            )
-
-        # Validation 2: Verify inviter is OWNER
+        # Validation 1: Verify inviter is OWNER
         inviter_membership = await self._get_membership(
             workspace_id=workspace_id, user_id=inviter_id, db=db
         )
@@ -422,7 +413,6 @@ class MembershipService:
             return WorkspaceWithMembership(
                 id=invitation.workspace.id,
                 name=invitation.workspace.name,
-                type=WorkspaceType(invitation.workspace.type.value),
                 domain=invitation.workspace.domain,
                 visible_to_org=invitation.workspace.visible_to_org,
                 is_paid=invitation.workspace.is_paid,
@@ -457,7 +447,6 @@ class MembershipService:
         return WorkspaceWithMembership(
             id=invitation.workspace.id,
             name=invitation.workspace.name,
-            type=WorkspaceType(invitation.workspace.type.value),
             domain=invitation.workspace.domain,
             visible_to_org=invitation.workspace.visible_to_org,
             is_paid=invitation.workspace.is_paid,
@@ -740,7 +729,6 @@ class MembershipService:
 
         Validations:
         1. Cannot leave if sole OWNER (must transfer ownership or delete workspace)
-        2. Cannot leave personal workspace (delete instead)
         """
         # Get workspace
         workspace_result = await db.execute(
@@ -750,13 +738,6 @@ class MembershipService:
 
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
-
-        # Validation 2: Cannot leave personal workspace
-        if workspace.type == DBWorkspaceType.PERSONAL:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot leave personal workspace. Delete the workspace instead.",
-            )
 
         # Get user's membership
         membership = await self._get_membership(

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models import Membership, User, Workspace, WorkspaceType
+from app.models import Membership, User, Workspace
 from tests.integration.conftest import get_auth_headers
 
 API_PREFIX = "/api/v1"
@@ -36,14 +36,11 @@ async def create_test_user(db, user_id: str = None, email: str = None) -> User:
     return user
 
 
-async def create_test_workspace(
-    db, workspace_id: str = None, workspace_type: WorkspaceType = WorkspaceType.TEAM
-) -> Workspace:
+async def create_test_workspace(db, workspace_id: str = None) -> Workspace:
     """Create a test workspace in the database."""
     workspace = Workspace(
         id=workspace_id or str(uuid.uuid4()),
         name="Test Workspace",
-        type=workspace_type,
     )
     db.add(workspace)
     await db.flush()
@@ -204,44 +201,6 @@ async def test_create_newrelic_integration_no_workspace_access(client, test_db):
 
     assert response.status_code == 403
     assert "Access denied" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_create_newrelic_integration_personal_workspace_allowed(client, test_db):
-    """Test that New Relic integration is allowed for personal workspaces."""
-    user = await create_test_user(test_db)
-    workspace = await create_test_workspace(
-        test_db, workspace_type=WorkspaceType.PERSONAL
-    )
-    await create_test_membership(test_db, user, workspace)
-    await test_db.commit()
-
-    auth_headers = get_auth_headers(user)
-
-    with (
-        patch(
-            "app.newrelic.integration.service.verify_newrelic_credentials",
-            new_callable=AsyncMock,
-            return_value=(True, ""),
-        ),
-        patch(
-            "app.newrelic.integration.service.check_newrelic_health",
-            new_callable=AsyncMock,
-            return_value=("healthy", None),
-        ),
-    ):
-        response = await client.post(
-            f"{API_PREFIX}/newrelic/integration",
-            params={"workspace_id": workspace.id},
-            json={
-                "account_id": "1234567",
-                "api_key": "NRAK-XXXXXXXXXXXXXXXXXXXX",
-            },
-            headers=auth_headers,
-        )
-
-    # New Relic is allowed for personal workspaces (unlike Datadog)
-    assert response.status_code == 201
 
 
 # =============================================================================

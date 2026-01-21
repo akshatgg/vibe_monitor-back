@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models import Membership, User, Workspace, WorkspaceType
+from app.models import Membership, User, Workspace
 from tests.integration.conftest import get_auth_headers
 
 API_PREFIX = "/api/v1"
@@ -37,13 +37,12 @@ async def create_test_user(db, user_id: str = None, email: str = None) -> User:
 
 
 async def create_test_workspace(
-    db, workspace_id: str = None, workspace_type: WorkspaceType = WorkspaceType.TEAM
+    db, workspace_id: str = None
 ) -> Workspace:
     """Create a test workspace in the database."""
     workspace = Workspace(
         id=workspace_id or str(uuid.uuid4()),
         name="Test Workspace",
-        type=workspace_type,
     )
     db.add(workspace)
     await db.flush()
@@ -211,33 +210,6 @@ async def test_create_datadog_integration_no_workspace_access(client, test_db):
 
     assert response.status_code == 403
     assert "Access denied" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_create_datadog_integration_personal_workspace_blocked(client, test_db):
-    """Test that Datadog integration is blocked for personal workspaces."""
-    user = await create_test_user(test_db)
-    workspace = await create_test_workspace(
-        test_db, workspace_type=WorkspaceType.PERSONAL
-    )
-    await create_test_membership(test_db, user, workspace)
-    await test_db.commit()
-
-    auth_headers = get_auth_headers(user)
-
-    response = await client.post(
-        f"{API_PREFIX}/datadog/integration",
-        params={"workspace_id": workspace.id},
-        json={
-            "api_key": "a" * 32,
-            "app_key": "b" * 40,
-            "region": "us1",
-        },
-        headers=auth_headers,
-    )
-
-    assert response.status_code == 400
-    assert "not available for personal workspaces" in response.json()["detail"]
 
 
 # =============================================================================

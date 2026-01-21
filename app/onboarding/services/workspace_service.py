@@ -8,13 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import GitHubIntegration, Membership, Role, User, Workspace
-from app.models import WorkspaceType as DBWorkspaceType
 from app.core.otel_metrics import WORKSPACE_METRICS
 
 from ..schemas.schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
-    WorkspaceType,
     WorkspaceWithMembership,
 )
 
@@ -34,39 +32,18 @@ class WorkspaceService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Determine workspace type (default to TEAM)
-        workspace_type = (
-            workspace_data.type if workspace_data.type else WorkspaceType.TEAM
-        )
-
-        # Validation for personal workspaces
-        if workspace_type == WorkspaceType.PERSONAL:
-            # Check if user already has a personal workspace
-            existing_personal = await self._get_user_personal_workspace(
-                user_id=owner_user_id, db=db
-            )
-            if existing_personal:
-                raise HTTPException(
-                    status_code=400,
-                    detail="User already has a personal workspace. Only one personal workspace is allowed.",
-                )
-            # Personal workspaces cannot be visible to org or have a domain
-            domain = None
-            visible_to_org = False
-        else:
-            # Auto-set domain if visible_to_org is True and no domain provided
-            domain = workspace_data.domain
-            if workspace_data.visible_to_org and not domain:
-                user_email = user.email
-                domain = user_email.split("@")[1] if "@" in user_email else None
-            visible_to_org = workspace_data.visible_to_org
+        # Auto-set domain if visible_to_org is True and no domain provided
+        domain = workspace_data.domain
+        if workspace_data.visible_to_org and not domain:
+            user_email = user.email
+            domain = user_email.split("@")[1] if "@" in user_email else None
+        visible_to_org = workspace_data.visible_to_org
 
         # Create workspace
         workspace_id = str(uuid.uuid4())
         new_workspace = Workspace(
             id=workspace_id,
             name=workspace_data.name,
-            type=DBWorkspaceType(workspace_type.value),
             domain=domain,
             visible_to_org=visible_to_org,
         )
@@ -89,22 +66,13 @@ class WorkspaceService:
         # Refresh to get the updated workspace
         await db.refresh(new_workspace)
 
-        WORKSPACE_METRICS["workspace_created_total"].add(
-            1,
-            {
-                "workspace_type": new_workspace.type.value,
-            },
-        )
-
-        WORKSPACE_METRICS["active_workspaces"].add(
-            1, {"workspace_type": new_workspace.type.value}
-        )
+        WORKSPACE_METRICS["workspace_created_total"].add(1)
+        WORKSPACE_METRICS["active_workspaces"].add(1)
 
         # Return workspace with membership role
         workspace_data_dict = {
             "id": new_workspace.id,
             "name": new_workspace.name,
-            "type": WorkspaceType(new_workspace.type.value),
             "domain": new_workspace.domain,
             "visible_to_org": new_workspace.visible_to_org,
             "is_paid": new_workspace.is_paid,
@@ -113,21 +81,6 @@ class WorkspaceService:
         }
 
         return WorkspaceWithMembership.model_validate(workspace_data_dict)
-
-    async def _get_user_personal_workspace(
-        self, user_id: str, db: AsyncSession
-    ) -> Optional[Workspace]:
-        """Get user's personal workspace if it exists"""
-        query = (
-            select(Workspace)
-            .join(Membership, Membership.workspace_id == Workspace.id)
-            .where(
-                Membership.user_id == user_id,
-                Workspace.type == DBWorkspaceType.PERSONAL,
-            )
-        )
-        result = await db.execute(query)
-        return result.scalar_one_or_none()
 
     async def get_user_workspaces(
         self, user_id: str, db: AsyncSession
@@ -151,7 +104,6 @@ class WorkspaceService:
             workspace_data = {
                 "id": membership.workspace.id,
                 "name": membership.workspace.name,
-                "type": WorkspaceType(membership.workspace.type.value),
                 "domain": membership.workspace.domain,
                 "visible_to_org": membership.workspace.visible_to_org,
                 "is_paid": membership.workspace.is_paid,
@@ -187,7 +139,6 @@ class WorkspaceService:
         workspace_data = {
             "id": membership.workspace.id,
             "name": membership.workspace.name,
-            "type": WorkspaceType(membership.workspace.type.value),
             "domain": membership.workspace.domain,
             "visible_to_org": membership.workspace.visible_to_org,
             "is_paid": membership.workspace.is_paid,
@@ -346,25 +297,6 @@ class WorkspaceService:
 
         return WorkspaceResponse.model_validate(workspace)
 
-    async def create_personal_workspace(
-        self, user: User, db: AsyncSession
-    ) -> WorkspaceWithMembership:
-        """Create a personal workspace for a user"""
-
-        # Use full name for workspace name
-        workspace_name = f"{user.name}'s Workspace"
-
-        workspace_data = WorkspaceCreate(
-            name=workspace_name,
-            type=WorkspaceType.PERSONAL,  # Explicitly set as personal workspace
-            domain=None,  # Personal workspaces don't have a domain
-            visible_to_org=False,  # Personal workspaces are not visible to org
-        )
-
-        return await self.create_workspace(
-            workspace_data=workspace_data, owner_user_id=user.id, db=db
-        )
-
     async def delete_workspace(
         self, workspace_id: str, user_id: str, db: AsyncSession
     ) -> bool:
@@ -402,9 +334,7 @@ class WorkspaceService:
         await db.delete(workspace)
         await db.commit()
 
-        WORKSPACE_METRICS["active_workspaces"].add(
-            -1, {"workspace_type": workspace.type.value}
-        )
+        WORKSPACE_METRICS["active_workspaces"].add(-1)
 
         return True
 

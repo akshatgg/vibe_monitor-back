@@ -247,14 +247,6 @@ class GitHubAuthService:
         await db.commit()
         await db.refresh(new_user)
 
-        # Automatically create a workspace for the new user
-        workspace_service = WorkspaceService()
-        try:
-            await workspace_service.create_personal_workspace(user=new_user, db=db)
-        except Exception as e:
-            # Log the error but don't fail user creation
-            logger.error(f"Failed to create workspace for user {user_id}: {str(e)}")
-
         # Send welcome email to new user
         try:
             await email_service.send_welcome_email(user_id=user_id, db=db)

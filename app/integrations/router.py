@@ -25,7 +25,7 @@ from app.integrations.service import (
     get_workspace_integrations,
 )
 from app.integrations.utils import ALL_PROVIDERS, get_allowed_integrations
-from app.models import Membership, User, Workspace, WorkspaceType
+from app.models import Membership, User, Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,6 @@ async def get_available_integrations(
     Used by frontend to show/hide integration options based on workspace type.
 
     Returns:
-    - workspace_type: The type of workspace (personal or team)
     - allowed_integrations: List of integration providers allowed for this workspace
     - restrictions: Dict mapping provider names to blocked status (True = blocked)
     - upgrade_message: Message to display for personal workspaces, null for team workspaces
@@ -135,25 +134,17 @@ async def get_available_integrations(
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        allowed = get_allowed_integrations(workspace.type)
-        restrictions = {provider: provider not in allowed for provider in ALL_PROVIDERS}
-
-        upgrade_message = (
-            "Create a team workspace to access all integrations."
-            if workspace.type == WorkspaceType.PERSONAL
-            else None
-        )
+        allowed = get_allowed_integrations()
+        restrictions = {provider: False for provider in ALL_PROVIDERS}  # No restrictions
 
         logger.info(
             f"API response: available integrations - workspace_id={workspace_id}, "
-            f"workspace_type={workspace.type.value}, allowed_count={len(allowed)}"
+            f"allowed_count={len(allowed)}"
         )
 
         return AvailableIntegrationsResponse(
-            workspace_type=workspace.type.value,
             allowed_integrations=sorted(list(allowed)),
             restrictions=restrictions,
-            upgrade_message=upgrade_message,
         )
 
     except HTTPException:

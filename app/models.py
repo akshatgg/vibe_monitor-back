@@ -83,13 +83,6 @@ class StepStatus(enum.Enum):
     FAILED = "failed"
 
 
-class WorkspaceType(enum.Enum):
-    """Type of workspace - personal or team"""
-
-    PERSONAL = "personal"
-    TEAM = "team"
-
-
 class InvitationStatus(enum.Enum):
     """Status of a workspace invitation"""
 
@@ -172,11 +165,6 @@ class Workspace(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    type = Column(
-        Enum(WorkspaceType, values_callable=lambda x: [e.value for e in x]),
-        nullable=False,
-        default=WorkspaceType.TEAM,
-    )  # personal or team
     domain = Column(String, nullable=True)  # For company workspaces
     visible_to_org = Column(
         Boolean, default=False
@@ -477,40 +465,6 @@ class GitHubIntegration(Base):
         Index("idx_github_integration_installation", "installation_id"),
         UniqueConstraint("installation_id", name="uq_github_integrations_installation_id"),
     )
-
-
-class GitHubUserOAuth(Base):
-    """
-    Per-user GitHub OAuth token for personal repository access.
-
-    Unlike GitHubIntegration (which is per-workspace and uses GitHub App),
-    this stores the user's personal OAuth token with 'repo' scope.
-    This allows individual developers to access repositories they have
-    permission to view without requiring org admin to install a GitHub App.
-    """
-
-    __tablename__ = "github_user_oauth"
-
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-
-    # GitHub user info
-    github_user_id = Column(String, nullable=False)
-    github_username = Column(String, nullable=False)
-
-    # OAuth token storage (encrypted)
-    access_token = Column(String, nullable=False)  # Encrypted OAuth access token
-    scopes = Column(String, nullable=True)  # e.g., "repo,read:user,user:email"
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    user = relationship("User", backref=backref("github_oauth", uselist=False))
-
-    # Indexes
-    __table_args__ = (Index("idx_github_user_oauth_user", "user_id", unique=True),)
 
 
 # Job Orchestration Models

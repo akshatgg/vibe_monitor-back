@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from app.auth.credential.service import pwd_context
 from app.auth.google.service import AuthService
-from app.models import Membership, RefreshToken, Role, User, Workspace, WorkspaceType
+from app.models import Membership, RefreshToken, Role, User, Workspace
 
 # Use shared fixtures from conftest.py
 # API prefix for all routes
@@ -59,13 +59,11 @@ async def create_test_user(
 async def create_workspace(
     test_db,
     name: str = "Test Workspace",
-    workspace_type: WorkspaceType = WorkspaceType.PERSONAL,
 ) -> Workspace:
     """Create a workspace in the test database."""
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name=name,
-        type=workspace_type,
     )
     test_db.add(workspace)
     await test_db.commit()
@@ -351,8 +349,7 @@ class TestDeletionPreview:
         # Create owner who wants to delete
         owner = await create_test_user(test_db, email="blockowner@example.com")
         workspace = await create_workspace(
-            test_db, name="Blocking Workspace", workspace_type=WorkspaceType.TEAM
-        )
+            test_db, name="Blocking Workspace"        )
         await create_membership(test_db, owner.id, workspace.id, Role.OWNER)
 
         # Add another member
@@ -488,8 +485,7 @@ class TestDeleteAccount:
         """Cannot delete account when sole owner of workspace with members."""
         owner = await create_test_user(test_db, email="blockedowner@example.com")
         workspace = await create_workspace(
-            test_db, name="Block Workspace", workspace_type=WorkspaceType.TEAM
-        )
+            test_db, name="Block Workspace"        )
         await create_membership(test_db, owner.id, workspace.id, Role.OWNER)
 
         # Add member to block deletion

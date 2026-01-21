@@ -361,13 +361,12 @@ async def test_non_member_cannot_access_deployments(
     auth_client, test_db, test_user, second_user
 ):
     """Test that non-members cannot access deployment endpoints."""
-    from app.models import Environment, Membership, Role, Workspace, WorkspaceType
+    from app.models import Environment, Membership, Role, Workspace
 
     # Create a workspace owned by second_user
     other_workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Private Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(other_workspace)
     await test_db.flush()
@@ -400,12 +399,11 @@ async def test_member_can_list_deployments(
     auth_client, test_db, test_user, second_user
 ):
     """Test that regular members can list deployments."""
-    from app.models import Environment, Membership, Role, Workspace, WorkspaceType
+    from app.models import Environment, Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Shared Deploy Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -447,12 +445,11 @@ async def test_non_owner_cannot_create_api_key(
     auth_client, test_db, test_user, second_user
 ):
     """Test that non-owners cannot create API keys."""
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Key Restricted Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()

@@ -10,11 +10,6 @@ class Role(str, Enum):
     USER = "user"  # Renamed from MEMBER
 
 
-class WorkspaceType(str, Enum):
-    PERSONAL = "personal"
-    TEAM = "team"
-
-
 class InvitationStatus(str, Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -36,7 +31,6 @@ class UserResponse(BaseModel):
 # Workspace schemas
 class WorkspaceCreate(BaseModel):
     name: str
-    type: WorkspaceType = WorkspaceType.TEAM
     domain: Optional[str] = None
     visible_to_org: bool = False
 
@@ -49,7 +43,6 @@ class WorkspaceUpdate(BaseModel):
 class WorkspaceResponse(BaseModel):
     id: str
     name: str
-    type: WorkspaceType
     domain: Optional[str] = None
     visible_to_org: bool
     is_paid: bool
@@ -64,7 +57,6 @@ class WorkspaceWithMembership(BaseModel):
 
     id: str
     name: str
-    type: WorkspaceType
     domain: Optional[str] = None
     visible_to_org: bool
     is_paid: bool

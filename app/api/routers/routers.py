@@ -24,7 +24,6 @@ from app.deployments.router import router as deployments_router
 from app.email_service.router import router as email_router
 from app.environments.router import router as environments_router
 from app.github.oauth.router import router as github_app_router
-from app.github.user_oauth.router import router as github_user_oauth_router
 
 # Dev-only routers
 from app.github.tools.router import router as github_tools_router
@@ -63,7 +62,6 @@ api_router.include_router(metrics_router)
 api_router.include_router(datasources_router)
 
 api_router.include_router(github_app_router, tags=["github-oauth"])
-api_router.include_router(github_user_oauth_router, tags=["github-user-oauth"])
 
 # Include dev-only routers (only exposed in local development)
 if settings.is_local:

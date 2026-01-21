@@ -232,12 +232,11 @@ async def test_workspace(test_db, test_user):
     """
     import uuid
 
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
         visible_to_org=False,
         is_paid=False,
     )

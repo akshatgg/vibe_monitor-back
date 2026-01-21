@@ -8,30 +8,29 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.auth.account.service import AccountService
 from app.auth.account.schemas import (
-    WorkspaceType,
     Role as SchemaRole,
 )
-from app.models import Workspace, Membership, Role, WorkspaceType as DBWorkspaceType
+from app.models import Workspace, Membership, Role
 
 
 class TestDeletionPreview:
     """Tests for get_deletion_preview method."""
 
     @pytest.mark.asyncio
-    async def test_preview_personal_workspace_only(
-        self, mock_db, mock_user, mock_personal_workspace
+    async def test_preview_sole_owner_workspace_only(
+        self, mock_db, mock_user, mock_workspace
     ):
-        """User with only personal workspace should be able to delete."""
+        """User with only one workspace (sole owner) should be able to delete."""
         # Setup
         service = AccountService()
 
-        # Create owner membership for personal workspace
+        # Create owner membership for workspace
         membership = MagicMock(spec=Membership)
         membership.id = str(uuid.uuid4())
         membership.user_id = mock_user.id
-        membership.workspace_id = mock_personal_workspace.id
+        membership.workspace_id = mock_workspace.id
         membership.role = Role.OWNER
-        membership.workspace = mock_personal_workspace
+        membership.workspace = mock_workspace
 
         # Mock membership query
         memberships_result = MagicMock()
@@ -57,8 +56,7 @@ class TestDeletionPreview:
         assert len(result.blocking_workspaces) == 0
         assert len(result.workspaces_to_delete) == 1
         assert len(result.workspaces_to_leave) == 0
-        assert result.workspaces_to_delete[0].id == mock_personal_workspace.id
-        assert result.workspaces_to_delete[0].type == WorkspaceType.PERSONAL
+        assert result.workspaces_to_delete[0].id == mock_workspace.id
 
     @pytest.mark.asyncio
     async def test_preview_sole_owner_with_other_members_blocks_deletion(
@@ -200,7 +198,6 @@ class TestDeletionPreview:
         personal_ws = MagicMock(spec=Workspace)
         personal_ws.id = str(uuid.uuid4())
         personal_ws.name = "Personal"
-        personal_ws.type = DBWorkspaceType.PERSONAL
 
         personal_membership = MagicMock(spec=Membership)
         personal_membership.id = str(uuid.uuid4())
@@ -211,7 +208,6 @@ class TestDeletionPreview:
         empty_team_ws = MagicMock(spec=Workspace)
         empty_team_ws.id = str(uuid.uuid4())
         empty_team_ws.name = "Empty Team"
-        empty_team_ws.type = DBWorkspaceType.TEAM
 
         empty_team_membership = MagicMock(spec=Membership)
         empty_team_membership.id = str(uuid.uuid4())
@@ -222,7 +218,6 @@ class TestDeletionPreview:
         shared_team_ws = MagicMock(spec=Workspace)
         shared_team_ws.id = str(uuid.uuid4())
         shared_team_ws.name = "Shared Team"
-        shared_team_ws.type = DBWorkspaceType.TEAM
 
         shared_membership = MagicMock(spec=Membership)
         shared_membership.id = str(uuid.uuid4())
@@ -321,16 +316,16 @@ class TestDeleteAccount:
 
     @pytest.mark.asyncio
     async def test_delete_accepts_delete_confirmation(
-        self, mock_db, mock_user, mock_personal_workspace
+        self, mock_db, mock_user, mock_workspace
     ):
         """Deletion should work with 'DELETE' confirmation for OAuth user."""
         # Setup
         service = AccountService()
 
-        # Create owner membership for personal workspace
+        # Create owner membership for workspace
         membership = MagicMock(spec=Membership)
         membership.id = str(uuid.uuid4())
-        membership.workspace = mock_personal_workspace
+        membership.workspace = mock_workspace
         membership.role = Role.OWNER
 
         # Mock user query
@@ -347,7 +342,7 @@ class TestDeleteAccount:
 
         # Mock workspace query for deletion
         workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = mock_personal_workspace
+        workspace_result.scalar_one_or_none.return_value = mock_workspace
 
         mock_db.execute = AsyncMock(
             side_effect=[
@@ -375,7 +370,7 @@ class TestDeleteAccount:
         # Assert
         assert result.success is True
         assert len(result.deleted_workspaces) == 1
-        assert result.deleted_workspaces[0] == mock_personal_workspace.id
+        assert result.deleted_workspaces[0] == mock_workspace.id
 
     @pytest.mark.asyncio
     async def test_delete_blocked_by_workspace_ownership(

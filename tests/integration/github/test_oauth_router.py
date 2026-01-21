@@ -27,7 +27,6 @@ from app.models import (
     Role,
     User,
     Workspace,
-    WorkspaceType,
 )
 from tests.integration.conftest import API_PREFIX
 
@@ -62,7 +61,6 @@ async def test_workspace(test_db):
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.commit()

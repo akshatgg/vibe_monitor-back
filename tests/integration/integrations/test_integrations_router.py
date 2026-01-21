@@ -25,7 +25,6 @@ from app.models import (
     SlackInstallation,
     User,
     Workspace,
-    WorkspaceType,
 )
 from tests.integration.conftest import API_PREFIX
 
@@ -48,47 +47,15 @@ async def test_workspace(test_db, mock_user):
     test_db.add(mock_user)
     await test_db.commit()
 
-    # Create team workspace
+    # Create workspace
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.commit()
 
     # Create membership
-    membership = Membership(
-        id=str(uuid.uuid4()),
-        user_id=mock_user.id,
-        workspace_id=workspace.id,
-        role=Role.OWNER,
-    )
-    test_db.add(membership)
-    await test_db.commit()
-
-    return workspace
-
-
-@pytest_asyncio.fixture
-async def personal_workspace(test_db, mock_user):
-    """Create a personal workspace."""
-    from sqlalchemy import select
-
-    # Ensure user is in database
-    result = await test_db.execute(select(User).where(User.id == mock_user.id))
-    if not result.scalar_one_or_none():
-        test_db.add(mock_user)
-        await test_db.commit()
-
-    workspace = Workspace(
-        id=str(uuid.uuid4()),
-        name="Personal Workspace",
-        type=WorkspaceType.PERSONAL,
-    )
-    test_db.add(workspace)
-    await test_db.commit()
-
     membership = Membership(
         id=str(uuid.uuid4()),
         user_id=mock_user.id,
@@ -644,38 +611,10 @@ class TestAvailableIntegrations:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["workspace_type"] == "team"
         assert "allowed_integrations" in data
         assert "restrictions" in data
-        # Team workspaces should have all integrations available
+        # All workspaces should have all integrations available
         assert len(data["allowed_integrations"]) > 0
-        assert data["upgrade_message"] is None
-
-    @pytest.mark.asyncio
-    async def test_get_available_integrations_personal_workspace(
-        self, client, test_db, personal_workspace, mock_user, auth_override
-    ):
-        """Test getting available integrations for a personal workspace."""
-        from app.main import app
-
-        app.dependency_overrides[integrations_router.auth_service.get_current_user] = (
-            auth_override
-        )
-
-        response = await client.get(
-            f"{API_PREFIX}/workspaces/{personal_workspace.id}/integrations/available"
-        )
-
-        app.dependency_overrides.clear()
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["workspace_type"] == "personal"
-        assert "allowed_integrations" in data
-        assert "restrictions" in data
-        # Personal workspaces should have limited integrations
-        assert data["upgrade_message"] is not None
-        assert "team workspace" in data["upgrade_message"].lower()
 
     @pytest.mark.asyncio
     async def test_get_available_integrations_no_membership(

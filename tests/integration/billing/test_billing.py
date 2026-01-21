@@ -38,7 +38,6 @@ from app.models import (
     SubscriptionStatus,
     User,
     Workspace,
-    WorkspaceType,
 )
 from tests.integration.conftest import API_PREFIX, get_auth_headers
 
@@ -70,13 +69,11 @@ async def create_test_user(
 async def create_test_workspace(
     db: AsyncSession,
     name: str = "Test Workspace",
-    workspace_type: WorkspaceType = WorkspaceType.TEAM,
 ) -> Workspace:
     """Create a workspace in the test database."""
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name=name,
-        type=workspace_type,
     )
     db.add(workspace)
     await db.commit()

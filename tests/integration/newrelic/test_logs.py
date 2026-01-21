@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models import Integration, NewRelicIntegration, Workspace, WorkspaceType
+from app.models import Integration, NewRelicIntegration, Workspace
 
 API_PREFIX = "/api/v1"
 
@@ -27,7 +27,6 @@ async def create_test_workspace_with_newrelic(test_db) -> tuple[Workspace, str]:
     workspace = Workspace(
         id=workspace_id,
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
 
@@ -188,7 +187,6 @@ async def test_query_logs_no_integration(client, test_db):
     workspace = Workspace(
         id=workspace_id,
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.commit()
@@ -438,7 +436,6 @@ async def test_filter_logs_no_integration(client, test_db):
     workspace = Workspace(
         id=workspace_id,
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.commit()

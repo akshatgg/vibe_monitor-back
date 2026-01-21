@@ -313,14 +313,6 @@ class CredentialAuthService:
         await db.commit()
         await db.refresh(new_user)
 
-        # Create personal workspace
-        workspace_service = WorkspaceService()
-        try:
-            await workspace_service.create_personal_workspace(user=new_user, db=db)
-            logger.info(f"Personal workspace created for user {user_id}")
-        except Exception as e:
-            logger.error(f"Failed to create workspace for user {user_id}: {str(e)}")
-
         # Generate verification token and send email
         try:
             verification_token = await self.create_verification_token(

@@ -124,14 +124,12 @@ async def test_get_my_invitations(auth_client, test_db, test_user, second_user):
         Role,
         Workspace,
         WorkspaceInvitation,
-        WorkspaceType,
     )
 
     # Create a workspace owned by second_user
     other_workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Other Team Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(other_workspace)
     await test_db.flush()
@@ -177,14 +175,12 @@ async def test_accept_invitation(auth_client, test_db, test_user, second_user):
         Role,
         Workspace,
         WorkspaceInvitation,
-        WorkspaceType,
     )
 
     # Create a workspace owned by second_user
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Team to Join",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -229,13 +225,11 @@ async def test_decline_invitation(auth_client, test_db, test_user, second_user):
         Role,
         Workspace,
         WorkspaceInvitation,
-        WorkspaceType,
     )
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Team to Decline",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -279,13 +273,11 @@ async def test_get_invitation_by_token(client, test_db, test_user, second_user):
         Role,
         Workspace,
         WorkspaceInvitation,
-        WorkspaceType,
     )
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Token Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -336,13 +328,11 @@ async def test_accept_invitation_by_token(auth_client, test_db, test_user, secon
         Role,
         Workspace,
         WorkspaceInvitation,
-        WorkspaceType,
     )
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Token Accept Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -459,13 +449,12 @@ async def test_remove_member(
 @pytest.mark.asyncio
 async def test_leave_workspace(auth_client, test_db, test_user, second_user):
     """Test a user leaving a workspace voluntarily."""
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     # Create a workspace with two owners
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Workspace to Leave",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -508,12 +497,11 @@ async def test_cannot_leave_as_sole_owner(auth_client, test_user, test_workspace
 @pytest.mark.asyncio
 async def test_non_owner_cannot_invite(auth_client, test_db, test_user, second_user):
     """Test that non-owners cannot invite members."""
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Restricted Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
@@ -550,7 +538,7 @@ async def test_non_owner_cannot_remove_member(
     auth_client, test_db, test_user, second_user
 ):
     """Test that non-owners cannot remove members."""
-    from app.models import Membership, Role, User, Workspace, WorkspaceType
+    from app.models import Membership, Role, User, Workspace
 
     # Create a third user
     third_user = User(
@@ -564,7 +552,6 @@ async def test_non_owner_cannot_remove_member(
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Restricted Workspace 2",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()

@@ -25,7 +25,6 @@ from app.models import (
     SlackInstallation,
     User,
     Workspace,
-    WorkspaceType,
 )
 from tests.integration.conftest import API_PREFIX
 
@@ -48,11 +47,10 @@ async def test_workspace(test_db, mock_user):
     test_db.add(mock_user)
     await test_db.commit()
 
-    # Create team workspace (allows Slack integration)
+    # Create workspace
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Test Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.commit()
@@ -68,35 +66,6 @@ async def test_workspace(test_db, mock_user):
     await test_db.commit()
 
     return workspace
-
-
-@pytest_asyncio.fixture
-async def personal_workspace(test_db, mock_user):
-    """Create a personal workspace (Slack not allowed)."""
-    from sqlalchemy import select
-
-    # Ensure user is in database
-    result = await test_db.execute(select(User).where(User.id == mock_user.id))
-    if not result.scalar_one_or_none():
-        test_db.add(mock_user)
-        await test_db.commit()
-
-    workspace = Workspace(
-        id=str(uuid.uuid4()),
-        name="Personal Workspace",
-        type=WorkspaceType.PERSONAL,
-    )
-    test_db.add(workspace)
-    await test_db.commit()
-
-    membership = Membership(
-        id=str(uuid.uuid4()),
-        user_id=mock_user.id,
-        workspace_id=workspace.id,
-        role=Role.OWNER,
-    )
-    test_db.add(membership)
-    await test_db.commit()
 
     return workspace
 
@@ -168,26 +137,6 @@ class TestSlackInstall:
 
         assert response.status_code == 404
         assert "Workspace not found" in response.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test_initiate_slack_install_personal_workspace_blocked(
-        self, client, test_db, personal_workspace, mock_user, auth_override
-    ):
-        """Test that Slack install is blocked for personal workspaces."""
-        from app.main import app
-
-        app.dependency_overrides[slack_router.auth_service.get_current_user] = (
-            auth_override
-        )
-
-        response = await client.get(
-            f"{API_PREFIX}/workspaces/{personal_workspace.id}/slack/install"
-        )
-
-        app.dependency_overrides.clear()
-
-        assert response.status_code == 400
-        assert "not available for personal workspaces" in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_initiate_slack_install_unauthenticated(

@@ -22,7 +22,7 @@ from app.models import (
 
 from .schemas import AccountDeleteResponse, BlockingWorkspace, DeletionPreviewResponse
 from .schemas import Role as SchemaRole
-from .schemas import WorkspacePreview, WorkspaceType
+from .schemas import WorkspacePreview
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,9 @@ class AccountService:
             total_members = stats["total_members"]
             total_owners = stats["total_owners"]
 
-            workspace_type = WorkspaceType(workspace.type.value)
             schema_role = SchemaRole(user_role.value)
 
-            # Decision logic based on workspace type and ownership
+            # Decision logic based on ownership
             if user_role == Role.OWNER:
                 is_sole_owner = total_owners == 1
                 has_other_members = total_members > 1
@@ -88,18 +87,16 @@ class AccountService:
                         BlockingWorkspace(
                             id=workspace.id,
                             name=workspace.name,
-                            type=workspace_type,
                             member_count=total_members,
                             action_required=f"Transfer ownership to another member or remove all {other_member_count} other member{'s' if other_member_count > 1 else ''}",
                         )
                     )
                 elif is_sole_owner and not has_other_members:
-                    # DELETE: Sole owner and sole member (personal workspace or empty team)
+                    # DELETE: Sole owner and sole member
                     workspaces_to_delete.append(
                         WorkspacePreview(
                             id=workspace.id,
                             name=workspace.name,
-                            type=workspace_type,
                             user_role=schema_role,
                         )
                     )
@@ -109,7 +106,6 @@ class AccountService:
                         WorkspacePreview(
                             id=workspace.id,
                             name=workspace.name,
-                            type=workspace_type,
                             user_role=schema_role,
                         )
                     )
@@ -119,7 +115,6 @@ class AccountService:
                     WorkspacePreview(
                         id=workspace.id,
                         name=workspace.name,
-                        type=workspace_type,
                         user_role=schema_role,
                     )
                 )

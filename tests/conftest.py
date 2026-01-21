@@ -59,7 +59,6 @@ from app.models import (  # noqa: E402
     LLMProviderConfig,
     LLMProvider,
     LLMConfigStatus,
-    WorkspaceType as DBWorkspaceType,
 )
 
 
@@ -148,12 +147,11 @@ def sample_workspace():
 
 
 @pytest.fixture
-def mock_personal_workspace():
-    """Create a mock personal workspace."""
+def mock_workspace():
+    """Create a mock workspace."""
     workspace = MagicMock(spec=Workspace)
     workspace.id = str(uuid.uuid4())
-    workspace.name = "Test User's Workspace"
-    workspace.type = DBWorkspaceType.PERSONAL
+    workspace.name = "Test Workspace"
     workspace.domain = None
     workspace.visible_to_org = False
     workspace.is_paid = False
@@ -163,28 +161,15 @@ def mock_personal_workspace():
 
 @pytest.fixture
 def mock_team_workspace():
-    """Create a mock team workspace."""
+    """Create a mock team workspace with domain."""
     workspace = MagicMock(spec=Workspace)
     workspace.id = str(uuid.uuid4())
     workspace.name = "Team Workspace"
-    workspace.type = DBWorkspaceType.TEAM
     workspace.domain = "example.com"
     workspace.visible_to_org = True
     workspace.is_paid = False
     workspace.created_at = datetime.now(timezone.utc)
     return workspace
-
-
-@pytest.fixture
-def personal_workspace_type():
-    """Fixture for personal workspace type."""
-    return DBWorkspaceType.PERSONAL
-
-
-@pytest.fixture
-def team_workspace_type():
-    """Fixture for team workspace type."""
-    return DBWorkspaceType.TEAM
 
 
 # =============================================================================
@@ -205,14 +190,14 @@ def sample_membership(sample_user, sample_workspace):
 
 
 @pytest.fixture
-def mock_membership_owner(mock_user, mock_personal_workspace):
+def mock_membership_owner(mock_user, mock_workspace):
     """Create a mock owner membership."""
     membership = MagicMock(spec=Membership)
     membership.id = str(uuid.uuid4())
     membership.user_id = mock_user.id
-    membership.workspace_id = mock_personal_workspace.id
+    membership.workspace_id = mock_workspace.id
     membership.role = Role.OWNER
-    membership.workspace = mock_personal_workspace
+    membership.workspace = mock_workspace
     membership.user = mock_user
     return membership
 

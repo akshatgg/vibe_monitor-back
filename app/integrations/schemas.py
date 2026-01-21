@@ -43,9 +43,7 @@ class HealthCheckResponse(BaseModel):
 
 
 class AvailableIntegrationsResponse(BaseModel):
-    """Response model for available integrations based on workspace type."""
+    """Response model for available integrations."""
 
-    workspace_type: str
     allowed_integrations: List[str]
     restrictions: dict[str, bool]
-    upgrade_message: str | None

@@ -10,7 +10,6 @@ from app.onboarding.schemas.schemas import (
     Role,
     WorkspaceCreate,
     WorkspaceResponse,
-    WorkspaceType,
     WorkspaceUpdate,
     WorkspaceWithMembership,
 )
@@ -115,27 +114,16 @@ class TestWorkspaceCreateSchema:
         """Test creating workspace with minimal required fields."""
         ws = WorkspaceCreate(name="My Workspace")
         assert ws.name == "My Workspace"
-        assert ws.type == WorkspaceType.TEAM  # Default
         assert ws.domain is None
         assert ws.visible_to_org is False
 
-    def test_workspace_create_personal(self):
-        """Test creating personal workspace."""
-        ws = WorkspaceCreate(name="Personal", type=WorkspaceType.PERSONAL)
-        assert ws.type == WorkspaceType.PERSONAL
-        # Personal workspaces should not have domain or visible_to_org
-        assert ws.domain is None
-        assert ws.visible_to_org is False
-
-    def test_workspace_create_team_visible(self):
-        """Test creating team workspace visible to org."""
+    def test_workspace_create_with_domain(self):
+        """Test creating workspace with domain."""
         ws = WorkspaceCreate(
             name="Engineering Team",
-            type=WorkspaceType.TEAM,
             domain="company.com",
             visible_to_org=True,
         )
-        assert ws.type == WorkspaceType.TEAM
         assert ws.domain == "company.com"
         assert ws.visible_to_org is True
 
@@ -143,12 +131,10 @@ class TestWorkspaceCreateSchema:
         """Test creating workspace with all fields."""
         ws = WorkspaceCreate(
             name="Full Workspace",
-            type=WorkspaceType.TEAM,
             domain="test.io",
             visible_to_org=True,
         )
         assert ws.name == "Full Workspace"
-        assert ws.type == WorkspaceType.TEAM
         assert ws.domain == "test.io"
         assert ws.visible_to_org is True
 
@@ -189,14 +175,12 @@ class TestWorkspaceResponseSchema:
         response = WorkspaceResponse(
             id="ws-123",
             name="Test Workspace",
-            type=WorkspaceType.TEAM,
             domain="test.com",
             visible_to_org=True,
             is_paid=False,
         )
         assert response.id == "ws-123"
         assert response.name == "Test Workspace"
-        assert response.type == WorkspaceType.TEAM
         assert response.is_paid is False
 
     def test_workspace_response_minimal(self):
@@ -204,7 +188,6 @@ class TestWorkspaceResponseSchema:
         response = WorkspaceResponse(
             id="ws-456",
             name="Minimal",
-            type=WorkspaceType.PERSONAL,
             visible_to_org=False,
             is_paid=True,
         )
@@ -220,7 +203,6 @@ class TestWorkspaceWithMembershipSchema:
         ws = WorkspaceWithMembership(
             id="ws-789",
             name="Owner Workspace",
-            type=WorkspaceType.TEAM,
             visible_to_org=False,
             is_paid=False,
             user_role=Role.OWNER,
@@ -232,31 +214,11 @@ class TestWorkspaceWithMembershipSchema:
         ws = WorkspaceWithMembership(
             id="ws-abc",
             name="User Workspace",
-            type=WorkspaceType.TEAM,
             visible_to_org=True,
             is_paid=True,
             user_role=Role.USER,
         )
         assert ws.user_role == Role.USER
-
-
-class TestWorkspaceTypeEnum:
-    """Tests for WorkspaceType enum."""
-
-    def test_workspace_type_values(self):
-        """Test that enum has expected values."""
-        assert WorkspaceType.PERSONAL.value == "personal"
-        assert WorkspaceType.TEAM.value == "team"
-
-    def test_workspace_type_from_string(self):
-        """Test creating enum from string."""
-        assert WorkspaceType("personal") == WorkspaceType.PERSONAL
-        assert WorkspaceType("team") == WorkspaceType.TEAM
-
-    def test_workspace_type_invalid_raises(self):
-        """Test that invalid value raises error."""
-        with pytest.raises(ValueError):
-            WorkspaceType("invalid")
 
 
 class TestRoleEnum:
@@ -278,34 +240,25 @@ class TestRoleEnum:
             Role("admin")  # Not a valid role
 
 
-class TestPersonalWorkspaceValidationLogic:
-    """Tests for personal workspace validation rules.
+class TestWorkspaceWithDomainValidation:
+    """Tests for workspace domain and visibility validation."""
 
-    Personal workspaces have specific constraints:
-    - Only one per user
-    - Cannot be visible to org
-    - Cannot have a domain
-    """
-
-    def test_personal_workspace_constraints(self):
-        """Test that personal workspaces should not have domain/visibility."""
-        ws = WorkspaceCreate(
-            name="Personal",
-            type=WorkspaceType.PERSONAL,
-            domain=None,
-            visible_to_org=False,
-        )
-        # These are the expected values for personal workspaces
-        assert ws.domain is None
-        assert ws.visible_to_org is False
-
-    def test_team_workspace_can_have_domain(self):
-        """Test that team workspaces can have domain."""
+    def test_workspace_can_have_domain(self):
+        """Test that workspaces can have domain."""
         ws = WorkspaceCreate(
             name="Team",
-            type=WorkspaceType.TEAM,
             domain="company.com",
             visible_to_org=True,
         )
         assert ws.domain == "company.com"
         assert ws.visible_to_org is True
+
+    def test_workspace_without_domain(self):
+        """Test workspace without domain."""
+        ws = WorkspaceCreate(
+            name="Simple Workspace",
+            domain=None,
+            visible_to_org=False,
+        )
+        assert ws.domain is None
+        assert ws.visible_to_org is False

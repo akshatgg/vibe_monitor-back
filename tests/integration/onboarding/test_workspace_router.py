@@ -22,14 +22,12 @@ async def test_create_workspace(auth_client, test_user):
         f"{API_PREFIX}/workspaces/",
         json={
             "name": "New Workspace",
-            "type": "team",
             "visible_to_org": False,
         },
     )
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "New Workspace"
-    assert data["type"] == "team"
     assert data["visible_to_org"] is False
     assert "id" in data
 
@@ -41,7 +39,6 @@ async def test_create_workspace_with_domain(auth_client, test_user):
         f"{API_PREFIX}/workspaces/",
         json={
             "name": "Company Workspace",
-            "type": "team",
             "domain": "example.com",
             "visible_to_org": True,
         },
@@ -50,21 +47,6 @@ async def test_create_workspace_with_domain(auth_client, test_user):
     data = response.json()
     assert data["name"] == "Company Workspace"
     assert data["visible_to_org"] is True
-
-
-@pytest.mark.asyncio
-async def test_create_personal_workspace(auth_client, test_user):
-    """Test creating a personal workspace."""
-    response = await auth_client.post(
-        f"{API_PREFIX}/workspaces/",
-        json={
-            "name": "My Personal Space",
-            "type": "personal",
-        },
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["type"] == "personal"
 
 
 @pytest.mark.asyncio
@@ -115,13 +97,12 @@ async def test_get_workspace_no_access(auth_client, test_db, second_user):
     """Test that a user cannot access a workspace they're not a member of."""
     import uuid
 
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     # Create a workspace owned by the second user
     other_workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Other Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(other_workspace)
     await test_db.flush()
@@ -192,13 +173,12 @@ async def test_delete_workspace(auth_client, test_db, test_user):
     """Test deleting a workspace as owner."""
     import uuid
 
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     # Create a new workspace to delete
     workspace_to_delete = Workspace(
         id=str(uuid.uuid4()),
         name="Workspace to Delete",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace_to_delete)
     await test_db.flush()
@@ -231,13 +211,12 @@ async def test_delete_workspace_not_owner(auth_client, test_db, test_user, secon
     """Test that a non-owner cannot delete a workspace."""
     import uuid
 
-    from app.models import Membership, Role, Workspace, WorkspaceType
+    from app.models import Membership, Role, Workspace
 
     # Create a workspace owned by second_user with test_user as member
     workspace = Workspace(
         id=str(uuid.uuid4()),
         name="Not My Workspace",
-        type=WorkspaceType.TEAM,
     )
     test_db.add(workspace)
     await test_db.flush()
