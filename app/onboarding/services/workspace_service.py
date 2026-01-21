@@ -82,6 +82,53 @@ class WorkspaceService:
 
         return WorkspaceWithMembership.model_validate(workspace_data_dict)
 
+    async def ensure_user_has_default_workspace(
+        self, user_id: str, user_name: str, db: AsyncSession
+    ) -> Optional[WorkspaceWithMembership]:
+        """
+        Ensure user has at least one workspace. If not, create a default one.
+
+        Args:
+            user_id: User ID to check/create workspace for
+            user_name: User's name for creating workspace name
+            db: Database session
+
+        Returns:
+            The created workspace if one was created, None if user already has workspaces
+        """
+        # Check if user already has any workspaces
+        existing_workspaces = await self.get_user_workspaces(user_id=user_id, db=db)
+
+        if existing_workspaces:
+            logger.info(
+                f"User {user_id} already has {len(existing_workspaces)} workspace(s), "
+                "skipping default workspace creation"
+            )
+            return None
+
+        # Create default workspace
+        default_workspace_data = WorkspaceCreate(
+            name=f"{user_name}'s Workspace",
+            domain=None,
+            visible_to_org=False,
+        )
+        workspace = await self.create_workspace(
+            workspace_data=default_workspace_data,
+            owner_user_id=user_id,
+            db=db
+        )
+
+        # Update user's last_visited_workspace_id
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if user:
+            user.last_visited_workspace_id = workspace.id
+            await db.commit()
+
+        logger.info(f"Created default workspace {workspace.id} for user {user_id}")
+        return workspace
+
     async def get_user_workspaces(
         self, user_id: str, db: AsyncSession
     ) -> List[WorkspaceWithMembership]:

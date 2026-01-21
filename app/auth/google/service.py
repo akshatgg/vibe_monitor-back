@@ -209,6 +209,19 @@ class AuthService:
                 logger.info(
                     f"Existing unverified user {existing_user.id} now verified via Google OAuth"
                 )
+
+                # Create default workspace if user doesn't have one
+                try:
+                    workspace_service = WorkspaceService()
+                    await workspace_service.ensure_user_has_default_workspace(
+                        user_id=existing_user.id,
+                        user_name=existing_user.name,
+                        db=db
+                    )
+                    await db.refresh(existing_user)
+                except Exception as e:
+                    logger.error(f"Failed to create default workspace for user {existing_user.id}: {str(e)}")
+                    # Don't fail login if workspace creation fails
             else:
                 logger.info(
                     f"Existing verified user {existing_user.id} logging in via Google OAuth"
@@ -228,6 +241,19 @@ class AuthService:
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+
+        # Create default workspace for new user
+        try:
+            workspace_service = WorkspaceService()
+            await workspace_service.ensure_user_has_default_workspace(
+                user_id=user_id,
+                user_name=name,
+                db=db
+            )
+            await db.refresh(new_user)
+        except Exception as e:
+            logger.error(f"Failed to create default workspace for user {user_id}: {str(e)}")
+            # Don't fail user creation if workspace creation fails
 
         # Send welcome email to new user
         try:

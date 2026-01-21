@@ -485,6 +485,18 @@ class CredentialAuthService:
 
         logger.info(f"Email verified for user {user_id}")
 
+        # Create default workspace for newly verified user if they don't have one
+        try:
+            workspace_service = WorkspaceService()
+            await workspace_service.ensure_user_has_default_workspace(
+                user_id=user_id,
+                user_name=user.name,
+                db=db
+            )
+        except Exception as e:
+            logger.error(f"Failed to create default workspace for user {user_id}: {str(e)}")
+            # Don't fail verification if workspace creation fails
+
         # Send welcome email after successful verification
         try:
             await email_service.send_welcome_email(user_id=user_id, db=db)

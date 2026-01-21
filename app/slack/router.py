@@ -441,14 +441,15 @@ async def slack_oauth_callback(
     """
     if error:
         logger.error(f"OAuth error from Slack: {error}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": error, "message": "Installation was cancelled or failed"},
-        )
+        error_msg = quote("Installation was cancelled or failed")
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
     if not code:
         logger.error("No authorization code received")
-        raise HTTPException(status_code=400, detail="Missing authorization code")
+        error_msg = quote("Missing authorization code")
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
     user_id = None
     workspace_id = None
