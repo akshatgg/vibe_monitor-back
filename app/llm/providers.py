@@ -29,13 +29,7 @@ from app.utils.token_processor import token_processor
 logger = logging.getLogger(__name__)
 
 
-# Default models per provider
-DEFAULT_MODELS = {
-    "vibemonitor": settings.GROQ_LLM_MODEL or "llama-3.3-70b-versatile",
-    "openai": "gpt-4-turbo",
-    "azure_openai": None,  # Must be specified via deployment_name
-    "gemini": "gemini-1.5-pro",
-}
+
 
 
 async def get_llm_for_workspace(
@@ -93,7 +87,14 @@ async def get_llm_for_workspace(
                 token_processor.decrypt(config.config_encrypted)
             )
 
-        model_name = config.model_name or DEFAULT_MODELS.get(config.provider.value)
+        model_name = config.model_name
+
+        # Fail loudly if model_name is missing for custom providers
+        if not model_name:
+            raise ValueError(
+                f"model_name is required for provider '{config.provider.value}'. "
+                "This should have been validated at the API layer."
+            )
 
         if config.provider == LLMProvider.OPENAI:
             return _create_openai_llm(
@@ -133,7 +134,7 @@ def _create_groq_llm(temperature: float, max_tokens: int) -> ChatGroq:
 
     return ChatGroq(
         api_key=settings.GROQ_API_KEY,
-        model=settings.GROQ_LLM_MODEL or DEFAULT_MODELS["vibemonitor"],
+        model=settings.GROQ_LLM_MODEL,
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -152,7 +153,7 @@ def _create_openai_llm(
 
     return ChatOpenAI(
         api_key=api_key,
-        model=model_name or DEFAULT_MODELS["openai"],
+        model=model_name,
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -200,7 +201,7 @@ def _create_gemini_llm(
 
     return ChatGoogleGenerativeAI(
         google_api_key=api_key,
-        model=model_name or DEFAULT_MODELS["gemini"],
+        model=model_name,
         temperature=temperature,
         max_output_tokens=max_tokens,
     )

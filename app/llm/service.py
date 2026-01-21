@@ -12,14 +12,17 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from openai import OpenAI
+from app.core.config import settings
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import LLMConfigStatus, LLMProvider, LLMProviderConfig, Membership, Role
 from app.utils.token_processor import token_processor
+ 
 
-from .providers import DEFAULT_MODELS
 from .schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
@@ -54,7 +57,7 @@ class LLMConfigService:
             # Return default config indicating VibeMonitor AI
             return LLMConfigResponse(
                 provider="vibemonitor",
-                model_name=DEFAULT_MODELS.get("vibemonitor"),
+                model_name=settings.GROQ_LLM_MODEL,
                 status="active",
                 has_custom_key=False,
             )
@@ -81,6 +84,13 @@ class LLMConfigService:
 
         API keys are encrypted before storage.
         """
+        # Validate model_name for non-vibemonitor providers
+        if config_data.provider != "vibemonitor" and not config_data.model_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"model_name is required for provider '{config_data.provider}'"
+            )
+
         # Check if config already exists
         result = await db.execute(
             select(LLMProviderConfig).where(
@@ -196,7 +206,7 @@ class LLMConfigService:
                     success=True,
                     model_info={
                         "provider": "Groq",
-                        "model": DEFAULT_MODELS["vibemonitor"],
+                        "model":settings.GROQ_LLM_MODEL,
                     },
                 )
 
@@ -288,7 +298,7 @@ class LLMConfigService:
             return LLMVerifyResponse(success=False, error="API key is required")
 
         try:
-            from openai import OpenAI
+            
 
             client = OpenAI(api_key=verify_request.api_key)
             # Simple models list call to verify API key
@@ -299,8 +309,7 @@ class LLMConfigService:
                 success=True,
                 model_info={
                     "available_models": model_count,
-                    "requested_model": verify_request.model_name
-                    or DEFAULT_MODELS["openai"],
+                    "requested_model": verify_request.model_name,
                 },
             )
         except Exception as e:
@@ -354,8 +363,7 @@ class LLMConfigService:
             import google.generativeai as genai
 
             genai.configure(api_key=verify_request.api_key)
-            model_name = verify_request.model_name or DEFAULT_MODELS["gemini"]
-            model = genai.GenerativeModel(model_name)
+            model = genai.GenerativeModel(verify_request.model_name)
 
             # Simple test
             model.generate_content(
@@ -365,7 +373,7 @@ class LLMConfigService:
 
             return LLMVerifyResponse(
                 success=True,
-                model_info={"model": model_name},
+                model_info={"model": verify_request.model_name},
             )
         except Exception as e:
             return LLMVerifyResponse(success=False, error=str(e))

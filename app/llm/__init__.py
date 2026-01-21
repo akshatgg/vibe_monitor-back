@@ -11,13 +11,12 @@ Features:
 - Rate limit bypass for BYOLLM users
 """
 
-from .providers import DEFAULT_MODELS, get_llm_for_workspace
+from .providers import get_llm_for_workspace
 from .router import router as llm_router
 from .service import LLMConfigService
 
 __all__ = [
     "get_llm_for_workspace",
-    "DEFAULT_MODELS",
     "LLMConfigService",
     "llm_router",
 ]
