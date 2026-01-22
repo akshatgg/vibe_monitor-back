@@ -1,22 +1,28 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from typing import List, Optional
+import logging
 import uuid
-from fastapi import HTTPException
+from typing import List, Optional
 
-from app.models import Workspace, Membership, User, Role
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models import GitHubIntegration, Membership, Role, User, Workspace
+from app.core.otel_metrics import WORKSPACE_METRICS
+
 from ..schemas.schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceWithMembership,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class WorkspaceService:
     async def create_workspace(
         self, workspace_data: WorkspaceCreate, owner_user_id: str, db: AsyncSession
-    ) -> WorkspaceResponse:
+    ) -> WorkspaceWithMembership:
         """Create a new workspace and assign the creator as owner"""
 
         # Get user info to extract domain if needed
@@ -31,6 +37,7 @@ class WorkspaceService:
         if workspace_data.visible_to_org and not domain:
             user_email = user.email
             domain = user_email.split("@")[1] if "@" in user_email else None
+        visible_to_org = workspace_data.visible_to_org
 
         # Create workspace
         workspace_id = str(uuid.uuid4())
@@ -38,7 +45,7 @@ class WorkspaceService:
             id=workspace_id,
             name=workspace_data.name,
             domain=domain,
-            visible_to_org=workspace_data.visible_to_org,
+            visible_to_org=visible_to_org,
         )
 
         db.add(new_workspace)
@@ -59,18 +66,81 @@ class WorkspaceService:
         # Refresh to get the updated workspace
         await db.refresh(new_workspace)
 
-        return WorkspaceResponse.model_validate(new_workspace)
+        WORKSPACE_METRICS["workspace_created_total"].add(1)
+        WORKSPACE_METRICS["active_workspaces"].add(1)
+
+        # Return workspace with membership role
+        workspace_data_dict = {
+            "id": new_workspace.id,
+            "name": new_workspace.name,
+            "domain": new_workspace.domain,
+            "visible_to_org": new_workspace.visible_to_org,
+            "is_paid": new_workspace.is_paid,
+            "created_at": new_workspace.created_at,
+            "user_role": Role.OWNER,  # Creator is always the owner
+        }
+
+        return WorkspaceWithMembership.model_validate(workspace_data_dict)
+
+    async def ensure_user_has_default_workspace(
+        self, user_id: str, user_name: str, db: AsyncSession
+    ) -> Optional[WorkspaceWithMembership]:
+        """
+        Ensure user has at least one workspace. If not, create a default one.
+
+        Args:
+            user_id: User ID to check/create workspace for
+            user_name: User's name for creating workspace name
+            db: Database session
+
+        Returns:
+            The created workspace if one was created, None if user already has workspaces
+        """
+        # Check if user already has any workspaces
+        existing_workspaces = await self.get_user_workspaces(user_id=user_id, db=db)
+
+        if existing_workspaces:
+            logger.info(
+                f"User {user_id} already has {len(existing_workspaces)} workspace(s), "
+                "skipping default workspace creation"
+            )
+            return None
+
+        # Create default workspace
+        default_workspace_data = WorkspaceCreate(
+            name=f"{user_name}'s Workspace",
+            domain=None,
+            visible_to_org=False,
+        )
+        workspace = await self.create_workspace(
+            workspace_data=default_workspace_data,
+            owner_user_id=user_id,
+            db=db
+        )
+
+        # Update user's last_visited_workspace_id
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if user:
+            user.last_visited_workspace_id = workspace.id
+            await db.commit()
+
+        logger.info(f"Created default workspace {workspace.id} for user {user_id}")
+        return workspace
 
     async def get_user_workspaces(
         self, user_id: str, db: AsyncSession
     ) -> List[WorkspaceWithMembership]:
         """Get all workspaces where the user is a member"""
 
-        # Query memberships with workspace data
+        # Query memberships with workspace data, ordered by workspace creation date
         query = (
             select(Membership)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
             .options(selectinload(Membership.workspace))
             .where(Membership.user_id == user_id)
+            .order_by(Workspace.created_at)
         )
 
         result = await db.execute(query)
@@ -124,6 +194,35 @@ class WorkspaceService:
         }
 
         return WorkspaceWithMembership.model_validate(workspace_data)
+
+    async def update_last_visited_workspace(
+        self, user_id: str, workspace_id: str, db: AsyncSession
+    ) -> bool:
+        """Update the last visited workspace for a user"""
+        # Verify user has access to this workspace
+        membership_query = select(Membership).where(
+            Membership.workspace_id == workspace_id, Membership.user_id == user_id
+        )
+        result = await db.execute(membership_query)
+        membership = result.scalar_one_or_none()
+
+        if not membership:
+            raise HTTPException(
+                status_code=403,
+                detail="User does not have access to this workspace",
+            )
+
+        # Update the user's last visited workspace
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.last_visited_workspace_id = workspace_id
+        await db.commit()
+
+        return True
 
     async def get_visible_workspaces_by_domain(
         self, domain: str, db: AsyncSession
@@ -245,28 +344,14 @@ class WorkspaceService:
 
         return WorkspaceResponse.model_validate(workspace)
 
-    async def create_personal_workspace(
-        self, user: User, db: AsyncSession
-    ) -> WorkspaceResponse:
-        """Create a personal workspace for a user"""
-
-        # Use full name for workspace name
-        workspace_name = f"{user.name}'s Workspace"
-
-        workspace_data = WorkspaceCreate(
-            name=workspace_name,
-            domain=None,  # Personal workspaces don't have a domain
-            visible_to_org=False,  # Personal workspaces are not visible to org
-        )
-
-        return await self.create_workspace(
-            workspace_data=workspace_data, owner_user_id=user.id, db=db
-        )
-
     async def delete_workspace(
         self, workspace_id: str, user_id: str, db: AsyncSession
     ) -> bool:
-        """Delete a workspace if user is the owner"""
+        """Delete a workspace if user is the owner.
+
+        This also revokes any GitHub App installations associated with the workspace
+        to ensure clean removal of external integrations.
+        """
 
         # Verify user is the owner of the workspace
         membership_query = (
@@ -289,18 +374,48 @@ class WorkspaceService:
 
         workspace = membership.workspace
 
-        # Delete all memberships first (foreign key constraint)
-        memberships_query = select(Membership).where(
-            Membership.workspace_id == workspace_id
-        )
-        memberships_result = await db.execute(memberships_query)
-        memberships = memberships_result.scalars().all()
+        # Revoke GitHub App installations before deleting workspace
+        await self._revoke_github_installations(workspace_id, db)
 
-        for membership in memberships:
-            await db.delete(membership)
-
-        # Delete the workspace
+        # Delete the workspace (cascade will handle related records)
         await db.delete(workspace)
         await db.commit()
 
+        WORKSPACE_METRICS["active_workspaces"].add(-1)
+
         return True
+
+    async def _revoke_github_installations(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Revoke GitHub App installations for a workspace.
+
+        This ensures the GitHub App is uninstalled from the user's GitHub account
+        when the workspace is deleted, preventing orphaned installations.
+        """
+        # Import here to avoid circular imports
+        from app.github.oauth.service import GitHubAppService
+
+        github_service = GitHubAppService()
+
+        # Find all GitHub integrations for this workspace
+        github_query = select(GitHubIntegration).where(
+            GitHubIntegration.workspace_id == workspace_id
+        )
+        result = await db.execute(github_query)
+        github_integrations = result.scalars().all()
+
+        for integration in github_integrations:
+            try:
+                await github_service.uninstall_github_app(integration.installation_id)
+                logger.info(
+                    f"Revoked GitHub App installation {integration.installation_id} "
+                    f"for workspace {workspace_id}"
+                )
+            except Exception as e:
+                # Log but don't fail - the installation might already be revoked
+                # or the user might have manually removed it
+                logger.warning(
+                    f"Failed to revoke GitHub App installation {integration.installation_id} "
+                    f"for workspace {workspace_id}: {e}. Continuing with workspace deletion."
+                )

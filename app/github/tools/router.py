@@ -1,20 +1,20 @@
+import logging
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, List
-import logging
 
-from ...auth.services.google_auth_service import AuthService
+from ...auth.google.service import AuthService
+from ...core.config import settings
+from ...core.database import get_db
 from .service import (
-    get_github_integration_with_token,
     execute_github_graphql,
     execute_github_rest_api,
+    get_default_branch,
+    get_github_integration_with_token,
     get_owner_or_default,
     verify_workspace_access,
-    get_default_branch,
 )
-from ...core.database import get_db
-from ...core.config import settings
-
 
 logger = logging.getLogger(__name__)
 

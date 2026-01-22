@@ -7,12 +7,14 @@ Provides 3 endpoints for managing Datadog integrations:
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User, Membership
-from app.auth.services.google_auth_service import AuthService
+from app.integrations.utils import check_integration_permission
+from app.models import Membership, User
+
 from .schemas import (
     DatadogIntegrationCreate,
     DatadogIntegrationResponse,
@@ -20,8 +22,8 @@ from .schemas import (
 )
 from .service import (
     create_datadog_integration,
-    get_datadog_integration_status,
     delete_datadog_integration,
+    get_datadog_integration_status,
 )
 
 router = APIRouter(prefix="/datadog", tags=["datadog-integration"])
@@ -81,6 +83,9 @@ async def store_datadog_integration(
     """
     # Verify user has access to this workspace
     await verify_workspace_access(workspace_id, current_user, db)
+
+    # Check workspace type restriction (Datadog blocked on personal workspaces)
+    await check_integration_permission(workspace_id, "datadog", db)
 
     try:
         integration = await create_datadog_integration(

@@ -1,6 +1,8 @@
 import json
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+from app.core.otel_metrics import SQS_METRICS
+
 import aioboto3
 from botocore.exceptions import (
     BotoCoreError,
@@ -8,6 +10,7 @@ from botocore.exceptions import (
     EndpointConnectionError,
     NoCredentialsError,
 )
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,10 @@ class SQSClient:
             )
 
             logger.debug(f"Message sent to SQS: {response.get('MessageId')}")
+
+            if SQS_METRICS:
+                SQS_METRICS["sqs_messages_sent"].add(1)
+
             return True
 
         except (
@@ -127,12 +134,18 @@ class SQSClient:
 
             messages = response.get("Messages", [])
 
+            if messages and SQS_METRICS:
+                SQS_METRICS["sqs_messages_received"].add(len(messages))
+
             for message in messages:
                 try:
                     message["ParsedBody"] = json.loads(message["Body"])
                 except json.JSONDecodeError:
                     logger.exception(f"Failed to parse message body: {message['Body']}")
                     message["ParsedBody"] = None
+
+                    if SQS_METRICS:
+                        SQS_METRICS["sqs_message_parse_errors_total"].add(1)
 
             return messages
 

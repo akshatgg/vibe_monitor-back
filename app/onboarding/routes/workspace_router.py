@@ -1,24 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.models import User
+
+from ...core.database import get_db
 from ..schemas.schemas import (
     WorkspaceCreate,
-    WorkspaceUpdate,
     WorkspaceResponse,
+    WorkspaceUpdate,
     WorkspaceWithMembership,
 )
 from ..services.workspace_service import WorkspaceService
-from app.auth.services.google_auth_service import AuthService
-from app.models import User
-from ...core.database import get_db
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 workspace_service = WorkspaceService()
 auth_service = AuthService()
 
 
-@router.post("/", response_model=WorkspaceResponse)
+@router.post("/", response_model=WorkspaceWithMembership)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
     current_user: User = Depends(auth_service.get_current_user),
@@ -136,6 +138,26 @@ async def update_workspace(
     except Exception as e:
         raise HTTPException(
             status_code=400, detail=f"Failed to update workspace: {str(e)}"
+        )
+
+
+@router.post("/{workspace_id}/visit")
+async def mark_workspace_visited(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a workspace as the user's last visited workspace"""
+    try:
+        await workspace_service.update_last_visited_workspace(
+            user_id=current_user.id, workspace_id=workspace_id, db=db
+        )
+        return {"message": "Workspace marked as last visited"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to update last visited workspace: {str(e)}"
         )
 
 

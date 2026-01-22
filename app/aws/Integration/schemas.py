@@ -2,9 +2,10 @@
 Pydantic schemas for AWS Integration
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class AWSIntegrationCreate(BaseModel):
@@ -54,4 +55,15 @@ class AWSIntegrationVerifyResponse(BaseModel):
     message: str = Field(..., description="Verification result message")
     account_id: Optional[str] = Field(
         None, description="AWS Account ID if verification successful"
+    )
+
+
+class AWSIntegrationStatusResponse(BaseModel):
+    """Schema for AWS integration status response"""
+
+    is_connected: bool = Field(
+        ..., description="Whether the workspace is connected to AWS"
+    )
+    integration: Optional[AWSIntegrationResponse] = Field(
+        None, description="Integration details if connected"
     )

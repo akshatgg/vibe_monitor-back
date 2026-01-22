@@ -3,17 +3,19 @@ Datadog Integration Service
 Handles CRUD operations for Datadog integrations
 """
 
-import uuid
 import logging
-import httpx
-from typing import Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import uuid
 from datetime import datetime, timezone
+from typing import Optional, Tuple
 
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.integrations.health_checks import check_datadog_health
 from app.models import DatadogIntegration, Integration
 from app.utils.token_processor import token_processor
-from app.integrations.health_checks import check_datadog_health
+
 from .schemas import (
     DatadogIntegrationCreate,
     DatadogIntegrationResponse,

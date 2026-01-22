@@ -4,21 +4,22 @@ Each function tests the integration credentials and returns health status.
 """
 
 import logging
-import httpx
-import boto3
-from typing import Tuple
 from datetime import datetime, timezone
+from typing import Tuple
+
+import boto3
+import httpx
 
 from app.models import (
-    GitHubIntegration,
     AWSIntegration,
-    GrafanaIntegration,
     DatadogIntegration,
+    GitHubIntegration,
+    GrafanaIntegration,
     NewRelicIntegration,
     SlackInstallation,
 )
-from app.utils.token_processor import token_processor
 from app.utils.retry_decorator import retry_external_api
+from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 

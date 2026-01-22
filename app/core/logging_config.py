@@ -4,23 +4,73 @@ Centralized logging configuration with request_id and job_id context support usi
 This module configures stdlib logging with JSON formatting and provides
 automatic context propagation using contextvars. Also supports OpenTelemetry log export.
 
-Uses ONLY stdlib - no external logging dependencies.
+Includes PII masking filter to automatically sanitize sensitive data in logs.
+
+Uses ONLY stdlib - no external logging dependencies (except for PII masking).
 """
 
 import json
 import logging
 import sys
-from contextvars import ContextVar
-from typing import Optional, Dict, Any
 import threading
+from contextvars import ContextVar
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
+from app.utils.data_masker import mask_log_message
 
 # Context variables for request_id and job_id
 # These are thread-safe and async-safe context variables
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 job_id_var: ContextVar[str] = ContextVar("job_id", default="-")
+
+
+class PIIMaskingFilter(logging.Filter):
+    """
+    Safety net filter that masks secrets in log messages (NOT code/data).
+
+    This filter ONLY masks data in log output - it does NOT mask:
+    - Code or application data
+    - API request/response payloads
+    - Database records
+    - In-memory variables
+
+    Uses fast regex to catch accidental secret leaks in logs:
+    - AWS keys (AKIA...)
+    - GitHub tokens (ghp_...)
+    - Slack tokens (xox...)
+    - JWT tokens
+    - Database connection strings
+
+    Note: Primary defense is not logging PII/secrets in the first place.
+    This is just a safety net for accidents.
+    For customer data (queries, logs, code), use PIIMapper in data_masker.py.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Mask PII in the log message."""
+        try:
+            # Mask the main message
+            if record.msg and isinstance(record.msg, str):
+                record.msg = mask_log_message(record.msg)
+
+            # Also mask any string arguments
+            if record.args:
+                masked_args = []
+                for arg in record.args:
+                    if isinstance(arg, str):
+                        masked_args.append(mask_log_message(arg))
+                    else:
+                        masked_args.append(arg)
+                record.args = tuple(masked_args)
+
+        except Exception:
+            # If masking fails, let the log through unmasked
+            # This ensures logging doesn't break the application
+            pass
+
+        return True
 
 
 class ContextFilter(logging.Filter):
@@ -134,8 +184,9 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     # Determine log level (required - will fail if not set in environment)
     log_level = getattr(logging, settings.LOG_LEVEL.upper())
 
-    # Create context filter
+    # Create filters
     context_filter = ContextFilter()
+    pii_masking_filter = PIIMaskingFilter()
 
     # Create console handler with JSON formatter
     console_handler = logging.StreamHandler(sys.stderr)
@@ -144,6 +195,8 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     # Use custom JSON formatter (stdlib only!)
     json_formatter = JSONFormatter()
     console_handler.setFormatter(json_formatter)
+    # Apply PII masking filter first, then context filter
+    console_handler.addFilter(pii_masking_filter)
     console_handler.addFilter(context_filter)
 
     # Add console handler to root logger
@@ -153,6 +206,7 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     # Add OpenTelemetry handler if provided
     if otel_handler:
         otel_handler.setLevel(log_level)
+        otel_handler.addFilter(pii_masking_filter)
         otel_handler.addFilter(context_filter)
         root_logger.addHandler(otel_handler)
         logging.info("OpenTelemetry logging handler configured")
@@ -169,6 +223,22 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     logging.getLogger("opentelemetry.attributes").setLevel(logging.ERROR)
     logging.getLogger("opentelemetry.sdk.trace").setLevel(logging.WARNING)
     logging.getLogger("opentelemetry.sdk.metrics").setLevel(logging.WARNING)
+
+    # Suppress verbose Presidio initialization logs and warnings
+    # Presidio emits very verbose INFO/WARNING logs during initialization:
+    # - NLP model loading messages (spaCy, transformers)
+    # - Recognizer registry initialization
+    # - Unsupported language warnings (we only use English)
+    # These logs clutter our application logs without providing value.
+    # We only care about actual errors, so set to ERROR level.
+    logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
+    logging.getLogger("presidio_analyzer").setLevel(logging.ERROR)
+    logging.getLogger("presidio_anonymizer").setLevel(logging.ERROR)
+    logging.getLogger("presidio_analyzer.recognizer_registry").setLevel(logging.ERROR)
+    logging.getLogger("presidio_analyzer.nlp_engine").setLevel(logging.ERROR)
+    # CRITICAL: Suppress Groq library debug logging to prevent OpenTelemetry formatting errors
+    # The groq._base_client logger was causing TypeError due to incompatible log formatting
+    logging.getLogger("groq._base_client").setLevel(logging.WARNING)
 
     # CRITICAL: Suppress Groq library debug logging to prevent OpenTelemetry formatting errors
     # The groq._base_client logger was causing TypeError due to incompatible log formatting

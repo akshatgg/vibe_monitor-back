@@ -38,4 +38,31 @@ else
     echo "❌ Failed to create SQS queue '$QUEUE_NAME'"
 fi
 
+# Create S3 bucket for chat file uploads
+BUCKET_NAME="vibe-monitor-chat-files-local"
+echo "📦 Creating S3 bucket: $BUCKET_NAME"
+
+awslocal s3 mb s3://$BUCKET_NAME 2>/dev/null
+
+if [ $? -eq 0 ]; then
+    echo "✅ S3 bucket '$BUCKET_NAME' created successfully"
+else
+    echo "ℹ️  S3 bucket '$BUCKET_NAME' may already exist"
+fi
+
+# Configure CORS for the S3 bucket (required for browser downloads via presigned URLs)
+echo "🔧 Configuring CORS for S3 bucket..."
+awslocal s3api put-bucket-cors --bucket $BUCKET_NAME --cors-configuration '{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+      "AllowedOrigins": ["http://localhost:3000", "http://localhost:3001", "https://*.vercel.app", "https://vibemonitor.ai", "https://*.vibemonitor.ai"],
+      "ExposeHeaders": ["Content-Length", "Content-Type", "Content-Disposition"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}'
+echo "✅ CORS configured for '$BUCKET_NAME'"
+
 echo "🎉 LocalStack initialization complete!"

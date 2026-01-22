@@ -4,32 +4,38 @@ Provides endpoints for managing and monitoring integrations.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User
-from app.auth.services.google_auth_service import AuthService
-from app.integrations.service import (
-    check_integration_health,
-    check_all_workspace_integrations_health,
-    get_workspace_integrations,
-    get_integration_by_id,
-)
 from app.integrations.schemas import (
-    IntegrationResponse,
-    IntegrationListResponse,
+    AvailableIntegrationsResponse,
     HealthCheckResponse,
+    IntegrationListResponse,
+    IntegrationResponse,
 )
+from app.integrations.service import (
+    check_all_workspace_integrations_health,
+    check_integration_health,
+    get_integration_by_id,
+    get_workspace_integrations,
+)
+from app.integrations.utils import ALL_PROVIDERS, get_allowed_integrations
+from app.models import Membership, User, Workspace
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
+router = APIRouter(
+    prefix="/workspaces/{workspace_id}/integrations", tags=["integrations"]
+)
 auth_service = AuthService()
 
 
-@router.get("/workspace/{workspace_id}", response_model=IntegrationListResponse)
+@router.get("", response_model=IntegrationListResponse)
 async def list_workspace_integrations(
     workspace_id: str,
     integration_type: str | None = None,
@@ -80,8 +86,135 @@ async def list_workspace_integrations(
         )
 
 
+# NOTE: Static routes like /available and /health-check MUST be defined BEFORE
+# parameterized routes like /{integration_id} to prevent FastAPI from matching
+# "available" or "health-check" as an integration_id.
+
+
+@router.get("/available", response_model=AvailableIntegrationsResponse)
+async def get_available_integrations(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of integrations available for this workspace.
+
+    Used by frontend to show/hide integration options based on workspace type.
+
+    Returns:
+    - allowed_integrations: List of integration providers allowed for this workspace
+    - restrictions: Dict mapping provider names to blocked status (True = blocked)
+    - upgrade_message: Message to display for personal workspaces, null for team workspaces
+    """
+    logger.info(
+        f"API request: get available integrations - workspace_id={workspace_id}, "
+        f"user_id={current_user.id}"
+    )
+
+    try:
+        membership_result = await db.execute(
+            select(Membership).where(
+                Membership.user_id == current_user.id,
+                Membership.workspace_id == workspace_id,
+            )
+        )
+        membership = membership_result.scalar_one_or_none()
+
+        if not membership:
+            raise HTTPException(
+                status_code=403, detail="User does not have access to this workspace"
+            )
+
+        workspace_result = await db.execute(
+            select(Workspace).where(Workspace.id == workspace_id)
+        )
+        workspace = workspace_result.scalar_one_or_none()
+
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        allowed = get_allowed_integrations()
+        restrictions = {provider: False for provider in ALL_PROVIDERS}  # No restrictions
+
+        logger.info(
+            f"API response: available integrations - workspace_id={workspace_id}, "
+            f"allowed_count={len(allowed)}"
+        )
+
+        return AvailableIntegrationsResponse(
+            allowed_integrations=sorted(list(allowed)),
+            restrictions=restrictions,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            f"API error: get available integrations failed - workspace_id={workspace_id}, "
+            f"user_id={current_user.id}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get available integrations: {str(e)}"
+        )
+
+
+@router.post("/health-check", response_model=List[HealthCheckResponse])
+async def check_workspace_integrations_health(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger health checks for all integrations in a workspace.
+
+    This endpoint will:
+    1. Test all integration credentials with their respective provider APIs
+    2. Update each integration's health_status and last_verified_at
+    3. Return the updated health status for all integrations
+    """
+    logger.info(
+        f"API request: bulk health check - workspace_id={workspace_id}, "
+        f"user_id={current_user.id}"
+    )
+
+    try:
+        integrations = await check_all_workspace_integrations_health(workspace_id, db)
+
+        healthy = sum(1 for i in integrations if i.health_status == "healthy")
+        failed = sum(1 for i in integrations if i.health_status == "failed")
+
+        logger.info(
+            f"API response: bulk health check completed - workspace_id={workspace_id}, "
+            f"total={len(integrations)}, healthy={healthy}, failed={failed}"
+        )
+
+        return [
+            HealthCheckResponse(
+                integration_id=integration.id,
+                provider=integration.provider,
+                health_status=integration.health_status,
+                status=integration.status,
+                last_verified_at=integration.last_verified_at,
+                last_error=integration.last_error,
+            )
+            for integration in integrations
+        ]
+
+    except Exception as e:
+        logger.exception(
+            f"API error: bulk health check failed - workspace_id={workspace_id}, "
+            f"user_id={current_user.id}"
+        )
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+
+# Parameterized routes MUST come after static routes
+
+
 @router.get("/{integration_id}", response_model=IntegrationResponse)
 async def get_integration(
+    workspace_id: str,
     integration_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -124,6 +257,7 @@ async def get_integration(
 
 @router.post("/{integration_id}/health-check", response_model=HealthCheckResponse)
 async def check_single_integration_health(
+    workspace_id: str,
     integration_id: str,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -168,59 +302,6 @@ async def check_single_integration_health(
     except Exception as e:
         logger.exception(
             f"API error: health check failed - integration_id={integration_id}, "
-            f"user_id={current_user.id}"
-        )
-        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
-
-
-@router.post(
-    "/workspace/{workspace_id}/health-check", response_model=List[HealthCheckResponse]
-)
-async def check_workspace_integrations_health(
-    workspace_id: str,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Trigger health checks for all integrations in a workspace.
-
-    This endpoint will:
-    1. Test all integration credentials with their respective provider APIs
-    2. Update each integration's health_status and last_verified_at
-    3. Return the updated health status for all integrations
-    """
-    logger.info(
-        f"API request: bulk health check - workspace_id={workspace_id}, "
-        f"user_id={current_user.id}"
-    )
-
-    try:
-        integrations = await check_all_workspace_integrations_health(workspace_id, db)
-
-        # Log summary for Grafana queries
-        healthy = sum(1 for i in integrations if i.health_status == "healthy")
-        failed = sum(1 for i in integrations if i.health_status == "failed")
-
-        logger.info(
-            f"API response: bulk health check completed - workspace_id={workspace_id}, "
-            f"total={len(integrations)}, healthy={healthy}, failed={failed}"
-        )
-
-        return [
-            HealthCheckResponse(
-                integration_id=integration.id,
-                provider=integration.provider,
-                health_status=integration.health_status,
-                status=integration.status,
-                last_verified_at=integration.last_verified_at,
-                last_error=integration.last_error,
-            )
-            for integration in integrations
-        ]
-
-    except Exception as e:
-        logger.exception(
-            f"API error: bulk health check failed - workspace_id={workspace_id}, "
             f"user_id={current_user.id}"
         )
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")

@@ -5,11 +5,11 @@ FastAPI router for datasources endpoints
 import logging
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Header, HTTPException
 
+from ..core.config import settings
 from .models import DatasourceResponse, LabelResponse
 from .service import datasources_service
-from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 

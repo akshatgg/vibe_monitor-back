@@ -15,19 +15,20 @@ This prevents malicious actors from sending fake webhook events to your API.
 Documentation: https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 """
 
-import logging
-import hmac
 import hashlib
-from typing import Dict, Any
-from dateutil import parser as date_parser
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import hmac
+import logging
+from typing import Any, Dict
 
-from app.models import GitHubIntegration, Integration
-from app.github.webhook.schema import InstallationWebhookPayload
-from app.github.oauth.service import GitHubAppService
-from app.utils.token_processor import token_processor
+from dateutil import parser as date_parser
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
+from app.github.oauth.service import GitHubAppService
+from app.github.webhook.schema import InstallationWebhookPayload
+from app.models import GitHubIntegration, Integration
+from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 
@@ -161,8 +162,8 @@ class GitHubWebhookService:
         Handle app uninstallation (THE CRITICAL ONE!)
 
         When user manually uninstalls from GitHub:
-        1. Find the integration in DB by installation_id
-        2. Delete it from DB
+        1. Find the integration(s) in DB by installation_id
+        2. Delete them from DB (handles duplicates gracefully)
         3. Frontend will now show "not connected"
 
         Args:
@@ -173,15 +174,15 @@ class GitHubWebhookService:
             Dict with status
         """
         try:
-            # Find integration by installation_id
+            # Find all integrations by installation_id
             result = await db.execute(
-                select(GitHubIntegration).where(
-                    GitHubIntegration.installation_id == installation_id
-                )
+                select(GitHubIntegration)
+                .where(GitHubIntegration.installation_id == installation_id)
+                .with_for_update()
             )
-            integration = result.scalar_one_or_none()
+            integrations = result.scalars().all()
 
-            if not integration:
+            if not integrations:
                 logger.warning(
                     f"❌ Uninstall webhook received for installation_id={installation_id}, "
                     f"but no integration found in DB. Possibly already deleted."
@@ -191,41 +192,105 @@ class GitHubWebhookService:
                     "message": f"No integration found for installation {installation_id}",
                 }
 
-            # Delete the integration from database
-            workspace_id = integration.workspace_id
-            github_username = integration.github_username
+            # Handle duplicates
+            if len(integrations) > 1:
+                github_accounts = set(i.github_username for i in integrations)
+                workspace_ids = [i.workspace_id for i in integrations]
 
-            # Also delete the Integration control plane record for this workspace
-            control_plane_result = await db.execute(
-                select(Integration).where(
-                    Integration.workspace_id == workspace_id,
-                    Integration.provider == "github",
+                # Check for data corruption: same installation_id, different GitHub accounts
+                if len(github_accounts) > 1:
+                    logger.critical(
+                        f"CRITICAL DATA CORRUPTION DETECTED: installation_id={installation_id} "
+                        f"maps to DIFFERENT GitHub accounts: {github_accounts}. "
+                        f"Workspaces affected: {workspace_ids}. "
+                        f"ABORTING deletion to prevent data loss. Manual intervention required!"
+                    )
+                    # Return error instead of proceeding with deletion
+                    # Transaction will auto-rollback on exit
+                    return {
+                        "status": "error",
+                        "message": "Data corruption detected: same installation_id with different GitHub accounts",
+                        "details": {
+                            "installation_id": installation_id,
+                            "github_accounts": list(github_accounts),
+                            "workspace_ids": workspace_ids,
+                            "action_required": "Manual investigation and cleanup required",
+                        },
+                    }
+
+                logger.error(
+                    f"DUPLICATE INTEGRATIONS FOUND: installation_id={installation_id} "
+                    f"has {len(integrations)} rows across workspaces: {workspace_ids}. "
+                    f"GitHub account(s): {github_accounts}. "
+                    f"Deleting all duplicates."
                 )
-            )
-            control_plane_integration = control_plane_result.scalar_one_or_none()
 
-            await db.delete(integration)
-            if control_plane_integration:
-                await db.delete(control_plane_integration)
+            # Delete all GitHubIntegration rows matching this installation_id
+            deleted_workspaces = []
+            affected_workspaces = set()
+
+            for integration in integrations:
+                workspace_id = integration.workspace_id
+                github_username = integration.github_username
+
+                affected_workspaces.add(workspace_id)
+                deleted_workspaces.append({
+                    "workspace_id": workspace_id,
+                    "github_username": github_username,
+                })
+
+                await db.delete(integration)
                 logger.info(
-                    f"Deleted Integration control plane record for workspace={workspace_id}, provider=github"
+                    f"Deleted GitHub integration for workspace={workspace_id}, "
+                    f"github_user={github_username}, installation_id={installation_id}"
                 )
+
+            # For each affected workspace, check if any OTHER GitHubIntegration rows remain
+            for workspace_id in affected_workspaces:
+                remaining_check = await db.execute(
+                    select(GitHubIntegration).where(
+                        GitHubIntegration.workspace_id == workspace_id
+                    )
+                )
+                remaining_integrations = remaining_check.scalars().all()
+
+                if not remaining_integrations:
+                    # No more GitHubIntegration rows for this workspace -> safe to delete
+                    control_plane_result = await db.execute(
+                        select(Integration).where(
+                            Integration.workspace_id == workspace_id,
+                            Integration.provider == "github",
+                        )
+                    )
+                    control_plane_integration = control_plane_result.scalar_one_or_none()
+
+                    if control_plane_integration:
+                        await db.delete(control_plane_integration)
+                        logger.info(
+                            f"Deleted Integration control plane for workspace={workspace_id} "
+                            f"(no remaining GitHub integrations)"
+                        )
+                else:
+                    # Other GitHubIntegration rows still exist -> keep the control plane
+                    logger.info(
+                        f"Keeping Integration control plane for workspace={workspace_id} "
+                        f"({len(remaining_integrations)} GitHub integration(s) still active)"
+                    )
 
             await db.commit()
 
             logger.info(
                 f"✅ GitHub App uninstalled successfully! "
-                f"Deleted integration for workspace={workspace_id}, "
-                f"github_user={github_username}, installation_id={installation_id}"
+                f"Deleted {len(integrations)} integration(s) for installation_id={installation_id}"
             )
 
             return {
                 "status": "success",
                 "action": "deleted",
-                "message": "Integration deleted from database",
+                "message": f"Integration(s) deleted from database ({len(integrations)} row(s))",
                 "details": {
-                    "workspace_id": workspace_id,
-                    "github_username": github_username,
+                    "deleted_count": len(integrations),
+                    "workspaces": deleted_workspaces,
                     "installation_id": installation_id,
                 },
             }

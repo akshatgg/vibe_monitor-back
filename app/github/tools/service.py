@@ -7,18 +7,21 @@ used across multiple endpoints in the GitHub tools router.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from fastapi import HTTPException
+from typing import Any, Dict
+
 import httpx
 from dateutil import parser as date_parser
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import time
+from app.core.otel_metrics import GITHUB_METRICS
 
-from ..oauth.service import GitHubAppService
-from ...utils.token_processor import token_processor
-from ...utils.retry_decorator import retry_external_api
-from ...models import GitHubIntegration, Membership
 from ...core.config import settings
+from ...models import GitHubIntegration, Membership
+from ...utils.retry_decorator import retry_external_api
+from ...utils.token_processor import token_processor
+from ..oauth.service import GitHubAppService
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,8 @@ async def execute_github_graphql(
     Raises:
         HTTPException: If request fails or GraphQL returns errors
     """
+    start_time = time.time()
+
     async with httpx.AsyncClient() as client:
         async for attempt in retry_external_api("GitHub"):
             with attempt:
@@ -147,6 +152,25 @@ async def execute_github_graphql(
                     timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
+
+                duration = time.time() - start_time
+
+                if GITHUB_METRICS:
+                    GITHUB_METRICS["github_api_calls_total"].add(1, {
+                        "api_type": "graphql",
+                        "status": str(response.status_code)
+                    })
+
+                    GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
+                        "api_type": "graphql"
+                    })
+
+                    rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
+                    if rate_limit_remaining:
+                        GITHUB_METRICS["github_api_rate_limit_remaining"].add(
+                            int(rate_limit_remaining),
+                            {"api_type": "graphql"}
+                        )
 
                 data = response.json()
 
@@ -179,6 +203,8 @@ async def execute_github_rest_api(
     Raises:
         HTTPException: If request fails
     """
+    
+    start_time = time.time()
     url = f"{settings.GITHUB_API_BASE_URL}{endpoint}"
 
     async with httpx.AsyncClient() as client:
@@ -195,6 +221,28 @@ async def execute_github_rest_api(
                     timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
+
+                # Calculate duration
+                duration = time.time() - start_time
+
+                if GITHUB_METRICS:
+                    GITHUB_METRICS["github_api_calls_total"].add(1, {
+                        "api_type": "rest",
+                        "status": str(response.status_code)
+                    })
+
+                    GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
+                        "api_type": "rest",
+                    })
+
+                    # Extract rate limit from headers
+                    rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
+                    if rate_limit_remaining:
+                        GITHUB_METRICS["github_api_rate_limit_remaining"].add(
+                            int(rate_limit_remaining),
+                            {"api_type": "rest"}
+                        )
+
                 return response.json()
 
 

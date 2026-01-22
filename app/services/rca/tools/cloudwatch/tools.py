@@ -3,22 +3,23 @@ LangChain tools for RCA agent to interact with AWS CloudWatch Logs and Metrics
 """
 
 import logging
-from typing import Optional
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from langchain.tools import tool
 
-from app.aws.cloudwatch.Logs.service import cloudwatch_logs_service
 from app.aws.cloudwatch.Logs.schemas import (
-    ListLogGroupsRequest,
     FilterLogEventsRequest,
+    ListLogGroupsRequest,
     StartQueryRequest,
 )
-from app.aws.cloudwatch.Metrics.service import cloudwatch_metrics_service
+from app.aws.cloudwatch.Logs.service import cloudwatch_logs_service
 from app.aws.cloudwatch.Metrics.schemas import (
-    ListMetricsRequest,
-    GetMetricStatisticsRequest,
     Dimension,
+    GetMetricStatisticsRequest,
+    ListMetricsRequest,
 )
+from app.aws.cloudwatch.Metrics.service import cloudwatch_metrics_service
 from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)

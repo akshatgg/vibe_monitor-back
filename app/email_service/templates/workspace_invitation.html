@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You're Invited to Join a Workspace - VibeMonitor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f3f4f6;
+        }
+        .email-wrapper {
+            width: 100%;
+            background-color: #f3f4f6;
+            padding: 40px 20px;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #0f172a;
+            border-radius: 0;
+            overflow: hidden;
+        }
+        .header {
+            padding: 30px 40px 25px 40px;
+        }
+        .logo-text {
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .greeting {
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: 600;
+            margin: 20px 0;
+        }
+        .content {
+            padding: 0 40px 30px 40px;
+        }
+        .text {
+            color: #cbd5e1;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .highlight {
+            color: #ffffff;
+            font-weight: 600;
+        }
+        .workspace-card {
+            background-color: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .workspace-name {
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .workspace-role {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #3b82f6;
+            color: #ffffff;
+            padding: 14px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            margin: 20px 0;
+        }
+        .footer {
+            background-color: #1e293b;
+            padding: 30px 40px;
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .link-fallback {
+            color: #60a5fa;
+            word-break: break-all;
+            text-decoration: underline;
+        }
+        .link-fallback:hover {
+            color: #93c5fd;
+            text-decoration: underline;
+        }
+        a:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <div class="header">
+                <div class="logo-text">VibeMonitor</div>
+                <h1 class="greeting">You're invited!</h1>
+            </div>
+
+            <div class="content">
+                <p class="text">
+                    <span class="highlight">{{inviter_name}}</span> has invited you to join their workspace on VibeMonitor.
+                </p>
+
+                <div class="workspace-card">
+                    <div class="workspace-name">{{workspace_name}}</div>
+                    <div class="workspace-role">Role: {{role}}</div>
+                </div>
+
+                <p class="text">
+                    VibeMonitor is an AI-powered observability platform that helps teams quickly identify and resolve production issues with automated root cause analysis.
+                </p>
+
+                <div style="text-align: left; margin: 20px 0;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{accept_url}}" style="height:50px;v-text-anchor:middle;width:200px;" arcsize="10%" strokecolor="#3b82f6" fillcolor="#3b82f6">
+                        <w:anchorlock/>
+                        <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">Accept Invitation</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="{{accept_url}}" target="_blank" style="background-color:#3b82f6;border:1px solid #3b82f6;border-radius:6px;color:#ffffff;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:50px;text-align:center;text-decoration:none;width:200px;-webkit-text-size-adjust:none;mso-hide:all;">Accept Invitation</a>
+                    <!--<![endif]-->
+                </div>
+
+                <p class="text">
+                    This invitation will expire in 7 days. If you don't want to join this workspace, you can safely ignore this email.
+                </p>
+
+                <p class="text" style="color: #cbd5e1; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+                    If the button doesn't work, copy and paste this link into your browser:<br><br>
+                    <a href="{{accept_url}}" target="_blank" class="link-fallback" style="color: #60a5fa !important; text-decoration: underline; word-break: break-all; display: inline-block; margin-top: 8px;">{{accept_url}}</a>
+                </p>
+            </div>
+
+            <div class="footer">
+                <p style="margin: 0 0 10px 0;">
+                    Need help? Reply to this email or visit our support page.
+                </p>
+                <p style="margin: 0;">
+                    VibeMonitor - AI-Powered Root Cause Analysis
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

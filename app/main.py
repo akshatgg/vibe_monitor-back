@@ -1,8 +1,10 @@
-from contextlib import asynccontextmanager
-from dotenv import load_dotenv
+import asyncio
 import logging
+from contextlib import asynccontextmanager
+
 import sentry_sdk
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -10,16 +12,17 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.routers.routers import api_router
 from app.core.config import settings
-from app.core.database import init_database
+from app.core.database import engine
+from app.core.db_instrumentation import setup_database_instrumentation
 from app.core.logging_config import configure_logging
-from app.middleware import RequestIDMiddleware
-from app.github.webhook.router import limiter
-from app.core.otel_config import setup_otel_metrics, setup_otel_logs, shutdown_otel
+from app.core.otel_config import setup_otel_logs, setup_otel_metrics, shutdown_otel
 from app.core.otel_metrics import init_meter
-from app.worker import RCAOrchestratorWorker
-from app.services.sqs.client import sqs_client
 from app.core.redis import close_redis, get_redis
-
+from app.github.webhook.router import limiter
+from app.middleware import HTTPMetricsMiddleware, RequestIDMiddleware
+from app.services.s3.client import s3_client
+from app.services.sqs.client import sqs_client
+from app.worker import RCAOrchestratorWorker
 
 # Load environment variables
 load_dotenv()
@@ -41,6 +44,7 @@ if settings.SENTRY_DSN:
     )
     logger.info("Sentry initialized")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -51,11 +55,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting VM API application...")
 
     worker = RCAOrchestratorWorker()
+    metrics_updater_task = None
 
     try:
-        # Initialize database
-        await init_database()
-        logger.info("Database initialized")
 
         # Validate Redis connection (for web chat SSE streaming)
         if not settings.REDIS_URL:
@@ -68,6 +70,16 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Redis connection failed: {e}")
 
+        # Validate S3 configuration for chat file uploads
+        if settings.CHAT_UPLOADS_BUCKET is None:
+            logger.warning(
+                "CHAT_UPLOADS_BUCKET not configured - chat file uploads will be disabled"
+            )
+        else:
+            logger.info(
+                f"S3 bucket configured for chat uploads: {settings.CHAT_UPLOADS_BUCKET}"
+            )
+
         # Initialize OpenTelemetry (if enabled)
         if settings.OTEL_ENABLED and settings.OTEL_OTLP_ENDPOINT:
             try:
@@ -78,10 +90,38 @@ async def lifespan(app: FastAPI):
                     f"OpenTelemetry metrics configured: {settings.OTEL_OTLP_ENDPOINT}"
                 )
 
+                # Setup database instrumentation
+                if settings.DB_INSTRUMENTATION_ENABLED:
+                    setup_database_instrumentation(engine)
+                    logger.info("Database instrumentation configured")
+                else:
+                    logger.info("Database instrumentation disabled via config")
+
                 # Setup logs
                 otel_log_handler = setup_otel_logs(settings.OTEL_OTLP_ENDPOINT)
                 configure_logging(otel_handler=otel_log_handler)
                 logger.info("OpenTelemetry logs configured")
+
+                # Start metrics cache updater background task
+                from app.billing.stripe_instrumentation import (
+                    update_subscription_metrics_cache,
+                )
+
+                async def _periodic_metrics_update():
+                    """Periodically update metrics cache every 60 seconds"""
+                    while True:
+                        try:
+                            await update_subscription_metrics_cache()
+                            await asyncio.sleep(60)  # Update every 60 seconds
+                        except asyncio.CancelledError:
+                            logger.info("Metrics updater task cancelled")
+                            break
+                        except Exception as e:
+                            logger.error(f"Error in metrics updater task: {e}")
+                            await asyncio.sleep(60)  # Continue on error
+
+                metrics_updater_task = asyncio.create_task(_periodic_metrics_update())
+                logger.info("Metrics cache updater started")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenTelemetry: {e}")
 
@@ -99,6 +139,15 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down VM API application...")
 
         try:
+            # Cancel metrics updater task
+            if metrics_updater_task:
+                metrics_updater_task.cancel()
+                try:
+                    await metrics_updater_task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("Metrics updater task stopped")
+
             # Shutdown OpenTelemetry first (flush remaining data)
             if settings.OTEL_ENABLED:
                 shutdown_otel()
@@ -111,6 +160,10 @@ async def lifespan(app: FastAPI):
             # Close SQS client
             await sqs_client.close()
             logger.info("SQS client closed")
+
+            # Close S3 client
+            await s3_client.close()
+            logger.info("S3 client closed")
 
             # Close Redis client
             await close_redis()
@@ -132,11 +185,34 @@ app = FastAPI(
 # Add rate limiter state
 app.state.limiter = limiter
 
+
+# Custom rate limit handler for metrics
+async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """
+    records metrics before calling the original handler (primarily for webhook endpoints).
+    """
+    from app.core.otel_metrics import SECURITY_METRICS
+
+    SECURITY_METRICS["rate_limit_exceeded_total"].add(
+        1,
+        {
+            "resource_type": "webhook",
+        },
+    )
+    # Call original handler
+    return await _rate_limit_exceeded_handler(request, exc)
+
+
 # Add rate limit exceeded handler
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 # Add Request ID middleware (must be added first to ensure request_id is available)
 app.add_middleware(RequestIDMiddleware)
+
+# Add HTTP metrics middleware (executes second)
+if settings.OTEL_ENABLED:
+    app.add_middleware(HTTPMetricsMiddleware)
+    logger.info("HTTP metrics middleware enabled")
 
 # Add CORS middleware
 app.add_middleware(

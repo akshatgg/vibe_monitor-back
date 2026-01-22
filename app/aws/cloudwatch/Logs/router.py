@@ -8,17 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+
 from .schemas import (
+    FilterLogEventsRequest,
+    FilterLogEventsResponse,
+    GetLogEventsRequest,
+    GetLogEventsResponse,
+    GetQueryResultsResponse,
     ListLogGroupsRequest,
     ListLogGroupsResponse,
     ListLogStreamsRequest,
     ListLogStreamsResponse,
-    GetLogEventsRequest,
-    GetLogEventsResponse,
     StartQueryRequest,
-    GetQueryResultsResponse,
-    FilterLogEventsRequest,
-    FilterLogEventsResponse,
 )
 from .service import cloudwatch_logs_service
 

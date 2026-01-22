@@ -277,16 +277,65 @@ jobs:
           fi
           echo ""
 
-          # Fetch container logs from log group (last 10 minutes)
+          # Fetch container logs from SPECIFIC tasks started by this deployment
           LOG_GROUP="/ecs/vm-api-logs-${ENVIRONMENT}"
-          echo "📝 Container Logs (last 10 minutes from all tasks):"
-          echo "Log Group: $LOG_GROUP"
+          echo "📝 Container Logs from Tasks Started by This Deployment:"
           echo ""
 
-          if aws logs tail "$LOG_GROUP" --since 10m --region $AWS_REGION --format short 2>/dev/null | tail -100; then
-            echo ""
+          # Find tasks started in the last 15 minutes (deployment window)
+          RECENT_TASKS=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --region $AWS_REGION \
+            --output json | jq -r '.services[0].events[] | select(.message | contains("has started 1 tasks")) | .message' | grep -oE 'task [a-f0-9]+' | awk '{print $2}' | head -3)
+
+          if [ -n "$RECENT_TASKS" ]; then
+            for TASK_ID in $RECENT_TASKS; do
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "📦 Task: $TASK_ID"
+
+              # Get image and task definition for this task
+              TASK_INFO=$(aws ecs describe-tasks \
+                --cluster $ECS_CLUSTER \
+                --tasks $TASK_ID \
+                --region $AWS_REGION \
+                --query 'tasks[0].[containers[0].image,taskDefinitionArn,lastStatus,stoppedReason]' \
+                --output json 2>/dev/null)
+
+              if [ -n "$TASK_INFO" ] && [ "$TASK_INFO" != "null" ]; then
+                IMAGE=$(echo "$TASK_INFO" | jq -r '.[0] // "unknown"')
+                TASKDEF=$(echo "$TASK_INFO" | jq -r '.[1] // "unknown"' | rev | cut -d'/' -f1 | rev)
+                STATUS=$(echo "$TASK_INFO" | jq -r '.[2] // "unknown"')
+                STOPPED_REASON=$(echo "$TASK_INFO" | jq -r '.[3] // "N/A"')
+
+                echo "  Image: $IMAGE"
+                echo "  Task Definition: $TASKDEF"
+                echo "  Status: $STATUS"
+                if [ "$STOPPED_REASON" != "N/A" ]; then
+                  echo "  Stopped Reason: $STOPPED_REASON"
+                fi
+                echo ""
+              fi
+
+              # Get logs from this specific task's log stream
+              LOG_STREAM="ecs/app/${TASK_ID}"
+              echo "  Log Stream: $LOG_STREAM"
+              echo "  ─────────────────────────────────────────"
+
+              if aws logs get-log-events \
+                --log-group-name "$LOG_GROUP" \
+                --log-stream-name "$LOG_STREAM" \
+                --region $AWS_REGION \
+                --limit 100 \
+                --output json 2>/dev/null | jq -r '.events[].message' | tail -50; then
+                echo ""
+              else
+                echo "  ⚠️ No logs found for this task"
+                echo ""
+              fi
+            done
           else
-            echo "⚠️ No logs available (log group may not exist or no recent logs)"
+            echo "⚠️ No recent tasks found"
           fi
           echo ""
 
@@ -318,6 +367,13 @@ jobs:
           echo ""
 
           # Manual investigation commands
-          echo "💡 To investigate further:"
-          echo "  aws logs tail /ecs/vm-api-logs-${ENVIRONMENT} --follow --region $AWS_REGION"
-          echo "  aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --region $AWS_REGION"
+          echo "💡 To investigate further, use task-specific log streams:"
+          echo ""
+          echo "  # 1. Find recent task IDs:"
+          echo "  aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --region $AWS_REGION --output json | jq -r '.services[0].events[] | select(.message | contains(\"has started 1 tasks\")) | \"\(.createdAt) - \(.message)\"' | head -5"
+          echo ""
+          echo "  # 2. Get logs from specific task (replace TASK_ID):"
+          echo "  aws logs get-log-events --log-group-name /ecs/vm-api-logs-${ENVIRONMENT} --log-stream-name ecs/app/TASK_ID --region $AWS_REGION --limit 200 --output json | jq -r '.events[].message'"
+          echo ""
+          echo "  # 3. Verify what image a task is running:"
+          echo "  aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks TASK_ID --region $AWS_REGION --query 'tasks[0].[containers[0].image,taskDefinitionArn]'"

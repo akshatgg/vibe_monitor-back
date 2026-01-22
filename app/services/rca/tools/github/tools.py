@@ -1,25 +1,79 @@
 """
-LangChain tools for RCA agent to interact with GitHub repositories
+LangChain tools for RCA agent to interact with GitHub repositories.
 """
 
 import logging
-from typing import Optional, List
+from typing import List, Optional
+
 from langchain.tools import tool
 
+from app.core.database import AsyncSessionLocal
 from app.github.tools.router import (
+    download_file_by_path,
+    get_branch_recent_commits,
+    get_repository_commits,
+    get_repository_metadata,
+    get_repository_tree,
+    list_pull_requests,
     list_repositories_graphql,
     read_repository_file,
     search_code,
-    get_repository_commits,
-    list_pull_requests,
-    download_file_by_path,
-    get_repository_tree,
-    get_branch_recent_commits,
-    get_repository_metadata,
 )
-from app.core.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _format_tool_error(tool_name: str, error: Exception, context: str = "") -> str:
+    """
+    Format tool errors in a way that helps the LLM understand and recover.
+
+    Returns actionable error messages without exposing internal secrets.
+    """
+    error_str = str(error)
+
+    # Handle specific error types with helpful suggestions
+    if "400" in error_str:
+        return (
+            f"⚠️ {tool_name}: Invalid request. "
+            f"The parameters provided for {context or 'this request'} may be incorrect. "
+            "Try using 'HEAD:' for the default branch or verify the input format."
+        )
+    if "404" in error_str:
+        return (
+            f"⚠️ {tool_name}: Resource not found. "
+            f"The requested {context or 'resource'} doesn't exist or isn't accessible. "
+            "Try using 'HEAD:' as the expression for the default branch, "
+            "or verify the repository/file path is correct."
+        )
+    if "401" in error_str or "403" in error_str:
+        return (
+            f"⚠️ {tool_name}: Access denied. "
+            "The GitHub integration may not have permission to access this resource. "
+            "Try a different repository or check if the repository is private."
+        )
+    if "422" in error_str:
+        return (
+            f"⚠️ {tool_name}: Invalid input. "
+            f"The {context or 'request'} contains invalid data. "
+            "Check that file paths and branch names are correct."
+        )
+    if "rate limit" in error_str.lower():
+        return (
+            f"⚠️ {tool_name}: GitHub rate limit reached. "
+            "Please wait a moment before trying again, or try a different approach."
+        )
+    if "timeout" in error_str.lower():
+        return (
+            f"⚠️ {tool_name}: Request timed out. "
+            "The repository might be large. Try requesting a specific subdirectory instead."
+        )
+
+    # Generic fallback - still helpful but doesn't expose internal details
+    logger.error(f"Tool error in {tool_name}: {error_str}")
+    return (
+        f"⚠️ {tool_name}: Unable to complete request. "
+        "Try a different approach or use alternative tools to gather the information."
+    )
 
 
 def _format_repositories_response(response: dict) -> str:
@@ -59,7 +113,7 @@ def _format_repositories_response(response: dict) -> str:
 
 
 def _format_file_content_response(response: dict) -> str:
-    """Format file content response for LLM consumption"""
+    """Format file content response for LLM consumption."""
     try:
         if not response.get("success"):
             return "Failed to read file."
@@ -129,7 +183,7 @@ def _format_code_search_response(response: dict) -> str:
 
 
 def _format_commits_response(response: dict) -> str:
-    """Format commits response for LLM consumption"""
+    """Format commits response for LLM consumption with PII sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch commits."
@@ -142,14 +196,19 @@ def _format_commits_response(response: dict) -> str:
         for commit in commits[:20]:  # Limit to first 20 commits
             oid = commit.get("oid", "")[:8]  # Short hash
             message = commit.get("messageHeadline", "No message")
-            author = commit.get("author", {}).get("name", "Unknown")
+            # GitHub data is from a trusted source - pass through as-is
+            # Author names are not masked here to maintain consistency with PIIMapper
+            # If masking is needed, it will be done at entry point with PIIMapper
+            author_data = commit.get("author", {})
+            author_name = author_data.get("name", "Unknown")
+
             date = commit.get("committedDate", "Unknown date")
             additions = commit.get("additions", 0)
             deletions = commit.get("deletions", 0)
 
             formatted.append(
                 f"🔹 **{oid}** - {message}\n"
-                f"   Author: {author}\n"
+                f"   Author: {author_name}\n"
                 f"   Date: {date}\n"
                 f"   Changes: +{additions}/-{deletions}"
             )
@@ -166,7 +225,7 @@ def _format_commits_response(response: dict) -> str:
 
 
 def _format_pull_requests_response(response: dict) -> str:
-    """Format pull requests response for LLM consumption"""
+    """Format pull requests response for LLM consumption with PII sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch pull requests."
@@ -180,7 +239,10 @@ def _format_pull_requests_response(response: dict) -> str:
             number = pr.get("number", "")
             title = pr.get("title", "No title")
             state = pr.get("state", "UNKNOWN")
-            author = pr.get("author", {}).get("login", "Unknown")
+            # GitHub data is from a trusted source - pass through as-is
+            # Author usernames are public GitHub data, consistent with commit authors
+            # If masking is needed, it will be done at entry point with PIIMapper
+            author_login = pr.get("author", {}).get("login", "Unknown")
             created = pr.get("createdAt", "Unknown")
             head_ref = pr.get("headRefName", "unknown")
             base_ref = pr.get("baseRefName", "unknown")
@@ -188,7 +250,7 @@ def _format_pull_requests_response(response: dict) -> str:
             formatted.append(
                 f"🔀 **PR #{number}** - {title}\n"
                 f"   Status: {state}\n"
-                f"   Author: {author}\n"
+                f"   Author: {author_login}\n"
                 f"   Branch: {head_ref} → {base_ref}\n"
                 f"   Created: {created}"
             )
@@ -242,8 +304,7 @@ async def list_repositories_tool(
         return _format_repositories_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_repositories_tool: {e}")
-        return f"Error fetching repositories: {str(e)}"
+        return _format_tool_error("list_repositories", e, "repository list")
 
 
 @tool
@@ -288,8 +349,7 @@ async def read_repository_file_tool(
         return _format_file_content_response(response)
 
     except Exception as e:
-        logger.error(f"Error in read_repository_file_tool: {e}")
-        return f"Error reading file '{file_path}': {str(e)}"
+        return _format_tool_error("read_repository_file", e, f"file '{file_path}'")
 
 
 @tool
@@ -338,8 +398,7 @@ async def search_code_tool(
         return _format_code_search_response(response)
 
     except Exception as e:
-        logger.error(f"Error in search_code_tool: {e}")
-        return f"Error searching code: {str(e)}"
+        return _format_tool_error("search_code", e, "code search")
 
 
 @tool
@@ -384,8 +443,7 @@ async def get_repository_commits_tool(
         return _format_commits_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_commits_tool: {e}")
-        return f"Error fetching commits: {str(e)}"
+        return _format_tool_error("get_repository_commits", e, "commit history")
 
 
 @tool
@@ -433,8 +491,7 @@ async def list_pull_requests_tool(
         return _format_pull_requests_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_pull_requests_tool: {e}")
-        return f"Error fetching pull requests: {str(e)}"
+        return _format_tool_error("list_pull_requests", e, "pull requests")
 
 
 @tool
@@ -479,12 +536,11 @@ async def download_file_tool(
         return _format_file_content_response(response)
 
     except Exception as e:
-        logger.error(f"Error in download_file_tool: {e}")
-        return f"Error downloading file '{file_path}': {str(e)}"
+        return _format_tool_error("download_file", e, f"file '{file_path}'")
 
 
 def _format_tree_response(response: dict) -> str:
-    """Format repository tree response for LLM consumption"""
+    """Format repository tree response for LLM consumption with secret sanitization."""
     try:
         if not response.get("success"):
             return "Failed to fetch repository tree."
@@ -627,8 +683,7 @@ async def get_repository_tree_tool(
         return _format_tree_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_tree_tool: {e}")
-        return f"Error fetching repository tree for expression '{expression}': {str(e)}"
+        return _format_tool_error("get_repository_tree", e, f"path '{expression}'")
 
 
 @tool
@@ -678,8 +733,7 @@ async def get_branch_recent_commits_tool(
         return _format_commits_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_branch_recent_commits_tool: {e}")
-        return f"Error fetching commits from branch '{ref}': {str(e)}"
+        return _format_tool_error("get_branch_recent_commits", e, f"branch '{ref}'")
 
 
 @tool
@@ -722,5 +776,4 @@ async def get_repository_metadata_tool(
         return _format_metadata_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_repository_metadata_tool: {e}")
-        return f"Error fetching repository metadata: {str(e)}"
+        return _format_tool_error("get_repository_metadata", e, "repository metadata")

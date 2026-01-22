@@ -25,8 +25,9 @@ services:
       - REDIS_URL=redis://redis:6379
 
       # OpenTelemetry configuration
+      # Points to OTEL Collector which forwards to NewRelic
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
-      - OTEL_OTLP_ENDPOINT=${OTEL_OTLP_ENDPOINT}
+      - OTEL_OTLP_ENDPOINT=${OTEL_OTLP_ENDPOINT:-http://otel-collector:4317}
       - HOSTNAME=${HOSTNAME:-vm-api-local}
     logging:
       driver: json-file
@@ -42,7 +43,6 @@ services:
         condition: service_healthy
     networks:
       - app-network
-      - lgtm_observability
     profiles:
       - full-docker
 
@@ -148,7 +148,7 @@ services:
     ports:
       - "4566:4566"  # LocalStack main port
     environment:
-      SERVICES: sqs
+      SERVICES: sqs,s3
       DEBUG: 1
       PERSISTENCE: 1
     healthcheck:
@@ -163,13 +163,77 @@ services:
     networks:
       - app-network
 
+  # OpenTelemetry Collector (for NewRelic)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "13133:13133"  # health check endpoint
+    environment:
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY}
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:13133/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+  # Langfuse Database (separate Postgres for Langfuse)
+  langfuse-db:
+    image: postgres:15-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  # Langfuse (LLM Observability - local instance)
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "3703:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: local-dev-secret-change-in-production
+      SALT: local-dev-salt-change-in-production
+      NEXTAUTH_URL: http://localhost:3703
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - app-network
+
 volumes:
   supabase_db_data:
   localstack_data:
   redis_data:
+  langfuse_db_data:
 
 networks:
   app-network:
     driver: bridge
-  lgtm_observability:
-    external: true

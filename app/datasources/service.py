@@ -3,15 +3,16 @@ Datasources service layer for business logic
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
-from sqlalchemy import select
 import httpx
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models import GrafanaIntegration
 from app.utils.retry_decorator import retry_external_api
 from app.utils.token_processor import token_processor
+
 from .models import LabelResponse
 
 logger = logging.getLogger(__name__)

@@ -3,26 +3,26 @@ Metrics service layer for business logic
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
 import re
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
 import httpx
+from sqlalchemy import select
 
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
-from ..utils.token_processor import token_processor
 from ..utils.retry_decorator import retry_external_api
+from ..utils.token_processor import token_processor
 from .models import (
     InstantMetricResponse,
+    LabelResponse,
+    MetricSeries,
+    MetricTarget,
+    MetricValue,
     RangeMetricResponse,
     TargetsResponse,
-    MetricTarget,
-    MetricSeries,
-    MetricValue,
     TimeRange,
-    LabelResponse,
 )
 from .utils import get_prometheus_uid_cached
 

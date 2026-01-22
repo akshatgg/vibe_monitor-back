@@ -1,8 +1,6 @@
 name: Deploy to ECS - Dev
 
 on:
-  push:
-    branches: [ "dev" ]
   workflow_dispatch:
 
 permissions:
@@ -19,3 +17,21 @@ jobs:
       iam_role_session_name: gha-ecs-deploy-dev
     secrets:
       aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+
+  notify-deployment:
+    name: Notify Vibe Monitor
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: success()
+    steps:
+      - name: Report Deployment to Vibe Monitor
+        run: |
+          curl -X POST https://dev.vibemonitor.ai/api/v1/deployments/webhook \
+            -H "X-Workspace-Key: ${{ secrets.VM_WORKSPACE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "environment": "dev",
+              "repository": "${{ github.repository }}",
+              "branch": "${{ github.ref_name }}",
+              "commit_sha": "${{ github.sha }}"
+            }'

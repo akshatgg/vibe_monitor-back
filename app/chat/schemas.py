@@ -3,10 +3,11 @@ Pydantic schemas for chat endpoints.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
-from app.models import TurnStatus, StepType, StepStatus
+from app.models import StepStatus, StepType, TurnStatus
 
 
 # Request schemas
@@ -32,11 +33,19 @@ class UpdateSessionRequest(BaseModel):
 class SubmitFeedbackRequest(BaseModel):
     """Request to submit feedback on a turn."""
 
-    score: int = Field(
-        ..., ge=1, le=5, description="Feedback score: 1=thumbs down, 5=thumbs up"
+    is_positive: bool = Field(
+        ..., description="True for thumbs up, False for thumbs down"
     )
     comment: Optional[str] = Field(
         None, max_length=1000, description="Optional feedback comment"
+    )
+
+
+class AddFeedbackCommentRequest(BaseModel):
+    """Request to add a comment to existing feedback (separate from thumbs up/down)."""
+
+    comment: str = Field(
+        ..., min_length=1, max_length=1000, description="Feedback comment"
     )
 
 
@@ -62,11 +71,10 @@ class ChatTurnResponse(BaseModel):
     id: str
     session_id: str
     user_message: str
+    attachments: Optional[List[dict]] = None
     final_response: Optional[str] = None
     status: TurnStatus
     job_id: Optional[str] = None
-    feedback_score: Optional[int] = None
-    feedback_comment: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     steps: List[TurnStepResponse] = []
@@ -80,9 +88,9 @@ class ChatTurnSummary(BaseModel):
 
     id: str
     user_message: str
+    attachments: Optional[List[dict]] = None
     final_response: Optional[str] = None
     status: TurnStatus
-    feedback_score: Optional[int] = None
     created_at: datetime
 
     class Config:
@@ -130,7 +138,7 @@ class FeedbackResponse(BaseModel):
     """Response after submitting feedback."""
 
     turn_id: str
-    score: int
+    is_positive: bool
     comment: Optional[str] = None
     message: str = "Feedback submitted successfully."
 
@@ -179,3 +187,35 @@ class SSEErrorEvent(BaseModel):
 
     event: str = "error"
     message: str
+
+
+# Search schemas
+class ChatSearchResult(BaseModel):
+    """Search result for a chat session."""
+
+    session_id: str
+    title: Optional[str] = None
+    matched_content: str
+    match_type: str  # 'title' or 'message'
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChatSearchResponse(BaseModel):
+    """Response for chat search."""
+
+    results: List[ChatSearchResult] = []
+
+
+class FileDownloadResponse(BaseModel):
+    """Response for file download URL generation."""
+
+    file_id: str = Field(..., description="UUID of the file")
+    filename: str = Field(..., description="Original filename")
+    size_bytes: int = Field(..., description="File size in bytes")
+    mime_type: str = Field(..., description="MIME type of the file")
+    download_url: str = Field(..., description="Presigned S3 download URL (1-hour expiry)")
+    expires_in_seconds: int = Field(..., description="URL expiration time in seconds")

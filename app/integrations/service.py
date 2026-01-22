@@ -4,27 +4,28 @@ Orchestrates health checks for all integrations and updates the database.
 """
 
 import logging
-from typing import List
 from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from typing import List
 
-from app.models import (
-    Integration,
-    GitHubIntegration,
-    AWSIntegration,
-    GrafanaIntegration,
-    DatadogIntegration,
-    NewRelicIntegration,
-    SlackInstallation,
-)
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.integrations.health_checks import (
-    check_github_health,
     check_aws_health,
-    check_grafana_health,
     check_datadog_health,
+    check_github_health,
+    check_grafana_health,
     check_newrelic_health,
     check_slack_health,
+)
+from app.models import (
+    AWSIntegration,
+    DatadogIntegration,
+    GitHubIntegration,
+    GrafanaIntegration,
+    Integration,
+    NewRelicIntegration,
+    SlackInstallation,
 )
 
 logger = logging.getLogger(__name__)

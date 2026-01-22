@@ -2,9 +2,10 @@
 Pydantic schemas for integration API responses.
 """
 
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import List
+
+from pydantic import BaseModel, ConfigDict
 
 
 class IntegrationResponse(BaseModel):
@@ -39,3 +40,10 @@ class HealthCheckResponse(BaseModel):
     status: str
     last_verified_at: datetime | None
     last_error: str | None
+
+
+class AvailableIntegrationsResponse(BaseModel):
+    """Response model for available integrations."""
+
+    allowed_integrations: List[str]
+    restrictions: dict[str, bool]

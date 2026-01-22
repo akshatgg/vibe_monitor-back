@@ -3,11 +3,8 @@ AWS Integration module
 """
 
 from .router import router
+from .schemas import AWSIntegrationCreate, AWSIntegrationResponse
 from .service import aws_integration_service
-from .schemas import (
-    AWSIntegrationCreate,
-    AWSIntegrationResponse,
-)
 
 __all__ = [
     "router",

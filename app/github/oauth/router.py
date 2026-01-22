@@ -1,16 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import Optional
-import secrets
 import logging
+import secrets
+from typing import Optional
 
-from .service import GitHubAppService
-from ...auth.services.google_auth_service import AuthService
-from ...core.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...auth.google.service import AuthService
 from ...core.config import settings
+from ...core.database import get_db
 from ...utils.token_processor import token_processor
+from .service import GitHubAppService
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ async def github_app_installation_callback(
         raise HTTPException(status_code=400, detail="workspace_id is required")
 
     # Validate that workspace exists and user has access
-    from ...models import Workspace, Membership
+    from ...models import Membership, Workspace
 
     workspace_result = await db.execute(
         select(Workspace).where(Workspace.id == final_workspace_id)
@@ -360,6 +361,40 @@ async def github_app_installation_callback_endpoint(
         return await github_app_installation_callback(
             installation_id, setup_action, state, workspace_id, jwt_token, db
         )
+    except ValueError as e:
+        # Handle workspace conflict errors
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/repositories/{repo_full_name:path}/branches")
+async def get_repository_branches_endpoint(
+    repo_full_name: str,
+    workspace_id: str = Query(..., description="Workspace ID"),
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of branches for a repository.
+
+    The repo_full_name should be in format 'owner/repo'.
+
+    Requires membership in the workspace (Owner or Member).
+    Requires GitHub integration to be configured.
+    """
+    from app.environments.service import EnvironmentService
+
+    try:
+        service = EnvironmentService(db)
+        branches = await service.get_repository_branches(
+            workspace_id=workspace_id,
+            repo_full_name=repo_full_name,
+            user_id=user.id,
+        )
+        return {"branches": branches}
     except HTTPException as he:
         raise he
     except Exception as e:

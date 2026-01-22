@@ -3,16 +3,16 @@ Integration capability resolver for RCA agent.
 Maps workspace integrations to available tools and capabilities.
 """
 
-from enum import Enum
-from typing import Set, Dict, List
+import logging
 from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Set
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import logging
-
 from app.integrations.service import (
-    get_workspace_integrations,
     check_integration_health,
+    get_workspace_integrations,
 )
 from app.models import Integration
 

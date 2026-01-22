@@ -8,11 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+
 from .schemas import (
-    QueryLogsRequest,
-    QueryLogsResponse,
     FilterLogsRequest,
     FilterLogsResponse,
+    QueryLogsRequest,
+    QueryLogsResponse,
 )
 from .service import newrelic_logs_service
 

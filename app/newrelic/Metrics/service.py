@@ -4,21 +4,23 @@ Uses New Relic Integration credentials (account_id + api_key)
 """
 
 import logging
+from typing import Any, Dict
+
 import httpx
-from typing import Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import NewRelicIntegration
 from app.utils.token_processor import token_processor
+
 from .schemas import (
-    QueryMetricsRequest,
-    QueryMetricsResponse,
-    GetTimeSeriesRequest,
-    GetTimeSeriesResponse,
-    TimeSeriesDataPoint,
     GetInfraMetricsRequest,
     GetInfraMetricsResponse,
+    GetTimeSeriesRequest,
+    GetTimeSeriesResponse,
+    QueryMetricsRequest,
+    QueryMetricsResponse,
+    TimeSeriesDataPoint,
 )
 
 logger = logging.getLogger(__name__)

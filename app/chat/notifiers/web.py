@@ -11,7 +11,7 @@ from app.chat.notifiers.base import BaseNotifier
 from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.redis import publish_event
-from app.models import TurnStatus, StepType, StepStatus
+from app.models import StepStatus, StepType, TurnStatus
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +104,14 @@ class WebNotifier(BaseNotifier):
         if step_id:
             await self.service.update_step_status(
                 step_id=step_id,
-                status=StepStatus.COMPLETED
-                if status == "completed"
-                else StepStatus.FAILED,
-                content=content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
-                if content
-                else None,
+                status=(
+                    StepStatus.COMPLETED if status == "completed" else StepStatus.FAILED
+                ),
+                content=(
+                    content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
+                    if content
+                    else None
+                ),
             )
             await self.db.commit()
 
@@ -120,9 +122,11 @@ class WebNotifier(BaseNotifier):
                 "event": "tool_end",
                 "tool_name": tool_name,
                 "status": status,
-                "content": content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
-                if content
-                else None,
+                "content": (
+                    content[: settings.RCA_WEB_TOOL_OUTPUT_MAX_LENGTH]
+                    if content
+                    else None
+                ),
                 "step_id": step_id,  # For matching with tool_start
             },
         )
@@ -148,23 +152,26 @@ class WebNotifier(BaseNotifier):
         )
         logger.info(f"[Turn {self.turn_id}] Processing complete")
 
-    async def on_error(self, message: str) -> None:
+    async def on_error(self, message: str, action_url: Optional[str] = None) -> None:
         """Notify that an error occurred."""
-        # Update turn status to failed
+        # Update turn status to failed and save error message
         await self.service.update_turn_status(
             turn_id=self.turn_id,
             status=TurnStatus.FAILED,
+            final_response=message,  # Save error message to DB
         )
         await self.db.commit()
 
         # Publish to Redis
-        await publish_event(
-            self.channel,
-            {
-                "event": "error",
-                "message": message,
-            },
-        )
+        event_data = {
+            "event": "error",
+            "message": message,
+        }
+        if action_url:
+            event_data["action_url"] = action_url
+
+        await publish_event(self.channel, event_data)
+
         # Structured logging for log aggregation tools (Datadog, CloudWatch)
         logger.error(
             f"[Turn {self.turn_id}] Error: {message}",

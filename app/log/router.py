@@ -3,20 +3,20 @@ FastAPI router for logs endpoints
 """
 
 import logging
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ..core.config import settings
 from .models import (
-    LogQueryResponse,
     LabelResponse,
     LogQueryParams,
-    TimeRange,
+    LogQueryResponse,
     LogsHealthResponse,
+    TimeRange,
 )
 from .service import logs_service
-from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 

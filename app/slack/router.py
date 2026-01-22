@@ -1,32 +1,39 @@
-import logging
 import json
-from typing import Optional
-import httpx
+import logging
 import secrets
-from fastapi import APIRouter, Request, HTTPException, Depends
-from app.utils.retry_decorator import retry_external_api
-from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from typing import Optional
+from urllib.parse import quote
 
-from app.slack.schemas import SlackEventPayload
-from app.slack.service import slack_event_service
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import get_db
-from app.auth.services.google_auth_service import AuthService
-from app.models import SlackInstallation, Workspace, Membership, Integration
-from app.chat.service import ChatService
-from fastapi.responses import RedirectResponse
+from app.models import Integration, Membership, SlackInstallation, Workspace
+from app.slack.schemas import SlackEventPayload
+from app.slack.service import slack_event_service
+from app.utils.retry_decorator import retry_external_api
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
 
-slack_router = APIRouter(prefix="/slack", tags=["slack"])
+# Workspace-scoped endpoints
+slack_router = APIRouter(prefix="/workspaces/{workspace_id}/slack", tags=["slack"])
+
+# Webhook endpoints (called by Slack directly)
+slack_webhook_router = APIRouter(prefix="/slack", tags=["slack"])
 
 
 @slack_router.get("/install")
 async def initiate_slack_install(
-    workspace_id: str, user=Depends(auth_service.get_current_user)
+    workspace_id: str,
+    user=Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Generate Slack OAuth URL with workspace_id and user_id embedded in state parameter
@@ -42,13 +49,16 @@ async def initiate_slack_install(
         - Requires JWT authentication
         - State includes user_id|workspace_id|nonce to prevent CSRF attacks
     """
-    # Create state with user_id, workspace_id, and random nonce (same pattern as GitHub)
+    workspace_result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = workspace_result.scalar_one_or_none()
+
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
     state = f"{user.id}|{workspace_id}|{secrets.token_urlsafe(16)}"
 
-    # Updated scopes to listen to all messages in channels where bot is added
-    # channels:history - Read messages in public channels
-    # groups:history - Read messages in private channels
-    # files:read - Download images/files from messages for RCA analysis
     oauth_url = (
         f"{settings.SLACK_OAUTH_AUTHORIZE_URL}?"
         f"client_id={settings.SLACK_CLIENT_ID}&"
@@ -63,188 +73,7 @@ async def initiate_slack_install(
     return JSONResponse({"oauth_url": oauth_url})
 
 
-@slack_router.post("/events")
-async def handle_slack_events(request: Request):
-    """
-    Endpoint for handling Slack Events API subscription
-
-    Supports:
-    1. URL verification challenge
-    2. App mention events
-    3. Request signature verification
-    """
-    # Get request headers and body
-    slack_signature = request.headers.get("X-Slack-Signature", "")
-    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
-    request_body = await request.body()
-
-    # Verify request
-    if not await slack_event_service.verify_slack_request(
-        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
-    ):
-        logger.warning("Invalid Slack request signature")
-        raise HTTPException(status_code=403, detail="Invalid request signature")
-
-    # Parse request body
-    try:
-        payload_dict = await request.json()
-    except Exception as e:
-        logger.error(f"Error parsing request body to JSON : {e}")
-        raise HTTPException(status_code=400, detail="Invalid payload")
-
-    # Handle URL verification challenge
-    if payload_dict.get("type") == "url_verification":
-        return JSONResponse({"challenge": payload_dict["challenge"]})
-
-    # Validate and process Slack event
-    try:
-        event_payload = SlackEventPayload(**payload_dict)
-
-        # Process multiple event types:
-        # 1. app_mention - When bot is explicitly mentioned
-        # 2. message - All messages in channels where bot is added (for auto alert detection)
-        # 3. channel_join - When bot joins a channel
-        event_type = event_payload.event.get("type")
-        event_subtype = event_payload.event.get("subtype")
-
-        logger.info(
-            f"📩 Received Slack event - type: {event_type}, subtype: {event_subtype}"
-        )
-
-        if (
-            event_type == "app_mention"
-            or event_type == "message"
-            or event_subtype == "channel_join"
-        ):
-            result = await slack_event_service.handle_slack_event(event_payload)
-            return JSONResponse(result)
-
-        return JSONResponse(
-            {"status": "ignored", "message": f"Event type '{event_type}' not handled"},
-            status_code=200,
-        )
-
-    except Exception as e:
-        logger.error(f"Error processing Slack event: {e}")
-        raise HTTPException(status_code=500, detail="Internal processing error")
-
-
-@slack_router.post("/interactions")
-async def handle_slack_interactions(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Handle Slack interactive components (buttons, modals).
-
-    This endpoint handles:
-    1. Feedback button clicks (thumbs up/down, comment)
-    2. Feedback modal submissions
-    """
-    # Verify request signature
-    slack_signature = request.headers.get("X-Slack-Signature", "")
-    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
-    request_body = await request.body()
-
-    if not await slack_event_service.verify_slack_request(
-        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
-    ):
-        raise HTTPException(status_code=403, detail="Invalid request signature")
-
-    # Parse payload from form data
-    form_data = await request.form()
-    payload = json.loads(form_data.get("payload", "{}"))
-
-    payload_type = payload.get("type")
-    team_id = payload.get("team", {}).get("id")
-
-    logger.info(f"Received Slack interaction: type={payload_type}")
-
-    # Handle button clicks
-    if payload_type == "block_actions":
-        actions = payload.get("actions", [])
-        for action in actions:
-            action_id = action.get("action_id")
-            turn_id = action.get("value")
-            trigger_id = payload.get("trigger_id")
-
-            if action_id == "feedback_thumbs_up":
-                # Quick thumbs up - save directly
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=5,  # Thumbs up = 5
-                    comment=None,
-                )
-                await db.commit()
-
-                if turn:
-                    logger.info(f"Thumbs up feedback recorded for turn {turn_id}")
-                return JSONResponse({"ok": True})
-
-            elif action_id == "feedback_thumbs_down":
-                # Quick thumbs down - save directly
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=1,  # Thumbs down = 1
-                    comment=None,
-                )
-                await db.commit()
-
-                if turn:
-                    logger.info(f"Thumbs down feedback recorded for turn {turn_id}")
-                return JSONResponse({"ok": True})
-
-            elif action_id == "feedback_with_comment":
-                # Open modal for detailed feedback
-                await slack_event_service.open_feedback_modal(
-                    team_id=team_id,
-                    trigger_id=trigger_id,
-                    turn_id=turn_id,
-                )
-                return JSONResponse({"ok": True})
-
-    # Handle modal submission
-    if payload_type == "view_submission":
-        callback_id = payload.get("view", {}).get("callback_id")
-
-        if callback_id == "feedback_submission":
-            turn_id = payload.get("view", {}).get("private_metadata")
-            values = payload.get("view", {}).get("state", {}).get("values", {})
-
-            # Extract rating and comment from modal
-            rating = (
-                values.get("rating_block", {})
-                .get("rating_select", {})
-                .get("selected_option", {})
-                .get("value")
-            )
-            comment = (
-                values.get("comment_block", {}).get("comment_input", {}).get("value")
-            )
-
-            if rating:
-                chat_service = ChatService(db)
-                turn = await chat_service.submit_feedback_by_turn_id(
-                    turn_id=turn_id,
-                    score=int(rating),
-                    comment=comment,
-                )
-                await db.commit()
-
-                if turn:
-                    logger.info(
-                        f"Feedback submitted for turn {turn_id}: score={rating}"
-                    )
-
-            # Close modal
-            return JSONResponse({"response_action": "clear"})
-
-    return JSONResponse({"ok": True})
-
-
-@slack_router.get("/connection/status")
+@slack_router.get("/status")
 async def get_slack_connection_status(
     workspace_id: str,
     user=Depends(auth_service.get_current_user),
@@ -252,16 +81,7 @@ async def get_slack_connection_status(
 ):
     """
     Check if Slack is connected for a given workspace
-    Args:
-        workspace_id: VibeMonitor workspace ID
-        user: Authenticated user (from JWT)
-    Returns:
-        Connection status with Slack workspace details if connected
-    Security:
-        - Requires JWT authentication
-        - Verifies user has access to the workspace
     """
-    # Verify user has access to the workspace
     membership_result = await db.execute(
         select(Membership).where(
             Membership.user_id == user.id, Membership.workspace_id == workspace_id
@@ -275,7 +95,6 @@ async def get_slack_connection_status(
             status_code=403, detail="User does not have access to this workspace"
         )
 
-    # Check if Slack installation exists for this workspace
     slack_result = await db.execute(
         select(SlackInstallation).where(SlackInstallation.workspace_id == workspace_id)
     )
@@ -305,9 +124,11 @@ async def get_slack_connection_status(
                 "team_name": slack_installation.team_name,
                 "bot_user_id": slack_installation.bot_user_id,
                 "workspace_id": workspace_id,
-                "installed_at": slack_installation.installed_at.isoformat()
-                if slack_installation.installed_at
-                else None,
+                "installed_at": (
+                    slack_installation.installed_at.isoformat()
+                    if slack_installation.installed_at
+                    else None
+                ),
             },
         },
     )
@@ -321,21 +142,7 @@ async def disconnect_slack_integration(
 ):
     """
     Disconnect and remove Slack integration for a workspace
-    This will:
-    1. Delete the Slack installation record
-    2. Remove the bot access token
-    3. Unlink the Slack workspace from VibeMonitor workspace
-    Args:
-        workspace_id: VibeMonitor workspace ID
-        user: Authenticated user (from JWT)
-    Returns:
-        Success message confirming disconnection
-    Security:
-        - Requires JWT authentication
-        - Verifies user has access to the workspace
-        - Only removes the integration, doesn't affect other workspace data
     """
-    # Verify user has access to the workspace
     membership_result = await db.execute(
         select(Membership).where(
             Membership.user_id == user.id, Membership.workspace_id == workspace_id
@@ -349,7 +156,6 @@ async def disconnect_slack_integration(
             status_code=403, detail="User does not have access to this workspace"
         )
 
-    # Find Slack installation for this workspace
     slack_result = await db.execute(
         select(SlackInstallation).where(SlackInstallation.workspace_id == workspace_id)
     )
@@ -361,13 +167,10 @@ async def disconnect_slack_integration(
             status_code=404, detail="No Slack integration found for this workspace"
         )
 
-    # Store details for response before deletion
     team_name = slack_installation.team_name
     team_id = slack_installation.team_id
 
-    # Delete the Slack installation and Integration control plane record
     try:
-        # Find and delete the Integration control plane record for this workspace
         control_plane_result = await db.execute(
             select(Integration).where(
                 Integration.workspace_id == workspace_id,
@@ -409,7 +212,224 @@ async def disconnect_slack_integration(
     )
 
 
-@slack_router.get("/oauth/callback")
+# ==================== Webhook Endpoints (called by Slack) ====================
+
+
+@slack_webhook_router.post("/events")
+async def handle_slack_events(request: Request):
+    """
+    Endpoint for handling Slack Events API subscription
+    """
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+    slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    request_body = await request.body()
+
+    if not await slack_event_service.verify_slack_request(
+        slack_signature, slack_request_timestamp, request_body.decode("utf-8")
+    ):
+        logger.warning("Invalid Slack request signature")
+        raise HTTPException(status_code=403, detail="Invalid request signature")
+
+    try:
+        payload_dict = await request.json()
+    except Exception as e:
+        logger.error(f"Error parsing request body to JSON : {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    if payload_dict.get("type") == "url_verification":
+        return JSONResponse({"challenge": payload_dict["challenge"]})
+
+    try:
+        event_payload = SlackEventPayload(**payload_dict)
+        event_type = event_payload.event.get("type")
+        event_subtype = event_payload.event.get("subtype")
+
+        logger.info(
+            f"📩 Received Slack event - type: {event_type}, subtype: {event_subtype}"
+        )
+
+        if (
+            event_type == "app_mention"
+            or event_type == "message"
+            or event_subtype == "channel_join"
+        ):
+            result = await slack_event_service.handle_slack_event(event_payload)
+            return JSONResponse(result)
+
+        return JSONResponse(
+            {"status": "ignored", "message": f"Event type '{event_type}' not handled"},
+            status_code=200,
+        )
+
+    except Exception as e:
+        logger.error(f"Error processing Slack event: {e}")
+        raise HTTPException(status_code=500, detail="Internal processing error")
+
+
+@slack_webhook_router.post("/interactivity")
+async def handle_slack_interactivity(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Handle Slack interactive components (buttons, modals).
+    """
+    try:
+        logger.info("=== INTERACTIVITY HANDLER START ===")
+        slack_signature = request.headers.get("X-Slack-Signature", "")
+        slack_request_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        request_body = await request.body()
+        logger.info(f"Request body length: {len(request_body)}")
+
+        if not await slack_event_service.verify_slack_request(
+            slack_signature, slack_request_timestamp, request_body.decode("utf-8")
+        ):
+            raise HTTPException(status_code=403, detail="Invalid request signature")
+
+        logger.info("Signature verified successfully")
+        form_data = await request.form()
+        payload = json.loads(form_data.get("payload", "{}"))
+        logger.info(f"Payload parsed: {json.dumps(payload)[:500]}")
+
+        payload_type = payload.get("type")
+        team_id = payload.get("team", {}).get("id")
+
+        logger.info(
+            f"Received Slack interaction: type={payload_type}, team_id={team_id}"
+        )
+
+        if payload_type == "block_actions":
+            actions = payload.get("actions", [])
+            logger.info(f"Processing {len(actions)} actions")
+
+            # Extract message info for updating after feedback
+            message = payload.get("message", {})
+            message_ts = message.get("ts")
+            channel_id = payload.get("channel", {}).get("id")
+            # Get original text from the first block (section with RCA response)
+            blocks = message.get("blocks", [])
+            original_text = ""
+            if blocks and blocks[0].get("type") == "section":
+                original_text = blocks[0].get("text", {}).get("text", "")
+
+            for action in actions:
+                action_id = action.get("action_id")
+                turn_id = action.get("value")
+                trigger_id = payload.get("trigger_id")
+                logger.info(f"Action: action_id={action_id}, turn_id={turn_id}")
+
+                if action_id == "feedback_thumbs_up":
+                    slack_user_id = payload.get("user", {}).get("id")
+                    logger.info(
+                        f"Processing thumbs up for turn_id={turn_id}, "
+                        f"slack_user={slack_user_id}"
+                    )
+                    chat_service = ChatService(db)
+                    feedback = await chat_service.submit_turn_feedback_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        is_positive=True,
+                    )
+                    await db.commit()
+
+                    if feedback:
+                        logger.info(
+                            f"Thumbs up feedback recorded for turn {turn_id} "
+                            f"by Slack user {slack_user_id}"
+                        )
+
+                    # Update message to show feedback confirmation
+                    if message_ts and channel_id and original_text:
+                        await slack_event_service.update_message_with_feedback_confirmation(
+                            team_id=team_id,
+                            channel=channel_id,
+                            message_ts=message_ts,
+                            original_text=original_text,
+                            feedback_type="thumbs_up",
+                            turn_id=turn_id,
+                        )
+
+                    return JSONResponse({"ok": True})
+
+                elif action_id == "feedback_thumbs_down":
+                    slack_user_id = payload.get("user", {}).get("id")
+                    logger.info(
+                        f"Processing thumbs down for turn_id={turn_id}, "
+                        f"slack_user={slack_user_id}"
+                    )
+                    chat_service = ChatService(db)
+                    feedback = await chat_service.submit_turn_feedback_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        is_positive=False,
+                    )
+                    await db.commit()
+
+                    if feedback:
+                        logger.info(
+                            f"Thumbs down feedback recorded for turn {turn_id} "
+                            f"by Slack user {slack_user_id}"
+                        )
+
+                    # Update message to show feedback confirmation
+                    if message_ts and channel_id and original_text:
+                        await slack_event_service.update_message_with_feedback_confirmation(
+                            team_id=team_id,
+                            channel=channel_id,
+                            message_ts=message_ts,
+                            original_text=original_text,
+                            feedback_type="thumbs_down",
+                            turn_id=turn_id,
+                        )
+
+                    return JSONResponse({"ok": True})
+
+                elif action_id == "feedback_with_comment":
+                    logger.info(f"Opening feedback modal for turn_id={turn_id}")
+                    await slack_event_service.open_feedback_modal(
+                        team_id=team_id,
+                        trigger_id=trigger_id,
+                        turn_id=turn_id,
+                    )
+                    return JSONResponse({"ok": True})
+        if payload_type == "view_submission":
+            callback_id = payload.get("view", {}).get("callback_id")
+
+            if callback_id == "feedback_submission":
+                turn_id = payload.get("view", {}).get("private_metadata")
+                slack_user_id = payload.get("user", {}).get("id")
+                values = payload.get("view", {}).get("state", {}).get("values", {})
+
+                comment = (
+                    values.get("comment_block", {})
+                    .get("comment_input", {})
+                    .get("value")
+                )
+
+                if comment:
+                    chat_service = ChatService(db)
+                    await chat_service.add_turn_comment_slack(
+                        turn_id=turn_id,
+                        slack_user_id=slack_user_id,
+                        comment=comment,
+                    )
+                    await db.commit()
+                    logger.info(
+                        f"Comment added for turn {turn_id} by Slack user {slack_user_id}"
+                    )
+
+                return JSONResponse({"response_action": "clear"})
+
+        return JSONResponse({"ok": True})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"=== INTERACTIVITY ERROR: {e} ===")
+        raise
+
+
+@slack_webhook_router.get("/oauth/callback")
 async def slack_oauth_callback(
     code: Optional[str] = None,
     error: Optional[str] = None,
@@ -418,41 +438,23 @@ async def slack_oauth_callback(
 ):
     """
     OAuth 2.0 callback endpoint - handles Slack app installation
-
-    Flow:
-    1. User clicks "Add to Slack" button (authenticated, with workspace_id in state)
-    2. Slack redirects here with authorization code and state
-    3. We extract user_id and workspace_id from state
-    4. Verify user has access to the workspace
-    5. Exchange code for access token
-    6. Store token linked to workspace_id
-    7. Bot is now installed and can receive events
-
-    Security:
-    - State format: user_id|workspace_id|nonce
-    - Verifies workspace exists
-    - Verifies user has membership in workspace
     """
-
-    # Handle OAuth errors (user cancelled, etc.)
     if error:
         logger.error(f"OAuth error from Slack: {error}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": error, "message": "Installation was cancelled or failed"},
-        )
+        error_msg = quote("Installation was cancelled or failed")
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
-    # Validate we received an authorization code
     if not code:
         logger.error("No authorization code received")
-        raise HTTPException(status_code=400, detail="Missing authorization code")
+        error_msg = quote("Missing authorization code")
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
-    # Extract user_id and workspace_id from state parameter
     user_id = None
     workspace_id = None
     if state:
         try:
-            # Parse state format: "user_id|workspace_id|nonce" (same pattern as GitHub)
             parts = state.split("|")
             if len(parts) >= 2:
                 user_id = parts[0]
@@ -464,7 +466,6 @@ async def slack_oauth_callback(
             logger.error(f"Failed to parse state parameter: {e}")
             raise HTTPException(status_code=400, detail="Invalid state parameter")
 
-    # Validate user_id and workspace_id were extracted
     if not user_id:
         logger.error("Missing user_id in state parameter")
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -472,8 +473,6 @@ async def slack_oauth_callback(
     if not workspace_id:
         logger.error("Missing workspace_id in state parameter")
         raise HTTPException(status_code=400, detail="workspace_id is required")
-
-    # Verify workspace exists and user has access (same security as GitHub integration)
 
     workspace_result = await db.execute(
         select(Workspace).where(Workspace.id == workspace_id)
@@ -484,7 +483,6 @@ async def slack_oauth_callback(
         logger.error(f"Workspace not found: {workspace_id}")
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    # Check if user is a member of the workspace
     membership_result = await db.execute(
         select(Membership).where(
             Membership.user_id == user_id, Membership.workspace_id == workspace_id
@@ -500,7 +498,6 @@ async def slack_oauth_callback(
 
     logger.info(f"✅ Verified user {user_id} has access to workspace {workspace_id}")
 
-    # Validate OAuth credentials are configured
     if not settings.SLACK_CLIENT_ID or not settings.SLACK_CLIENT_SECRET:
         logger.error("MISSING SLACK_CLIENT_ID or/and SLACK_CLIENT_SECRET IN CONFIG")
         raise HTTPException(
@@ -508,7 +505,6 @@ async def slack_oauth_callback(
         )
 
     try:
-        # Exchange authorization code for access token
         logger.info("Exchanging OAuth code for access token")
 
         async with httpx.AsyncClient() as client:
@@ -525,7 +521,6 @@ async def slack_oauth_callback(
                     )
                     response.raise_for_status()
 
-                    # Parse Slack's response
                     data = response.json()
                     print(data)
 
@@ -537,25 +532,21 @@ async def slack_oauth_callback(
                             detail=f"slack installation failed: {error_msg}",
                         )
 
-        # Extract slack workspace and token information
         team_id = data["team"]["id"]
         team_name = data["team"]["name"]
         access_token = data["access_token"]
-        bot_user_id = data.get(
-            "bot_user_id"
-        )  # for that specific bot which is installed in that slack workspace
+        bot_user_id = data.get("bot_user_id")
         scope = data.get("scope", "")
 
         logger.info(f"OAuth successful - Team: {team_name} ({team_id})")
 
-        # Store the installation (token, team info) in database with workspace_id
         await slack_event_service.store_installation(
             team_id=team_id,
             team_name=team_name,
             access_token=access_token,
             bot_user_id=bot_user_id,
             scope=scope,
-            workspace_id=workspace_id,  # Link to VibeMonitor workspace
+            workspace_id=workspace_id,
         )
 
         logger.info(
@@ -567,7 +558,6 @@ async def slack_oauth_callback(
             )
         )
 
-        # Redirect to success page
         redirect_url = f"{settings.WEB_APP_URL}/setup"
         return RedirectResponse(url=redirect_url, status_code=302)
 
@@ -577,6 +567,12 @@ async def slack_oauth_callback(
     except httpx.HTTPError as e:
         logger.error(f"HTTP error during OAuth: {e}")
         raise HTTPException(status_code=502, detail="Failed to communicate with Slack")
+    except HTTPException as e:
+        # Handle workspace conflict error (bot already linked to another workspace)
+        logger.warning(f"Slack installation blocked: {e.detail}")
+        error_msg = quote(str(e.detail))
+        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
     except Exception as e:
         logger.error(f"Unexpected error during OAuth: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")

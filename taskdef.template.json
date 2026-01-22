@@ -3,7 +3,7 @@
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512",
-  "memory": "1024",
+  "memory": "2048",
   "executionRoleArn": "arn:aws:iam::ACCOUNT_ID_PLACEHOLDER:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::ACCOUNT_ID_PLACEHOLDER:role/ecsAppTaskRole",
   "containerDefinitions": [
@@ -31,6 +31,7 @@
         {"name": "SUPABASE_ANON_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-anon-key"},
         {"name": "SUPABASE_SERVICE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/supabase-service-key"},
         {"name": "POSTMARK_SERVER_TOKEN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/postmark-server-token"},
+        {"name": "POSTMARK_BROADCAST_STREAM", "valueFrom": "/vm-api-ENV_PLACEHOLDER/postmark-broadcast-stream"},
         {"name": "SCHEDULER_SECRET_TOKEN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/scheduler-secret-token"},
         {"name": "GROQ_API_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/groq-api-key"},
         {"name": "GROQ_LLM_MODEL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/groq-llm-model"},
@@ -52,12 +53,22 @@
         {"name": "OTEL_ENABLED", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-enabled"},
         {"name": "OTEL_OTLP_ENDPOINT", "valueFrom": "/vm-api-ENV_PLACEHOLDER/otel-otlp-endpoint"},
         {"name": "HOSTNAME", "valueFrom": "/vm-api-ENV_PLACEHOLDER/hostname"},
+        {"name": "DB_INSTRUMENTATION_ENABLED", "valueFrom": "/vm-api-ENV_PLACEHOLDER/db-instrumentation-enabled"},
         {"name": "SENTRY_DSN", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sentry-dsn"},
+        {"name": "LANGFUSE_ENABLED", "valueFrom": "/vm-api-ENV_PLACEHOLDER/langfuse-enabled"},
+        {"name": "LANGFUSE_PUBLIC_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/langfuse-public-key"},
+        {"name": "LANGFUSE_SECRET_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/langfuse-secret-key"},
         {"name": "ENGAGEMENT_SLACK_WEBHOOK_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/engagement-slack-webhook-url"},
         {"name": "GITHUB_OAUTH_CLIENT_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-id"},
         {"name": "GITHUB_OAUTH_CLIENT_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/github-oauth-client-secret"},
         {"name": "REDIS_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/redis-url"},
-        {"name": "NEW_RELIC_LICENSE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-relic-license-key"}
+        {"name": "STRIPE_SECRET_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-secret-key"},
+        {"name": "STRIPE_PUBLISHABLE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-publishable-key"},
+        {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-webhook-secret"},
+        {"name": "STRIPE_PRO_PLAN_PRICE_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-pro-plan-price-id"},
+        {"name": "STRIPE_ADDITIONAL_SERVICE_PRICE_ID", "valueFrom": "/vm-api-ENV_PLACEHOLDER/stripe-additional-service-price-id"},
+        {"name": "NEW_RELIC_LICENSE_KEY", "valueFrom": "/vm-api-ENV_PLACEHOLDER/new-relic-license-key"},
+        {"name": "CHAT_UPLOADS_BUCKET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/chat-uploads-bucket"}
       ]
     }
   ]

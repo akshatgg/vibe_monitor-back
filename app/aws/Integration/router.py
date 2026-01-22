@@ -7,15 +7,18 @@ Provides 3 endpoints for managing AWS integrations:
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User, Membership
-from app.auth.services.google_auth_service import AuthService
+from app.integrations.utils import check_integration_permission
+from app.models import Membership, User
+
 from .schemas import (
     AWSIntegrationCreate,
     AWSIntegrationResponse,
+    AWSIntegrationStatusResponse,
 )
 from .service import aws_integration_service
 
@@ -80,6 +83,9 @@ async def store_aws_integration(
     # Verify user has access to this workspace
     await verify_workspace_access(workspace_id, user, db)
 
+    # Check workspace type restriction (AWS blocked on personal workspaces)
+    await check_integration_permission(workspace_id, "aws", db)
+
     try:
         integration = await aws_integration_service.create_aws_integration(
             db=db,
@@ -96,7 +102,7 @@ async def store_aws_integration(
         )
 
 
-@router.get("/integration/status", response_model=AWSIntegrationResponse)
+@router.get("/integration/status", response_model=AWSIntegrationStatusResponse)
 async def get_aws_integration_status(
     workspace_id: str,
     user: User = Depends(auth_service.get_current_user),
@@ -106,8 +112,8 @@ async def get_aws_integration_status(
     Check if AWS integration is configured for a workspace.
 
     Returns:
-    - Integration details if configured
-    - 404 error if not configured
+    - is_connected: Boolean indicating if the workspace is connected to AWS
+    - integration: Integration details if connected, null otherwise
 
     Required:
     - workspace_id: VibeMonitor workspace ID (query parameter)
@@ -121,15 +127,10 @@ async def get_aws_integration_status(
         )
 
         if not integration:
-            raise HTTPException(
-                status_code=404,
-                detail="AWS integration not configured for this workspace",
-            )
+            return AWSIntegrationStatusResponse(is_connected=False, integration=None)
 
-        return integration
+        return AWSIntegrationStatusResponse(is_connected=True, integration=integration)
 
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get AWS integration status: {str(e)}"

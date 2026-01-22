@@ -65,12 +65,13 @@ class BaseNotifier(ABC):
         pass
 
     @abstractmethod
-    async def on_error(self, message: str) -> None:
+    async def on_error(self, message: str, action_url: Optional[str] = None) -> None:
         """
         Notify that an error occurred.
 
         Args:
             message: Error message
+            action_url: Optional URL for user to take action (e.g., set up integrations)
         """
         pass
 

@@ -11,7 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install build deps and Poetry
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential \
+    && apt-get install --no-install-recommends -y build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install "poetry==$POETRY_VERSION"
 
@@ -22,9 +22,16 @@ COPY pyproject.toml poetry.lock* ./
 RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && poetry install --only=main --no-root --no-ansi \
+    && python -m spacy download en_core_web_lg \
+    && python -c "import spacy; spacy.load('en_core_web_lg')" \
     && poetry cache clear pypi --all
 
 FROM python:3.12-slim AS runtime
+
+# Install runtime system dependencies
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Service metadata for observability and service discovery
 LABEL service.name="vm-api"
@@ -50,6 +57,7 @@ COPY entrypoint.sh ./
 RUN useradd -r -u 10001 -g users appuser \
     && mkdir -p /app/data \
     && chown -R appuser:users /app \
+    && chown -R appuser:users /opt/venv \
     && chmod +x /app/entrypoint.sh
 USER appuser
 

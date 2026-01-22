@@ -2,9 +2,10 @@
 Pydantic schemas for engagement metrics.
 """
 
-from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel
 
 
 class MetricPeriod(BaseModel):
@@ -33,6 +34,7 @@ class EngagementReport(BaseModel):
 
     report_date: datetime
     signups: MetricPeriod
+    active_users: MetricPeriod
     active_workspaces: MetricPeriod
 
 

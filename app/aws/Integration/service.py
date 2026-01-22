@@ -5,22 +5,24 @@ Uses STS AssumeRole for temporary credentials instead of long-term access keys
 Implements two-stage authentication: Host -> Owner Role -> Client Role
 """
 
+import asyncio
+import logging
 import os
 import uuid
-import logging
-import asyncio
-from typing import Optional, Dict, Any
 from contextlib import contextmanager
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
 import boto3
 from botocore.exceptions import ClientError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AWSIntegration, Integration
-from app.utils.token_processor import token_processor
 from app.core.config import settings
 from app.integrations.health_checks import check_aws_health
+from app.models import AWSIntegration, Integration
+from app.utils.token_processor import token_processor
+
 from .schemas import (
     AWSIntegrationCreate,
     AWSIntegrationResponse,

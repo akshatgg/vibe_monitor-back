@@ -1,19 +1,24 @@
 """
 Simple universal rate limiter.
 Check if request is allowed, increment if yes.
+
+BYOLLM Support:
+- Workspaces with custom LLM configuration bypass rate limiting
+- Only VibeMonitor AI (default Groq) users are rate limited
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
-from typing import Tuple
 from enum import Enum
+from typing import Tuple
 
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Workspace, RateLimitTracking
+from app.models import LLMProvider, LLMProviderConfig, RateLimitTracking, Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,7 @@ class ResourceType(str, Enum):
     API_CALL = "api_call"
     EXPORT = "export"
     SLACK_MESSAGE = "slack_message"
+    FILE_UPLOAD_BYTES = "file_upload_bytes"  # Total bytes uploaded per day
 
 
 async def check_rate_limit(
@@ -32,6 +38,7 @@ async def check_rate_limit(
     workspace_id: str,
     resource_type: ResourceType,
     limit: int = None,
+    increment: int = 1,
 ) -> Tuple[bool, int, int]:
     """
     Check if request is allowed and increment counter if yes.
@@ -41,18 +48,29 @@ async def check_rate_limit(
         workspace_id: Workspace ID
         resource_type: Type of resource (RCA_REQUEST, API_CALL, etc.)
         limit: Custom limit (if None, uses workspace.daily_request_limit for RCA)
+        increment: Amount to increment by (default 1, use bytes for FILE_UPLOAD_BYTES)
 
     Returns:
         (allowed: bool, current_count: int, limit: int)
         - allowed: True if request should proceed, False if limit exceeded
-        - current_count: Current usage count
+        - current_count: Current usage count (after increment if allowed)
         - limit: The rate limit
 
     Example:
+        # For request counting
         allowed, count, limit = await check_rate_limit(
             session=db,
             workspace_id="workspace-123",
             resource_type=ResourceType.RCA_REQUEST
+        )
+
+        # For byte counting
+        allowed, bytes_used, bytes_limit = await check_rate_limit(
+            session=db,
+            workspace_id="workspace-123",
+            resource_type=ResourceType.FILE_UPLOAD_BYTES,
+            limit=100_000_000,  # 100MB
+            increment=file_size_bytes
         )
 
         if not allowed:
@@ -99,16 +117,16 @@ async def check_rate_limit(
                     workspace_id=workspace_id,
                     resource_type=resource_type.value,
                     window_key=today,
-                    count=1,  # First request
+                    count=increment,  # Use increment value (1 for requests, bytes for uploads)
                 )
                 session.add(tracking)
                 await session.commit()
 
                 logger.info(
                     f"Rate limit: First {resource_type.value} request for workspace {workspace_id} today. "
-                    f"Count: 1/{limit}"
+                    f"Count: {increment}/{limit}"
                 )
-                return (True, 1, limit)
+                return (True, increment, limit)
 
             except IntegrityError:
                 # Race condition - another request created the record
@@ -116,21 +134,31 @@ async def check_rate_limit(
                 tracking_result = await session.execute(tracking_stmt)
                 tracking = tracking_result.scalar_one()
 
-        # Check if limit exceeded
-        if tracking.count >= limit:
+        # Check if limit would be exceeded after increment
+        if tracking.count + increment > limit:
             logger.warning(
-                f"Rate limit: Workspace {workspace_id} exceeded {resource_type.value} limit. "
-                f"Count: {tracking.count}/{limit}"
+                f"Rate limit: Workspace {workspace_id} would exceed {resource_type.value} limit. "
+                f"Current: {tracking.count}/{limit}, requested: +{increment}"
             )
+
+            from app.core.otel_metrics import SECURITY_METRICS
+
+            SECURITY_METRICS["rate_limit_exceeded_total"].add(
+                1,
+                {
+                    "resource_type": resource_type.value,
+                },
+            )
+
             return (False, tracking.count, limit)
 
         # Increment and allow
-        tracking.count += 1
+        tracking.count += increment
         await session.commit()
 
         logger.info(
             f"Rate limit: {resource_type.value} request allowed for workspace {workspace_id}. "
-            f"Count: {tracking.count}/{limit}"
+            f"Count: {tracking.count}/{limit} (+{increment})"
         )
 
         return (True, tracking.count, limit)
@@ -197,3 +225,102 @@ async def check_rate_limit(
 #         workspace_id=workspace_id,
 #         resource_type=ResourceType.RCA_REQUEST
 #     )
+
+
+async def is_byollm_workspace(workspace_id: str, session: AsyncSession) -> bool:
+    """
+    Check if workspace has configured their own LLM (not using VibeMonitor AI).
+
+    BYOLLM users are NOT rate limited - they use their own API keys and quotas.
+
+    Args:
+        workspace_id: The workspace ID to check
+        session: Database session
+
+    Returns:
+        bool: True if workspace uses custom LLM (OpenAI, Azure, Gemini),
+              False if using VibeMonitor default (Groq)
+    """
+    try:
+        result = await session.execute(
+            select(LLMProviderConfig.provider).where(
+                LLMProviderConfig.workspace_id == workspace_id
+            )
+        )
+        provider = result.scalar_one_or_none()
+
+        # If no config exists or provider is vibemonitor, not BYOLLM
+        if provider is None:
+            return False
+
+        return provider != LLMProvider.VIBEMONITOR
+
+    except Exception as e:
+        logger.error(f"Error checking BYOLLM status for workspace {workspace_id}: {e}")
+        # Default to not BYOLLM on error (apply rate limits)
+        return False
+
+
+async def check_rate_limit_with_byollm_bypass(
+    session: AsyncSession,
+    workspace_id: str,
+    resource_type: ResourceType,
+    limit: int = None,
+    increment: int = 1,
+) -> Tuple[bool, int, int]:
+    """
+    Check rate limit with BYOLLM bypass.
+
+    BYOLLM workspaces (OpenAI, Azure OpenAI, Gemini) are NOT rate limited.
+    Only VibeMonitor AI (Groq) users are subject to rate limits.
+
+    Args:
+        session: Database session
+        workspace_id: Workspace ID
+        resource_type: Type of resource (RCA_REQUEST, API_CALL, etc.)
+        limit: Custom limit (if None, uses workspace.daily_request_limit for RCA)
+        increment: Amount to increment by (default 1, use bytes for FILE_UPLOAD_BYTES)
+
+    Returns:
+        (allowed: bool, current_count: int, limit: int)
+        - For BYOLLM: Always (True, 0, -1) indicating unlimited
+        - For VibeMonitor AI: Normal rate limit check
+
+    Example:
+        allowed, count, limit = await check_rate_limit_with_byollm_bypass(
+            session=db,
+            workspace_id="workspace-123",
+            resource_type=ResourceType.RCA_REQUEST
+        )
+
+        if not allowed:
+            return f"Rate limit exceeded: {count}/{limit}"
+    """
+    # Check feature flag for rate limiting
+    RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
+    
+    if not RATE_LIMITING_ENABLED:
+        logger.info(
+            f"Rate limiting disabled globally via RATE_LIMITING_ENABLED=false "
+            f"for workspace {workspace_id} and resource {resource_type.value}"
+        )
+        return (True, 0, -1)
+    
+    # Check if workspace uses BYOLLM (bring your own LLM)
+    if await is_byollm_workspace(workspace_id, session):
+        logger.info(
+            f"BYOLLM workspace {workspace_id} - bypassing rate limit for {resource_type.value}"
+        )
+        # Return unlimited indicator: allowed=True, count=0, limit=-1 (unlimited)
+        return (True, 0, -1)
+    
+    # Apply normal rate limiting for regular workspaces
+    return await check_rate_limit(
+        session=session,
+        workspace_id=workspace_id,
+        resource_type=resource_type,
+        limit=limit,
+        increment=increment,
+    )
+
+

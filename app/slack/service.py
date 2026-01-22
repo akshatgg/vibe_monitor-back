@@ -1,37 +1,43 @@
-import hmac
 import hashlib
+import hmac
 import logging
-import uuid
 import re
 import time
-from typing import Optional
-from datetime import datetime, timezone
+import uuid
 from collections import OrderedDict
+from datetime import datetime, timezone
 from threading import Lock
+from typing import Optional
 
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.otel_metrics import JOB_METRICS
-from app.utils.retry_decorator import retry_external_api
+from app.integrations.health_checks import check_slack_health
+from app.integrations.service import get_workspace_integrations
+from app.models import (
+    Integration,
+    Job,
+    JobSource,
+    JobStatus,
+    SlackInstallation,
+    TurnStatus,
+)
+from app.security.llm_guard import llm_guard
+from app.slack.alert_detector import alert_detector
 from app.slack.schemas import (
     SlackEventPayload,
     SlackInstallationCreate,
     SlackInstallationResponse,
 )
-from app.models import SlackInstallation, Integration
-from app.models import Job, JobStatus, JobSource, TurnStatus
-from app.chat.service import ChatService
-from app.integrations.health_checks import check_slack_health
-from app.slack.alert_detector import alert_detector
-from app.security.llm_guard import llm_guard
-
+from app.utils.data_masker import PIIMapper, redact_query_for_log
+from app.utils.rate_limiter import ResourceType, check_rate_limit_with_byollm_bypass
+from app.utils.retry_decorator import retry_external_api
 from app.utils.token_processor import token_processor
-from app.utils.rate_limiter import check_rate_limit, ResourceType
-
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +148,11 @@ class SlackEventService:
 
             # Extract message context
             event_context = payload.extract_message_context()
-            logger.info(f"Received Slack event: {event_context}")
+            # Redact user query text before logging (centralized filter handles other PII)
+            masked_context = {**event_context}
+            if "text" in masked_context and masked_context["text"]:
+                masked_context["text"] = redact_query_for_log(masked_context["text"])
+            logger.info(f"Received Slack event: {masked_context}")
 
             team_id = event_context.get("team_id")
             channel_id = event_context.get("channel_id")
@@ -203,7 +213,9 @@ class SlackEventService:
             # Handle app_mention events (explicit @bot mentions)
             if event_type == "app_mention":
                 user_message_ex = event_context.get("text", "").strip()
-                logger.info(f"Received app_mention with text: '{user_message_ex}'")
+                logger.info(
+                    f"Received app_mention with {redact_query_for_log(user_message_ex)}"
+                )
 
                 # Process the message and generate response
                 bot_response = await SlackEventService.process_user_message(
@@ -334,6 +346,26 @@ class SlackEventService:
             settings.SLACK_USER_MENTION_PATTERN, "", user_message
         ).strip()
 
+        # Mask customer PII at entry point (before LLM Guard)
+        # Creates reversible placeholders like email1, ip1, user1, etc.
+        try:
+            pii_mapper = PIIMapper()
+            masked_message = pii_mapper.mask(clean_message)
+            pii_mapping = pii_mapper.get_reverse_mapping()
+
+            if pii_mapping:
+                logger.info(
+                    f"PII masked in query: {len(pii_mapping)} entities detected "
+                    f"(placeholders: {list(pii_mapping.keys())})"
+                )
+        except RuntimeError as e:
+            # PII masking failed - cannot process query safely
+            logger.error(f"PII masking failed for user query: {e}", exc_info=True)
+            return (
+                "⚠️ I'm currently unable to process queries safely due to a technical issue. "
+                "Please try again later or contact support if this persists."
+            )
+
         # Check if this is an image-only message
         files = event_context.get("files", [])
         has_images = any(f.get("mimetype", "").startswith("image/") for f in files)
@@ -362,7 +394,7 @@ class SlackEventService:
             )
         else:
             logger.info(
-                f"Processing explicit mention from user {user_id}: '{clean_message}'"
+                f"Processing explicit mention from user {user_id}: {redact_query_for_log(clean_message)}"
             )
 
         # Simple command handling (only for explicit mentions)
@@ -399,19 +431,17 @@ class SlackEventService:
                     f"• Message received at: {timestamp}"
                 )
 
-        # ═══════════════════════════════════════════════════════════════
-        # SECURITY: LLM Guard - Validate message for prompt injection
-        # ═══════════════════════════════════════════════════════════════
+        # LLM Guard - Validate message for prompt injection
         # Get Slack installation details for security event tracking
         slack_integration = await SlackEventService.get_installation(team_id)
         slack_integration_id = slack_integration.id if slack_integration else None
         workspace_id = slack_integration.workspace_id if slack_integration else None
 
         logger.info(
-            f"[SECURITY] Validating message with LLM Guard: '{clean_message[:100]}...'"
+            f"[SECURITY] Validating message with LLM Guard: {redact_query_for_log(masked_message)}"
         )
         guard_result = await llm_guard.validate_message(
-            user_message=clean_message,
+            user_message=masked_message,  # Use masked message - LLM Guard never sees raw PII
             context=f"Slack message from user {user_id} in channel {channel_id}",
             workspace_id=workspace_id,
             slack_integration_id=slack_integration_id,
@@ -439,7 +469,7 @@ class SlackEventService:
         # Process RCA query (works for both mentions and auto-detected alerts)
         if True:  # Always process as RCA for non-command messages
             # This looks like an RCA query - create Job record and enqueue to SQS
-            logger.info(f"Creating RCA job for query: '{clean_message}'")
+            logger.info(f"Creating RCA job for {redact_query_for_log(masked_message)}")
 
             # Check if this is a thread reply and fetch conversation history
             thread_history = None
@@ -492,16 +522,52 @@ class SlackEventService:
                             f"Please complete the setup or contact support."
                         )
 
-                    # Check rate limit before creating job
+                    # ═══════════════════════════════════════════════════════════════
+                    # PRE-CHECK: Verify GitHub integration exists (required for RCA)
+                    # ═══════════════════════════════════════════════════════════════
+                    all_integrations = await get_workspace_integrations(
+                        workspace_id, db
+                    )
+                    github_integration = next(
+                        (i for i in all_integrations if i.provider == "github"), None
+                    )
+
+                    if not github_integration:
+                        logger.warning(
+                            f"GitHub integration not found for workspace {workspace_id}"
+                        )
+                        return (
+                            "⚠️ *Github integration is not configured*\n\n"
+                            "The Github integration is required for RCA analysis "
+                            "but has not been set up for this workspace.\n\n"
+                            "*To resolve this:*\n"
+                            "• Connect your Github account in the dashboard\n"
+                            "• Ensure the integration is properly configured"
+                        )
+
+                    # Check rate limit before creating job (BYOLLM users bypass rate limiting)
 
                     try:
-                        allowed, current_count, limit = await check_rate_limit(
+                        (
+                            allowed,
+                            current_count,
+                            limit,
+                        ) = await check_rate_limit_with_byollm_bypass(
                             session=db,
                             workspace_id=workspace_id,
                             resource_type=ResourceType.RCA_REQUEST,
                         )
 
                         if not allowed:
+                            from app.core.otel_metrics import SECURITY_METRICS
+
+                            SECURITY_METRICS["rate_limit_exceeded_total"].add(
+                                1,
+                                {
+                                    "resource_type": ResourceType.SLACK_MESSAGE,
+                                },
+                            )
+
                             logger.warning(
                                 f"RCA rate limit exceeded for workspace {workspace_id}: "
                                 f"{current_count}/{limit}"
@@ -511,13 +577,20 @@ class SlackEventService:
                                 f"Your workspace has reached the daily limit of *{limit} RCA requests*.\n\n"
                                 f"📅 Current usage: {current_count}/{limit}\n"
                                 f"🔄 Limit resets: Tomorrow at midnight UTC\n\n"
-                                f"Please try again tomorrow or contact support@vibemonitor.ai to increase your limits."
+                                f"💡 *Tip:* Configure your own LLM (OpenAI, Azure, or Gemini) to remove limits!\n"
+                                f"Visit your workspace settings or contact support@vibemonitor.ai for help."
                             )
 
-                        logger.info(
-                            f"RCA rate limit check passed for workspace {workspace_id}: "
-                            f"{current_count}/{limit}"
-                        )
+                        # Log BYOLLM status (limit=-1 indicates unlimited)
+                        if limit == -1:
+                            logger.info(
+                                f"BYOLLM workspace {workspace_id} - unlimited RCA requests"
+                            )
+                        else:
+                            logger.info(
+                                f"RCA rate limit check passed for workspace {workspace_id}: "
+                                f"{current_count}/{limit}"
+                            )
 
                     except ValueError as e:
                         logger.error(f"Rate limit check failed: {e}")
@@ -555,8 +628,10 @@ class SlackEventService:
                     )
 
                     # Build job context with alert info if auto-detected
+                    # Use masked_message for LLM, store pii_mapping for unmasking response
                     job_context = {
-                        "query": clean_message,
+                        "query": masked_message,  # Masked query - LLM never sees raw PII
+                        "pii_mapping": pii_mapping,  # For unmasking LLM response
                         "user_id": user_id,
                         "team_id": team_id,
                         "turn_id": turn.id,  # Link to turn for feedback
@@ -569,11 +644,30 @@ class SlackEventService:
                         job_context["auto_detected"] = True
 
                     # Add thread history to context if available
+                    # Mask thread history with same PIIMapper for consistent placeholders
                     if thread_history:
-                        job_context["thread_history"] = thread_history
-                        logger.info(
-                            f"Added {len(thread_history)} thread messages to job context"
-                        )
+                        try:
+                            for msg in thread_history:
+                                if msg.get("text"):
+                                    msg["text"] = pii_mapper.mask(msg["text"])
+                            # Update pii_mapping after masking thread history (may have new PII)
+                            job_context["pii_mapping"] = (
+                                pii_mapper.get_reverse_mapping()
+                            )
+                            job_context["thread_history"] = thread_history
+                            logger.info(
+                                f"Added {len(thread_history)} thread messages to job context (masked with same PIIMapper)"
+                            )
+                        except RuntimeError as e:
+                            # PII masking failed for thread history - log but continue without it
+                            logger.error(
+                                f"PII masking failed for thread history: {e}",
+                                exc_info=True,
+                            )
+                            # Continue without thread history rather than failing entirely
+                            logger.warning(
+                                "Proceeding without thread history due to PII masking failure"
+                            )
 
                     # Add files (images) to context if present
                     files = event_context.get("files", [])
@@ -629,7 +723,7 @@ class SlackEventService:
                         1,
                         {
                             "job_source": job.source.value,
-                        }
+                        },
                     )
 
                     logger.info(
@@ -661,10 +755,7 @@ class SlackEventService:
                             f"Analyzing logs, metrics, and recent changes. I'll provide my findings shortly."
                         )
                     else:
-                        return (
-                            f'🔍 Got it! I\'m analyzing: *"{clean_message[:100]}..."*\n\n'
-                            f"This may take a moment while I investigate."
-                        )
+                        return "👋 Let me help with that!"
                 else:
                     logger.error(f"❌ Failed to enqueue job {job_id} to SQS")
                     # Mark job as failed since we couldn't enqueue it
@@ -680,7 +771,7 @@ class SlackEventService:
                                 {
                                     "job_source": job.source.value,
                                     "error_type": "SQSEnqueueError",
-                                }
+                                },
                             )
 
                     return (
@@ -691,13 +782,15 @@ class SlackEventService:
             except Exception as e:
                 logger.exception(f"❌ Error creating job: {e}")
 
-                job_source_attr = getattr(job.source, "value", "unknown") if job else "unknown"
+                job_source_attr = (
+                    getattr(job.source, "value", "unknown") if job else "unknown"
+                )
                 JOB_METRICS["jobs_failed_total"].add(
                     1,
                     {
                         "job_source": job_source_attr,
                         "error_type": "InternalError",
-                    }
+                    },
                 )
 
                 return (
@@ -740,7 +833,23 @@ class SlackEventService:
                 control_plane_integration = None
 
                 if existing:
-                    # Update existing installation
+                    # Block if bot is already linked to a DIFFERENT VibeMonitor workspace
+                    if (
+                        existing.workspace_id
+                        and workspace_id
+                        and existing.workspace_id != workspace_id
+                    ):
+                        logger.warning(
+                            f"Blocked Slack bot installation: team_id={team_id} is already "
+                            f"linked to workspace {existing.workspace_id}, cannot link to {workspace_id}"
+                        )
+                        raise HTTPException(
+                            status_code=409,
+                            detail="This Slack workspace is already connected to another VibeMonitor workspace. "
+                            "Please disconnect it from the existing workspace first before connecting to a new one."
+                        )
+
+                    # Update existing installation (same workspace or unlinked)
                     existing.team_name = team_name
                     existing.access_token = access_token
                     existing.bot_user_id = bot_user_id
@@ -1125,39 +1234,69 @@ class SlackEventService:
             logger.error(f"Failed to decrypt token for team {team_id}: {err}")
             return None
 
-        # Build message blocks with feedback button
-        blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {"type": "divider"},
-            {
-                "type": "actions",
-                "elements": [
+        # Build message blocks with feedback buttons (comment option appears after feedback)
+        # Slack section blocks have a 3000 char limit, split long text into multiple blocks
+        MAX_SECTION_LENGTH = 2900  # Leave buffer for markdown formatting
+        blocks = []
+
+        # Split text into chunks that fit within section block limits
+        if len(text) <= MAX_SECTION_LENGTH:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+        else:
+            # Split on paragraph boundaries where possible
+            remaining = text
+            while remaining:
+                if len(remaining) <= MAX_SECTION_LENGTH:
+                    blocks.append(
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": remaining},
+                        }
+                    )
+                    break
+
+                # Find a good split point (paragraph or line break)
+                split_point = remaining.rfind("\n\n", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = remaining.rfind("\n", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = remaining.rfind(" ", 0, MAX_SECTION_LENGTH)
+                if split_point == -1:
+                    split_point = MAX_SECTION_LENGTH
+
+                blocks.append(
                     {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👍", "emoji": True},
-                        "style": "primary",
-                        "action_id": "feedback_thumbs_up",
-                        "value": turn_id,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👎", "emoji": True},
-                        "action_id": "feedback_thumbs_down",
-                        "value": turn_id,
-                    },
-                    {
-                        "type": "button",
+                        "type": "section",
                         "text": {
-                            "type": "plain_text",
-                            "text": "💬 Comment",
-                            "emoji": True,
+                            "type": "mrkdwn",
+                            "text": remaining[:split_point].rstrip(),
                         },
-                        "action_id": "feedback_with_comment",
-                        "value": turn_id,
-                    },
-                ],
-            },
-        ]
+                    }
+                )
+                remaining = remaining[split_point:].lstrip()
+
+        blocks.extend(
+            [
+                {"type": "divider"},
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "👍", "emoji": True},
+                            "action_id": "feedback_thumbs_up",
+                            "value": turn_id,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "👎", "emoji": True},
+                            "action_id": "feedback_thumbs_down",
+                            "value": turn_id,
+                        },
+                    ],
+                },
+            ]
+        )
 
         try:
             async with httpx.AsyncClient() as client:
@@ -1192,20 +1331,143 @@ class SlackEventService:
             return None
 
     @staticmethod
+    async def update_message_with_feedback_confirmation(
+        team_id: str,
+        channel: str,
+        message_ts: str,
+        original_text: str,
+        feedback_type: str,  # "thumbs_up", "thumbs_down", or "comment"
+        turn_id: str,
+    ) -> bool:
+        """
+        Update the original message to show feedback confirmation.
+
+        Args:
+            team_id: Slack team/workspace ID
+            channel: Channel ID
+            message_ts: Original message timestamp to update
+            original_text: The original RCA response text
+            feedback_type: Type of feedback given
+            turn_id: Turn ID for the comment button
+
+        Returns:
+            True if successful, False otherwise
+        """
+        installation = await SlackEventService.get_installation(team_id)
+
+        if not installation or not installation.access_token:
+            logger.error(f"No installation/token for team {team_id}")
+            return False
+
+        try:
+            access_token = token_processor.decrypt(installation.access_token)
+        except Exception as err:
+            logger.error(f"Failed to decrypt token for team {team_id}: {err}")
+            return False
+
+        # Build updated blocks with feedback confirmation
+        if feedback_type == "thumbs_up":
+            feedback_text = "✅ Thanks for the feedback! 👍"
+            thumbs_up_style = "primary"
+            thumbs_down_style = None
+        elif feedback_type == "thumbs_down":
+            feedback_text = "✅ Thanks for the feedback! 👎"
+            thumbs_up_style = None
+            thumbs_down_style = "primary"
+        else:  # comment
+            feedback_text = "✅ Thanks for your comment! 💬"
+            thumbs_up_style = None
+            thumbs_down_style = None
+
+        # Build buttons with selected state
+        thumbs_up_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "👍", "emoji": True},
+            "action_id": "feedback_thumbs_up",
+            "value": turn_id,
+        }
+        if thumbs_up_style:
+            thumbs_up_button["style"] = thumbs_up_style
+
+        thumbs_down_button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "👎", "emoji": True},
+            "action_id": "feedback_thumbs_down",
+            "value": turn_id,
+        }
+        if thumbs_down_style:
+            thumbs_down_button["style"] = thumbs_down_style
+
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": original_text}},
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": feedback_text}],
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    thumbs_up_button,
+                    thumbs_down_button,
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Add comment?",
+                            "emoji": True,
+                        },
+                        "action_id": "feedback_with_comment",
+                        "value": turn_id,
+                    },
+                ],
+            },
+        ]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{settings.SLACK_API_BASE_URL}/chat.update",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "channel": channel,
+                        "ts": message_ts,
+                        "text": original_text,
+                        "blocks": blocks,
+                    },
+                    timeout=10.0,
+                )
+
+                data = response.json()
+                if data.get("ok"):
+                    logger.info(
+                        f"Message updated with feedback confirmation: {feedback_type}"
+                    )
+                    return True
+                else:
+                    logger.error(f"Failed to update message: {data.get('error')}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error updating message with feedback confirmation: {e}")
+            return False
+
+    @staticmethod
     async def open_feedback_modal(
         team_id: str,
         trigger_id: str,
         turn_id: str,
-        initial_score: Optional[int] = None,
     ) -> bool:
         """
-        Open feedback modal in Slack for detailed feedback.
+        Open feedback modal in Slack for adding a comment.
 
         Args:
             team_id: Slack team/workspace ID
             trigger_id: Slack trigger ID from interaction
             turn_id: Turn ID to store in modal metadata
-            initial_score: Pre-selected score (5 for thumbs up, 1 for thumbs down)
 
         Returns:
             True if successful, False otherwise
@@ -1220,12 +1482,12 @@ class SlackEventService:
         except Exception:
             return False
 
-        # Build modal with optional pre-selected score
+        # Build modal with comment input only (rating is done via buttons)
         modal = {
             "type": "modal",
             "callback_id": "feedback_submission",
             "private_metadata": turn_id,
-            "title": {"type": "plain_text", "text": "Share Feedback"},
+            "title": {"type": "plain_text", "text": "Add Comment"},
             "submit": {"type": "plain_text", "text": "Submit"},
             "close": {"type": "plain_text", "text": "Cancel"},
             "blocks": [
@@ -1233,64 +1495,25 @@ class SlackEventService:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "How was this analysis? Your feedback helps us improve! 🙏",
+                        "text": "Share your thoughts on this response. Your feedback helps us improve! 🙏",
                     },
-                },
-                {
-                    "type": "input",
-                    "block_id": "rating_block",
-                    "element": {
-                        "type": "static_select",
-                        "action_id": "rating_select",
-                        "placeholder": {"type": "plain_text", "text": "Select rating"},
-                        "initial_option": {
-                            "text": {"type": "plain_text", "text": "👍 Helpful"},
-                            "value": "5",
-                        }
-                        if initial_score == 5
-                        else {
-                            "text": {"type": "plain_text", "text": "👎 Not helpful"},
-                            "value": "1",
-                        }
-                        if initial_score == 1
-                        else None,
-                        "options": [
-                            {
-                                "text": {"type": "plain_text", "text": "👍 Helpful"},
-                                "value": "5",
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "👎 Not helpful",
-                                },
-                                "value": "1",
-                            },
-                        ],
-                    },
-                    "label": {"type": "plain_text", "text": "Rating"},
                 },
                 {
                     "type": "input",
                     "block_id": "comment_block",
-                    "optional": True,
                     "element": {
                         "type": "plain_text_input",
                         "action_id": "comment_input",
                         "multiline": True,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "Any additional comments? (optional)",
+                            "text": "What could be improved? What was helpful?",
                         },
                     },
-                    "label": {"type": "plain_text", "text": "Comments"},
+                    "label": {"type": "plain_text", "text": "Your Comment"},
                 },
             ],
         }
-
-        # Remove initial_option if not set
-        if initial_score is None:
-            del modal["blocks"][1]["element"]["initial_option"]
 
         try:
             async with httpx.AsyncClient() as client:

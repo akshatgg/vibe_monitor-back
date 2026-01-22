@@ -1,6 +1,7 @@
-from cryptography.fernet import Fernet
 import base64
 import hashlib
+
+from cryptography.fernet import Fernet
 
 from app.core.config import settings
 

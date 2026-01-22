@@ -46,14 +46,20 @@ boto3 = "^1.35.0"
 aioboto3 = "^13.1.0"
 langchain = "^0.3.27"
 langchain-groq = "^0.3.8"
+langchain-openai = "^0.3.0"  # For BYOLLM (ChatOpenAI, AzureChatOpenAI)
 langchain-google-genai = "^2.0.8"
 langchain-core = "^0.3.78"
+langgraph = "^0.2.0"
+openai = "^1.0.0"  # For BYOLLM verification (OpenAI and Azure OpenAI)
+google-generativeai = "^0.8.0"  # For BYOLLM verification (Gemini)
 greenlet = "^3.2.4"
+langfuse = "^2.0.0"
 redis = "^5.0.0"
 slowapi = "^0.1.9"
 tenacity = "^9.0.0"
 sentry-sdk = {version = ">=2.35.0", extras = ["fastapi"]}
 pillow = "^12.0.0"
+stripe = "^11.0.0"
 
 # OpenTelemetry - OTLP exporters for metrics and logs
 opentelemetry-api = "^1.28.0"
@@ -62,6 +68,12 @@ opentelemetry-exporter-otlp-proto-grpc = "^1.28.0"
 opentelemetry-instrumentation-fastapi = "^0.49b0"
 opentelemetry-instrumentation-logging = "^0.49b0"
 argon2-cffi = "^25.1.0"
+python-multipart = "^0.0.21"
+python-magic = "^0.4.27"
+pypdf2 = "^3.0.1"
+presidio-analyzer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
+presidio-anonymizer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
+en-core-web-lg = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"}
 
 
 [tool.poetry.group.dev.dependencies]
@@ -75,6 +87,12 @@ bandit = "^1.7.9"
 pip-audit = "^2.7.3"
 pre-commit = "^3.8.0"
 pytest-cov = "^6.0.0"
+aiosqlite = "^0.22.1"
+
+[tool.mypy]
+explicit_package_bases = true
+mypy_path = "."
+ignore_missing_imports = true
 
 [build-system]
 requires = ["poetry-core"]

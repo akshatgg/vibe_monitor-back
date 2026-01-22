@@ -1,6 +1,11 @@
 import json
+import logging
 from typing import List, Optional
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -65,6 +70,7 @@ class Settings(BaseSettings):
 
     # Postmark Email Configuration
     POSTMARK_SERVER_TOKEN: Optional[str] = None
+    POSTMARK_BROADCAST_STREAM: str = "broadcast"  # Stream for marketing emails
 
     # Company Email Settings (for automated/system emails)
     COMPANY_EMAIL_FROM_ADDRESS: str = "support@vibemonitor.ai"
@@ -76,8 +82,14 @@ class Settings(BaseSettings):
     PERSONAL_EMAIL_FROM_NAME: str = "Ankesh Khemani"
 
     # Email Subjects (uses PERSONAL settings - templates in app/email/templates/text_body/)
+    WELCOME_EMAIL_SUBJECT: str = "Welcome to VibeMonitor - quick intro"
     USER_HELP_EMAIL_SUBJECT: str = "Quick question about your setup"
     USAGE_FEEDBACK_EMAIL_SUBJECT: str = "How's it going so far?"
+    ONBOARDING_REMINDER_EMAIL_SUBJECT: str = "Complete Your Setup - Integrate GitHub"
+
+    # Onboarding Reminder Email Settings
+    ONBOARDING_REMINDER_INTERVAL_DAYS: int = 5  # Days between reminder emails
+    ONBOARDING_REMINDER_MAX_EMAILS: int = 3  # Maximum reminder emails per user
 
     # Slack Integration
     SLACK_SIGNING_SECRET: Optional[str] = None
@@ -175,8 +187,19 @@ class Settings(BaseSettings):
         None  # Hostname for resource attributes (auto-detected if None)
     )
 
+    # Database Instrumentation
+    DB_INSTRUMENTATION_ENABLED: bool = True  # Toggle database metrics instrumentation
+
     # Sentry Configuration
     SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
+
+    # Langfuse Configuration (Agent Observability)
+    LANGFUSE_ENABLED: bool = True  # Enable/disable Langfuse tracing
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None  # Langfuse public key
+    LANGFUSE_SECRET_KEY: Optional[str] = None  # Langfuse secret key
+    LANGFUSE_HOST: str = (
+        "https://us.cloud.langfuse.com"  # Langfuse host URL (US region)
+    )
 
     # RCA Service Discovery Settings
     RCA_MAX_REPOS_TO_FETCH: int = (
@@ -233,6 +256,52 @@ class Settings(BaseSettings):
         5  # Maximum redirects to follow when downloading Slack images
     )
 
+    # File Upload Limits
+    MAX_FILES_PER_MESSAGE: int = 10
+    MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB (increased for video support)
+    DAILY_UPLOAD_LIMIT_BYTES: int = 100 * 1024 * 1024  # 100MB per day per workspace
+    MAX_GEMINI_FILE_SIZE_BYTES: int = (
+        20 * 1024 * 1024
+    )  # 20MB limit for Gemini processing to prevent memory exhaustion
+    ALLOWED_FILE_EXTENSIONS: List[str] = [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",  # Images
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",  # Videos
+        ".wmv",
+        ".flv",
+        ".mpeg",
+        ".mpg",  # More videos
+        ".pdf",
+        ".txt",
+        ".md",
+        ".csv",  # Documents
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",  # Code
+        ".json",
+        ".yaml",
+        ".yml",
+        ".log",  # Data
+    ]
+
+    # AWS S3 (Chat File Uploads)
+    CHAT_UPLOADS_BUCKET: Optional[str] = None
+    CHAT_UPLOADS_URL_EXPIRY_SECONDS: int = 3600  # 1 hour
+
+    # Text Extraction Settings
+    TEXT_EXTRACTION_MAX_CHARS: int = (
+        50000  # Maximum characters to extract from files (PDFs, text, JSON, YAML)
+    )
+
     # Scheduler Authentication
     SCHEDULER_SECRET_TOKEN: Optional[str] = None  # Secret token for scheduler endpoints
 
@@ -255,10 +324,34 @@ class Settings(BaseSettings):
         6  # Frame depth for finding logging call origin in stack trace
     )
 
+    # Stripe Configuration
+    STRIPE_SECRET_KEY: Optional[str] = None  # sk_test_... or sk_live_...
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None  # pk_test_... or pk_live_...
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None  # whsec_... for webhook verification
+    STRIPE_PRO_PLAN_PRICE_ID: Optional[str] = None  # price_... for Pro plan
+    STRIPE_ADDITIONAL_SERVICE_PRICE_ID: Optional[str] = (
+        None  # price_... for additional services beyond base
+    )
+
+    # New Relic
+    NEW_RELIC_LICENSE_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+
+    # --------- Validators ---------
+    @model_validator(mode="after")
+    def validate_otel_config(self):
+        """Validate OpenTelemetry configuration and warn about missing New Relic license key."""
+        if self.OTEL_ENABLED and not self.NEW_RELIC_LICENSE_KEY:
+            logger.warning(
+                "OpenTelemetry is enabled (OTEL_ENABLED=true) but NEW_RELIC_LICENSE_KEY is missing. "
+                "The OTEL Collector will fail to export metrics to New Relic. "
+                "Please set NEW_RELIC_LICENSE_KEY in your environment or disable OTEL by setting OTEL_ENABLED=false."
+            )
+        return self
 
     # --------- Properties ---------
     @property

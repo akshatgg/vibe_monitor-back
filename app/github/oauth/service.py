@@ -1,20 +1,21 @@
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
-from jose import jwt
-import time
 import logging
-from typing import Dict
+import time
 import uuid
-from datetime import datetime, timezone, timedelta
-from dateutil import parser as date_parser
+from datetime import datetime, timedelta, timezone
+from typing import Dict
 
-from ...models import GitHubIntegration, Integration
+import httpx
+from dateutil import parser as date_parser
+from fastapi import HTTPException
+from jose import jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...core.config import settings
-from ...utils.token_processor import token_processor
-from ...utils.retry_decorator import retry_external_api
 from ...integrations.health_checks import check_github_health
+from ...models import GitHubIntegration, Integration, Membership, Role, User
+from ...utils.retry_decorator import retry_external_api
+from ...utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,34 @@ class GitHubAppService:
         self.GITHUB_APP_ID = settings.GITHUB_APP_ID
         self.GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY_PEM
         self.GITHUB_API_BASE = settings.GITHUB_API_BASE_URL
+
+    async def _mark_workspace_owner_onboarded(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Mark workspace owner as onboarded after GitHub integration."""
+        try:
+            owner_result = await db.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace_id,
+                    Membership.role == Role.OWNER,
+                )
+            )
+            owner_membership = owner_result.scalar_one_or_none()
+
+            if owner_membership:
+                user_result = await db.execute(
+                    select(User).where(User.id == owner_membership.user_id)
+                )
+                owner_user = user_result.scalar_one_or_none()
+
+                if owner_user and not owner_user.is_onboarded:
+                    owner_user.is_onboarded = True
+                    await db.commit()
+                    logger.info(
+                        f"Marked user {owner_user.id} as onboarded after GitHub integration"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to update onboarding status for workspace owner: {e}")
 
     def generate_jwt(self) -> str:
         """Generate JWT for GitHub App authentication"""
@@ -93,18 +122,23 @@ class GitHubAppService:
                 detail="workspace_id is required for GitHub App installation",
             )
 
-        # Check if installation already exists for this specific workspace
+        # Check if installation already exists for ANY workspace
         result = await db.execute(
             select(GitHubIntegration).where(
-                GitHubIntegration.installation_id == installation_id,
-                GitHubIntegration.workspace_id == workspace_id,
+                GitHubIntegration.installation_id == installation_id
             )
         )
         existing_integration = result.scalar_one_or_none()
 
         if existing_integration:
-            # Update existing integration
-            existing_integration.workspace_id = workspace_id
+            if existing_integration.workspace_id != workspace_id:
+                github_account = installation_info.get("account", {}).get("login", "unknown")
+                raise ValueError(
+                    f"This GitHub installation (account: {github_account}) is already connected "
+                    f"to a different workspace. Please disconnect it from the other workspace first, "
+                    f"or use a different GitHub account/organization."
+                )
+
             existing_integration.last_synced_at = datetime.now(timezone.utc)
             existing_integration.github_username = installation_info.get(
                 "account", {}
@@ -115,6 +149,12 @@ class GitHubAppService:
 
             await db.commit()
             await db.refresh(existing_integration)
+            logger.info(
+                f"Updated existing GitHub integration for workspace={workspace_id}, "
+                f"installation_id={installation_id}"
+            )
+
+            await self._mark_workspace_owner_onboarded(workspace_id, db)
             return existing_integration
 
         # Check if there's any other integration for this workspace (different installation_id)
@@ -181,7 +221,20 @@ class GitHubAppService:
         )
 
         db.add(new_integration)
-        await db.commit()
+
+        try:
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                github_account = installation_info.get("account", {}).get("login", "unknown")
+                raise ValueError(
+                    f"This GitHub installation (account: {github_account}) is already connected "
+                    f"to a different workspace. Please disconnect it from the other workspace first, "
+                    f"or use a different GitHub account/organization."
+                )
+            raise
+
         await db.refresh(new_integration)
 
         # Run initial health check to populate health_status
@@ -205,6 +258,7 @@ class GitHubAppService:
                 f"Health status remains unset."
             )
 
+        await self._mark_workspace_owner_onboarded(workspace_id, db)
         return new_integration
 
     async def get_installation_access_token(self, installation_id: str) -> Dict:
@@ -308,6 +362,10 @@ class GitHubAppService:
                 raise Exception("Failed to decrypt GitHub credentials")
 
         # Token expired or missing - get a new one
+
+        from app.core.otel_metrics import GITHUB_METRICS
+        GITHUB_METRICS["github_token_refreshes_total"].add(1)
+
         token_data = await self.get_installation_access_token(
             integration.installation_id
         )
@@ -350,7 +408,23 @@ class GitHubAppService:
                 with attempt:
                     response = await client.get(url, headers=headers)
                     response.raise_for_status()
-                    return response.json()
+                    data = response.json()
+                    # Return only essential fields to reduce payload size
+                    return {
+                        "total_count": data.get("total_count", 0),
+                        "repositories": [
+                            {
+                                "id": repo["id"],
+                                "name": repo["name"],
+                                "full_name": repo["full_name"],
+                                "private": repo["private"],
+                                "description": repo.get("description"),
+                                "default_branch": repo.get("default_branch"),
+                                "html_url": repo["html_url"],
+                            }
+                            for repo in data.get("repositories", [])
+                        ],
+                    }
 
     async def uninstall_github_app(self, installation_id: str) -> bool:
         """Uninstall GitHub App from user's account via API

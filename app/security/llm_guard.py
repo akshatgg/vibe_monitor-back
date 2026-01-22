@@ -11,12 +11,15 @@ LangChain instance to avoid any interference.
 
 import logging
 import uuid
-from typing import Dict, Any, Optional
-from langchain_groq import ChatGroq
+from typing import Any, Dict, Optional
+
 from langchain_core.messages import HumanMessage
+from langchain_groq import ChatGroq
+
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import SecurityEvent, SecurityEventType
+from app.utils.data_masker import redact_query_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +82,14 @@ Your response must be exactly one word: true OR false"""
 
     def __init__(self):
         """Initialize the LLM Guard with its own LangChain Groq instance"""
-        if not settings.GROQ_API_KEY:
+        if not settings.GROQ_API_KEY or not settings.GROQ_LLM_MODEL:
+            missing = []
+            if not settings.GROQ_API_KEY:
+                missing.append("GROQ_API_KEY")
+            if not settings.GROQ_LLM_MODEL:
+                missing.append("GROQ_LLM_MODEL")
             logger.warning(
-                "GROQ_API_KEY not configured. LLM Guard will fail validations."
+                f"{', '.join(missing)} not configured. LLM Guard will fail validations."
             )
             self.llm = None
         else:
@@ -158,6 +166,19 @@ Your response must be exactly one word: true OR false"""
                 logger.info(
                     f"Security event stored: {event_type.value} (severity: {severity})"
                 )
+
+                from app.core.otel_metrics import SECURITY_METRICS
+
+                SECURITY_METRICS["security_events_created_total"].add(1)
+
+                SECURITY_METRICS["llm_guard_blocked_messages_total"].add(
+                    1,
+                    {
+                        "event_type": event_type.value,
+                        "severity": severity,
+                    },
+                )
+
         except Exception as e:
             logger.error(f"Failed to store security event: {e}", exc_info=True)
             # Don't raise - we don't want database errors to break the guard
@@ -243,7 +264,7 @@ Your response must be exactly one word: true OR false"""
                 f"[DEBUG] LLM Guard - Calling Groq with model={self.model}, temperature={self.temperature}, {token_info}"
             )
             logger.info(
-                f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, Message to validate: '{user_message[:50]}...'"
+                f"[DEBUG] LLM Guard - Prompt length: {len(full_prompt)} chars, {redact_query_for_log(user_message)}"
             )
 
             # Call Groq via LangChain (completely separate from main RCA agent)
@@ -273,7 +294,7 @@ Your response must be exactly one word: true OR false"""
                         "security_event": True,
                         "reason": "invalid_guard_response",
                         "guard_response": llm_response,
-                        "message_preview": user_message[:100],
+                        "message_preview": redact_query_for_log(user_message),
                     },
                 )
 
@@ -308,7 +329,7 @@ Your response must be exactly one word: true OR false"""
                         "alert_type": "prompt_injection",
                         "security_event": True,
                         "context": context or "None",
-                        "message_preview": user_message[:100],
+                        "message_preview": redact_query_for_log(user_message),
                     },
                 )
 
@@ -328,9 +349,11 @@ Your response must be exactly one word: true OR false"""
             return {
                 "is_safe": is_safe,
                 "blocked": not is_safe,
-                "reason": "LLM guard validation"
-                if is_safe
-                else "Prompt injection detected by LLM guard",
+                "reason": (
+                    "LLM guard validation"
+                    if is_safe
+                    else "Prompt injection detected by LLM guard"
+                ),
                 "llm_response": llm_response,
             }
 

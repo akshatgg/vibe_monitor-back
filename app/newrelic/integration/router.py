@@ -7,12 +7,13 @@ Provides 3 endpoints for managing New Relic integrations:
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.google.service import AuthService
 from app.core.database import get_db
-from app.models import User, Membership
-from app.auth.services.google_auth_service import AuthService
+from app.models import Membership, User
+
 from .schemas import (
     NewRelicIntegrationCreate,
     NewRelicIntegrationResponse,
@@ -20,8 +21,8 @@ from .schemas import (
 )
 from .service import (
     create_newrelic_integration,
-    get_newrelic_integration_status,
     delete_newrelic_integration,
+    get_newrelic_integration_status,
 )
 
 router = APIRouter(prefix="/newrelic", tags=["newrelic-integration"])

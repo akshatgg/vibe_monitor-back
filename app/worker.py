@@ -1,28 +1,101 @@
 import asyncio
 import logging
 import signal
+import time
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 
-from app.workers.base_worker import BaseWorker
-from app.services.sqs.client import sqs_client
-from app.services.rca.agent import rca_agent_service
-from app.services.rca.gemini_agent import gemini_rca_agent_service
-from app.services.rca.callbacks import SlackProgressCallback
+from dotenv import load_dotenv
+from sqlalchemy import select
+
 from app.chat.notifiers import WebProgressCallback
-from app.integrations.service import get_workspace_integrations
-from app.slack.service import slack_event_service
-from app.core.database import AsyncSessionLocal
-from app.core.config import settings
-from app.core.logging_config import set_job_id, clear_job_id
-from app.core.otel_metrics import JOB_METRICS
-from app.models import Job, JobStatus, JobSource, TurnStatus
 from app.chat.service import ChatService
-from app.github.tools.router import list_repositories_graphql
-from app.services.rca.get_service_name.service import extract_service_names_from_repo
+from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.core.logging_config import clear_job_id, set_job_id
+from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
 from app.engagement.service import engagement_service
+from app.github.tools.router import list_repositories_graphql
+from app.integrations.service import get_workspace_integrations
+from app.models import Job, JobSource, JobStatus, TurnStatus
+from app.services.rca.agent import rca_agent_service
+from app.services.rca.callbacks import (
+    SlackProgressCallback,
+    ToolMetricsCallback,
+    markdown_to_slack,
+)
+from app.services.rca.get_service_name.service import extract_service_names_from_repo
+from app.services.sqs.client import sqs_client
+from app.slack.service import slack_event_service
+from app.utils.data_masker import PIIMapper, redact_query_for_log
+from app.workers.base_worker import BaseWorker
 
 logger = logging.getLogger(__name__)
+
+
+async def fail_and_notify_job(
+    *,
+    db,
+    job: Job,
+    requested_context: dict,
+    error_message: str,
+    error_type: str,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+):
+    """
+    Single point of truth for job failure.
+    1. Updates job state in DB
+    2. Records metrics
+    3. Sends notification to client (Web or Slack)
+
+    This MUST be the only place that handles job failure.
+    """
+    # 1. Mutate job state
+    job.status = JobStatus.FAILED
+    job.finished_at = datetime.now(timezone.utc)
+    job.error_message = error_message
+    await db.commit()
+
+    # 2. Record metrics
+    JOB_METRICS["jobs_failed_total"].add(
+        1,
+        {
+            "job_source": job.source.value,
+            "error_type": error_type,
+        },
+    )
+
+    # 3. Determine action URL based on error type
+    action_url = None
+    if error_type in ("OnboardingNotCompleted", "no_healthy_integrations"):
+        action_url = f"{settings.WEB_APP_URL}/integrations"
+
+    # 4. Notify client based on job source
+    if job.source == JobSource.WEB:
+        turn_id = requested_context.get("turn_id")
+        if turn_id:
+            web_callback = WebProgressCallback(turn_id=turn_id, db=db)
+            await web_callback.send_error(error_message, action_url=action_url)
+        return
+
+    # Slack path
+    if team_id and channel_id:
+        slack_callback = SlackProgressCallback(
+            team_id=team_id,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            send_tool_output=False,
+        )
+
+        if error_type == "OnboardingNotCompleted":
+            await slack_callback.send_onboarding_required_message()
+        elif error_type == "no_healthy_integrations":
+            await slack_callback.send_no_healthy_integrations_message()
+        else:
+            await slack_callback.send_final_error(
+                error_msg=error_message, retry_count=0
+            )
 
 
 async def scan_repositories_in_batches(
@@ -108,6 +181,134 @@ async def scan_repositories_in_batches(
                     service_repo_mapping[service_name] = repo_name
 
     return service_repo_mapping
+
+
+async def fetch_environment_context(workspace_id: str, db: AsyncSessionLocal) -> dict:
+    """
+    Fetch environment context for RCA agent including:
+    - List of all environments
+    - Default environment
+    - Deployed commits for each environment
+
+    This function queries the database directly (bypassing service layer membership checks)
+    since it runs in the internal RCA agent context where the job has already been authenticated.
+
+    Args:
+        workspace_id: Workspace identifier
+        db: Database session
+
+    Returns:
+        Dictionary with environment context for the RCA agent
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models import (
+        Deployment,
+        DeploymentStatus,
+        Environment,
+    )
+
+    environment_context = {
+        "environments": [],
+        "default_environment": None,
+        "deployed_commits_by_environment": {},
+    }
+
+    try:
+        # Fetch all environments for the workspace (direct query, no membership check)
+        result = await db.execute(
+            select(Environment)
+            .options(selectinload(Environment.repository_configs))
+            .where(Environment.workspace_id == workspace_id)
+            .order_by(Environment.created_at)
+        )
+        environments = list(result.scalars().all())
+
+        if not environments:
+            logger.info(f"No environments configured for workspace {workspace_id}")
+            return environment_context
+
+        # Build environment list and find default
+        for env in environments:
+            env_info = {"name": env.name, "is_default": env.is_default}
+            environment_context["environments"].append(env_info)
+
+            if env.is_default:
+                environment_context["default_environment"] = env.name
+
+        logger.info(
+            f"Found {len(environments)} environments for workspace {workspace_id}, "
+            f"default: {environment_context['default_environment']}"
+        )
+
+        # Fetch deployed commits for each environment
+        for env in environments:
+            env_commits = {}
+
+            # Get repository configs (already loaded via selectinload)
+            repo_configs = env.repository_configs or []
+
+            if not repo_configs:
+                logger.debug(f"No repositories configured for environment {env.name}")
+                environment_context["deployed_commits_by_environment"][env.name] = {}
+                continue
+
+            # For each repository, get the latest successful deployment
+            for repo_config in repo_configs:
+                if not repo_config.is_enabled:
+                    continue
+
+                try:
+                    # Get latest successful deployment for this repo in this environment
+                    result = await db.execute(
+                        select(Deployment)
+                        .where(
+                            Deployment.environment_id == env.id,
+                            Deployment.repo_full_name == repo_config.repo_full_name,
+                            Deployment.status == DeploymentStatus.SUCCESS,
+                        )
+                        .order_by(Deployment.deployed_at.desc())
+                        .limit(1)
+                    )
+                    latest_deployment = result.scalar_one_or_none()
+
+                    if latest_deployment and latest_deployment.commit_sha:
+                        deployed_at = (
+                            latest_deployment.deployed_at.isoformat()
+                            if latest_deployment.deployed_at
+                            else "unknown"
+                        )
+                        env_commits[repo_config.repo_full_name] = {
+                            "commit_sha": latest_deployment.commit_sha,
+                            "deployed_at": deployed_at,
+                        }
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch latest deployment for {repo_config.repo_full_name} "
+                        f"in environment {env.name}: {e}"
+                    )
+
+            environment_context["deployed_commits_by_environment"][env.name] = (
+                env_commits
+            )
+            logger.info(f"Environment {env.name}: {len(env_commits)} deployed commits")
+
+        total_commits = sum(
+            len(commits)
+            for commits in environment_context[
+                "deployed_commits_by_environment"
+            ].values()
+        )
+        logger.info(
+            f"✅ Environment context complete: {len(environments)} environments, "
+            f"{total_commits} total deployed commits"
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching environment context: {e}", exc_info=True)
+
+    return environment_context
 
 
 class RCAOrchestratorWorker(BaseWorker):
@@ -209,6 +410,13 @@ class RCAOrchestratorWorker(BaseWorker):
 
         if not job_id:
             logger.error("No job_id in SQS message, skipping")
+
+            # Record schema validation error
+            from app.core.otel_metrics import SQS_METRICS
+
+            if SQS_METRICS:
+                SQS_METRICS["sqs_message_parse_errors_total"].add(1)
+
             return
 
         # Set job_id in context variables
@@ -259,12 +467,17 @@ class RCAOrchestratorWorker(BaseWorker):
                     requested_context = job.requested_context or {}
                     query = requested_context.get("query", "")
 
-                    logger.info(f"🔍 Processing job {job_id}: {query}")
+                    # Redact user query in logs to prevent PII leakage
+                    redacted_query = redact_query_for_log(query)
+                    logger.info(f"🔍 Processing job {job_id}: {redacted_query}")
 
                     # Update job status to RUNNING
                     job.status = JobStatus.RUNNING
                     job.started_at = datetime.now(timezone.utc)
                     await db.commit()
+
+                    # Initialize start time for agent duration tracking
+                    agent_start_time = time.time()
 
                     # Extract context from job
                     team_id = requested_context.get("team_id")
@@ -281,7 +494,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     else:
                         logger.info("📝 No thread history - this is a new conversation")
 
-                    # PRE-CHECK: Verify GitHub integration exists and is healthy (required)
+                    # Get integrations for health tracking
                     all_integrations = await get_workspace_integrations(
                         workspace_id, db
                     )
@@ -303,7 +516,7 @@ class RCAOrchestratorWorker(BaseWorker):
                             {
                                 "job_source": job.source.value,
                                 "error_type": "MissingGitHubIntegration",
-                            }
+                            },
                         )
 
                         # Notify client based on source
@@ -337,17 +550,51 @@ class RCAOrchestratorWorker(BaseWorker):
                             f"will verify with actual API call for workspace {workspace_id}"
                         )
 
-                    # PRE-PROCESSING: Discover service→repo mappings
+                    # PRE-PROCESSING: Fetch user-configured service→repo mappings
                     logger.info(
-                        f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}"
+                        f"🔍 Pre-processing: Loading service mappings for workspace {workspace_id}"
                     )
 
                     service_repo_mapping = {}
+
+                    # Fetch user-configured services from database
                     try:
-                        # Fetch all repositories
+                        from app.models import Service
+
+                        result = await db.execute(
+                            select(Service)
+                            .where(Service.workspace_id == workspace_id)
+                            .where(Service.enabled.is_(True))
+                        )
+                        user_services = list(result.scalars().all())
+
+                        for service in user_services:
+                            if service.repository_name:
+                                # Extract repo name without org prefix (Vibe-Monitor/auth -> auth)
+                                repo_name = (
+                                    service.repository_name.split("/")[-1]
+                                    if "/" in service.repository_name
+                                    else service.repository_name
+                                )
+                                service_repo_mapping[service.name] = repo_name
+
+                        logger.info(
+                            f"✅ Loaded {len(service_repo_mapping)} user-configured services"
+                        )
+
+                        if len(service_repo_mapping) == 0:
+                            logger.warning(
+                                "⚠️ No services configured in workspace. User should add services in the UI."
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed to load user-configured services: {e}")
+                        service_repo_mapping = {}
+
+                    # Verify GitHub integration health with a lightweight check
+                    try:
                         repos_response = await list_repositories_graphql(
                             workspace_id=workspace_id,
-                            first=settings.RCA_MAX_REPOS_TO_FETCH,
+                            first=1,  # Just check if API works, don't fetch all repos
                             after=None,
                             user_id="rca-agent",
                             db=db,
@@ -355,7 +602,10 @@ class RCAOrchestratorWorker(BaseWorker):
 
                         if repos_response.get("success"):
                             # GitHub API succeeded - mark integration as healthy
-                            if github_integration.health_status != "healthy":
+                            if (
+                                github_integration
+                                and github_integration.health_status != "healthy"
+                            ):
                                 github_integration.health_status = "healthy"
                                 github_integration.status = "active"
                                 github_integration.last_error = None
@@ -363,77 +613,48 @@ class RCAOrchestratorWorker(BaseWorker):
                                     timezone.utc
                                 )
                                 await db.commit()
-                                logger.info(
-                                    f"✅ GitHub integration marked healthy after successful API call: "
-                                    f"workspace_id={workspace_id}"
-                                )
-
-                            repositories = repos_response.get("repositories", [])
-                            total_repos = len(repositories)
-                            logger.info(f"Found {total_repos} repositories to scan")
-
-                            # Extract service names from repositories in parallel batches
-                            service_repo_mapping = await scan_repositories_in_batches(
-                                repositories=repositories, workspace_id=workspace_id
-                            )
-
-                            logger.info(
-                                f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped"
-                            )
+                                logger.info("✅ GitHub integration verified as healthy")
                         else:
                             # GitHub API call failed - mark integration as unhealthy
-                            github_integration.health_status = "failed"
-                            github_integration.status = "error"
-                            github_integration.last_error = (
-                                "Failed to fetch repositories"
-                            )
-                            github_integration.last_verified_at = datetime.now(
-                                timezone.utc
-                            )
-                            await db.commit()
+                            if github_integration:
+                                github_integration.health_status = "failed"
+                                github_integration.status = "error"
+                                github_integration.last_error = (
+                                    "Failed to connect to GitHub"
+                                )
+                                github_integration.last_verified_at = datetime.now(
+                                    timezone.utc
+                                )
+                                await db.commit()
                             logger.warning(
-                                f"Failed to fetch repositories for service discovery, "
-                                f"marked GitHub integration as unhealthy: workspace_id={workspace_id}"
+                                f"⚠️ GitHub integration marked as unhealthy: workspace_id={workspace_id}"
                             )
 
                     except Exception as e:
                         # GitHub API call threw exception - mark integration as unhealthy
-                        github_integration.health_status = "failed"
-                        github_integration.status = "error"
-                        github_integration.last_error = str(e)
-                        github_integration.last_verified_at = datetime.now(timezone.utc)
+                        if github_integration:
+                            github_integration.health_status = "failed"
+                            github_integration.status = "error"
+                            github_integration.last_error = str(e)
+                            github_integration.last_verified_at = datetime.now(
+                                timezone.utc
+                            )
+                            await db.commit()
 
                         logger.error(
-                            f"Error during service discovery pre-processing: {e}"
-                        )
-                        # Mark job as failed
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = f"Service discovery failed: {str(e)}"
-                        await db.commit()
-
-                        JOB_METRICS["jobs_failed_total"].add(
-                            1,
-                            {
-                                "job_source": job.source.value,
-                                "error_type": "ServiceDiscoveryError",
-                            }
+                            f"Error during service discovery pre-processing: {e}",
+                            exc_info=True,
                         )
 
-                        # Notify client based on source
-                        if job.source == JobSource.WEB:
-                            turn_id = requested_context.get("turn_id")
-                            if turn_id:
-                                web_callback = WebProgressCallback(
-                                    turn_id=turn_id,
-                                    db=db,
-                                )
-                                await web_callback.send_error(
-                                    f"Service discovery failed: {str(e)}"
-                                )
-
-                        logger.warning(
-                            "Service discovery failed, marking job as FAILED and exiting"
+                        await fail_and_notify_job(
+                            db=db,
+                            job=job,
+                            requested_context=requested_context,
+                            error_message=f"Service discovery failed: {str(e)}",
+                            error_type="ServiceDiscoveryError",
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
                         )
                         return
 
@@ -463,27 +684,52 @@ class RCAOrchestratorWorker(BaseWorker):
                                 unhealthy_providers=unhealthy_optional
                             )
 
-                    # Perform RCA analysis using AI agent
-                    # Determine which LLM to use based on whether images are present
+                    # PRE-PROCESSING: Fetch environment context (environments + deployed commits)
+                    logger.info(
+                        f"🌍 Pre-processing: Fetching environment context for workspace {workspace_id}"
+                    )
+                    environment_context = await fetch_environment_context(
+                        workspace_id=workspace_id, db=db
+                    )
+
+                    # Perform RCA analysis using LangGraph agent
+                    # LangGraph now handles both text and multimodal inputs
                     has_images = job.requested_context.get("has_images", False)
                     files = job.requested_context.get("files", [])
 
-                    if has_images and files:
-                        logger.info(
-                            f"🖼️ Invoking Gemini RCA agent for job {job_id} (workspace: {workspace_id}) - {len(files)} image(s) detected"
+                    if has_images:
+                        # Count images and videos
+                        image_count = sum(
+                            1 for f in files if f.get("file_type") == "image"
                         )
-                        selected_agent = gemini_rca_agent_service
+                        video_count = sum(
+                            1 for f in files if f.get("file_type") == "video"
+                        )
+                        media_desc = []
+                        if image_count > 0:
+                            media_desc.append(f"{image_count} image(s)")
+                        if video_count > 0:
+                            media_desc.append(f"{video_count} video(s)")
+
+                        logger.info(
+                            f"🎬 Invoking LangGraph RCA agent (multimodal) for job {job_id} (workspace: {workspace_id}) - {' and '.join(media_desc)} detected"
+                        )
                     else:
                         logger.info(
-                            f"🤖 Invoking Groq RCA agent for job {job_id} (workspace: {workspace_id})"
+                            f"🤖 Invoking LangGraph RCA agent for job {job_id} (workspace: {workspace_id})"
                         )
-                        selected_agent = rca_agent_service
 
-                    # Add workspace_id and service mapping to context for RCA tools
+                    selected_agent = rca_agent_service
+
+                    # Add workspace_id, service mapping, environment context, and files for RCA tools
                     analysis_context = {
                         **(job.requested_context or {}),
                         "workspace_id": workspace_id,
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
+                        "environment_context": environment_context,  # Environments + deployed commits
+                        "files": files
+                        if has_images
+                        else [],  # Pass files for multimodal analysis
                     }
 
                     # Create appropriate progress callback based on job source
@@ -514,10 +760,18 @@ class RCAOrchestratorWorker(BaseWorker):
                                 send_tool_output=False,
                             )
 
+                    # Create metrics callback for tool execution tracking
+                    metrics_callback = ToolMetricsCallback()
+
+                    # Combine callbacks (metrics + progress)
+                    callbacks = [metrics_callback]
+                    if progress_callback:
+                        callbacks.append(progress_callback)
+
                     result = await selected_agent.analyze_with_retry(
                         user_query=query,
                         context=analysis_context,
-                        callbacks=[progress_callback] if progress_callback else None,
+                        callbacks=callbacks,
                         db=db,  # Pass db session for capability-based tool resolution
                     )
 
@@ -530,15 +784,53 @@ class RCAOrchestratorWorker(BaseWorker):
                         job.finished_at = datetime.now(timezone.utc)
                         await db.commit()
 
+                        agent_duration = time.time() - agent_start_time
+                        if AGENT_METRICS:
+                            AGENT_METRICS["rca_agent_invocations_total"].add(
+                                1,
+                                {
+                                    "status": "success",
+                                },
+                            )
+                            AGENT_METRICS["rca_agent_duration_seconds"].record(
+                                agent_duration
+                            )
+
                         JOB_METRICS["jobs_succeeded_total"].add(
                             1,
                             {
                                 "job_source": job.source.value,
-                            }
+                            },
                         )
 
-                        # Send final response based on source
+                        # Get LLM output
                         final_output = result.get("output", "Analysis completed.")
+
+                        # Unmask PII: replace placeholders with original values
+                        pii_mapping = requested_context.get("pii_mapping", {})
+                        if pii_mapping:
+                            try:
+                                pii_mapper = PIIMapper.from_mapping(pii_mapping)
+                                final_output = pii_mapper.unmask(final_output)
+                                logger.info(
+                                    f"PII unmasked in response: {len(pii_mapping)} placeholders restored"
+                                )
+                            except Exception as e:
+                                # If unmasking fails, log error but still send response
+                                # This prevents user from getting stuck with placeholders
+                                logger.error(
+                                    f"Failed to unmask PII in response: {e}",
+                                    exc_info=True,
+                                )
+                                # Add warning to response so user knows something went wrong
+                                final_output = (
+                                    "⚠️ Note: Unable to restore some sensitive data. "
+                                    "Placeholders may be visible. "
+                                    "Please contact support if this issue persists.\n\n"
+                                    + final_output
+                                )
+
+                        # Send final response based on source
 
                         if job.source == JobSource.WEB and web_callback:
                             # Web: send via SSE/Redis
@@ -546,6 +838,9 @@ class RCAOrchestratorWorker(BaseWorker):
                             logger.info(f"📤 Job {job_id} result sent to web client")
                         elif team_id and channel_id:
                             # Slack: update turn status and send message with feedback buttons
+                            # Convert Markdown to Slack format
+                            slack_output = markdown_to_slack(final_output)
+
                             turn_id = requested_context.get("turn_id")
                             if turn_id:
                                 # Update turn status and response
@@ -561,7 +856,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 await slack_event_service.send_message_with_feedback_button(
                                     team_id=team_id,
                                     channel=channel_id,
-                                    text=final_output,
+                                    text=slack_output,
                                     turn_id=turn_id,
                                     thread_ts=thread_ts,
                                 )
@@ -573,7 +868,7 @@ class RCAOrchestratorWorker(BaseWorker):
                                 await slack_event_service.send_message(
                                     team_id=team_id,
                                     channel=channel_id,
-                                    text=final_output,
+                                    text=slack_output,
                                     thread_ts=thread_ts,
                                 )
                                 logger.info(f"📤 Job {job_id} result sent to Slack")
@@ -583,36 +878,29 @@ class RCAOrchestratorWorker(BaseWorker):
                         error_msg = (result or {}).get(
                             "error", "Unknown error occurred"
                         )
-                        error_type = (result or {}).get("error_type")
+                        error_type = (result or {}).get("error_type", "UnknownError")
                         logger.error(f"❌ Job {job_id} failed: {error_msg}")
 
-                        # Mark job as failed
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = error_msg
-                        await db.commit()
+                        agent_duration = time.time() - agent_start_time
+                        if AGENT_METRICS:
+                            AGENT_METRICS["rca_agent_invocations_total"].add(
+                                1,
+                                {"status": "failure"},
+                            )
+                            AGENT_METRICS["rca_agent_duration_seconds"].record(
+                                agent_duration
+                            )
 
-                        JOB_METRICS["jobs_failed_total"].add(
-                            1,
-                            {
-                                "job_source": job.source.value,
-                                "error_type": "UnknownError",
-                            }
+                        await fail_and_notify_job(
+                            db=db,
+                            job=job,
+                            requested_context=requested_context,
+                            error_message=error_msg,
+                            error_type=error_type,
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
                         )
-
-                        # Send error based on source
-                        if job.source == JobSource.WEB and web_callback:
-                            await web_callback.send_error(error_msg)
-                        elif progress_callback and hasattr(
-                            progress_callback, "send_no_healthy_integrations_message"
-                        ):
-                            # Slack callback with special methods
-                            if error_type == "no_healthy_integrations":
-                                await progress_callback.send_no_healthy_integrations_message()
-                            else:
-                                await progress_callback.send_final_error(
-                                    error_msg=error_msg, retry_count=0
-                                )
 
                 except Exception as e:
                     logger.exception(
@@ -622,42 +910,17 @@ class RCAOrchestratorWorker(BaseWorker):
                     # Try to mark job as failed
                     try:
                         job = await db.get(Job, job_id)
-                        if job:
-                            job.status = JobStatus.FAILED
-                            job.finished_at = datetime.now(timezone.utc)
-                            job.error_message = f"Worker exception: {str(e)}"
-                            await db.commit()
-
-                            JOB_METRICS["jobs_failed_total"].add(
-                                1,
-                                {
-                                    "job_source": job.source.value,
-                                    "error_type": "InternalError",
-                                }
+                        if job and job.requested_context:
+                            await fail_and_notify_job(
+                                db=db,
+                                job=job,
+                                requested_context=job.requested_context,
+                                error_message="An unexpected error occurred. Please try again.",
+                                error_type="InternalError",
+                                team_id=job.requested_context.get("team_id"),
+                                channel_id=job.trigger_channel_id,
+                                thread_ts=job.trigger_thread_ts,
                             )
-
-                            # Attempt to send error notification based on source
-                            if job.requested_context:
-                                if job.source == JobSource.WEB:
-                                    turn_id = job.requested_context.get("turn_id")
-                                    if turn_id:
-                                        error_web_callback = WebProgressCallback(
-                                            turn_id=turn_id,
-                                            db=db,
-                                        )
-                                        await error_web_callback.send_error(
-                                            "An unexpected error occurred. Please try again."
-                                        )
-                                else:
-                                    team_id = job.requested_context.get("team_id")
-                                    if team_id and job.trigger_channel_id:
-                                        # Create temporary callback for error notification
-                                        error_callback = SlackProgressCallback(
-                                            team_id=team_id,
-                                            channel_id=job.trigger_channel_id,
-                                            thread_ts=job.trigger_thread_ts,
-                                        )
-                                        await error_callback.send_unexpected_error()
                     except Exception as recovery_error:
                         logger.error(f"Failed to handle job failure: {recovery_error}")
         except Exception:

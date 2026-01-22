@@ -2,9 +2,9 @@
 Pydantic schemas for CloudWatch Logs API
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import List, Optional
 
+from pydantic import BaseModel, Field
 
 # ===== Log Groups Schemas =====
 

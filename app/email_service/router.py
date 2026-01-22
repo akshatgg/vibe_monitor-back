@@ -1,0 +1,440 @@
+"""
+Email API routes.
+"""
+
+import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.google.service import AuthService
+from app.core.config import settings
+from app.core.database import get_db
+from app.email_service.schemas import ContactFormRequest, EmailResponse
+from app.email_service.service import (
+    decode_unsubscribe_token,
+    email_service,
+    verify_scheduler_token,
+)
+from app.models import Email, RefreshToken, User
+
+logger = logging.getLogger(__name__)
+auth_service = AuthService()
+
+# Templates directory
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+router = APIRouter(prefix="/email-service", tags=["email"])
+
+
+@router.post("/nudge-email", response_model=EmailResponse)
+async def send_welcome_email(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Send a welcome email to the currently authenticated user.
+
+    This endpoint sends a beautifully formatted welcome email using the
+    welcome.html template from the templates folder.
+
+    Args:
+        db: Async database session
+        current_user: Currently authenticated user
+
+    Returns:
+        EmailResponse with email sending status
+    """
+    try:
+        result = await email_service.send_welcome_email(
+            user_id=current_user.id,
+            db=db,
+        )
+        return EmailResponse(**result)
+
+    except Exception as e:
+        logger.error(f"Failed to send welcome email: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send welcome email",
+        )
+
+
+@router.post("/send-onboarding-reminder-emails")
+async def send_onboarding_reminder_emails(
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Send onboarding reminder emails to users who haven't completed onboarding.
+
+    Eligibility criteria:
+    - User has newsletter_subscribed = True
+    - User has is_onboarded = False (hasn't integrated GitHub to any owned workspace)
+    - User created account 5+ days ago (for first email)
+    - OR last email sent 5+ days ago (for follow-up emails)
+    - User has received less than 3 emails (max limit)
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        logger.info("Starting onboarding reminder email job")
+
+        # Subject for onboarding reminder emails (must match exactly with service.py)
+        onboarding_email_subject = settings.ONBOARDING_REMINDER_EMAIL_SUBJECT
+
+        # Calculate interval threshold
+        interval_threshold = datetime.now(timezone.utc) - timedelta(
+            days=settings.ONBOARDING_REMINDER_INTERVAL_DAYS
+        )
+
+        # Get all users who are not onboarded and subscribed to newsletter
+        users_result = await db.execute(
+            select(User).where(
+                User.is_onboarded.is_(False),
+                User.newsletter_subscribed.is_(True),
+            )
+        )
+        not_onboarded_users = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in not_onboarded_users:
+            # Count how many SUCCESSFULLY sent onboarding reminder emails this user has received
+            email_count_result = await db.execute(
+                select(func.count(Email.id))
+                .where(Email.user_id == user.id)
+                .where(Email.subject == onboarding_email_subject)
+                .where(Email.status == "sent")  # Only count successful emails
+            )
+            email_count = email_count_result.scalar()
+
+            if email_count >= settings.ONBOARDING_REMINDER_MAX_EMAILS:
+                # User already received max emails, skip
+                continue
+
+            # Get last SUCCESSFULLY sent onboarding reminder email to this user
+            last_email_result = await db.execute(
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == onboarding_email_subject)
+                .where(Email.status == "sent")  # Only check successful emails
+                .order_by(Email.sent_at.desc())
+                .limit(1)
+            )
+            last_email = last_email_result.scalar_one_or_none()
+
+            # Determine if user is eligible
+            if last_email:
+                # User has received email before, check if interval has passed
+                if last_email.sent_at < interval_threshold:
+                    eligible_users.append(user)
+            else:
+                # User never received this email, check if account is older than interval
+                if user.created_at < interval_threshold:
+                    eligible_users.append(user)
+
+        logger.info(
+            f"Found {len(eligible_users)} eligible users out of {len(not_onboarded_users)} not onboarded"
+        )
+
+        # Send emails to eligible users
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await email_service.send_onboarding_reminder_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed to send onboarding reminder email to user {user.id}: {str(e)}"
+                )
+                failed_count += 1
+
+        logger.info(f"Onboarding reminder job complete: sent={sent_count}, failed={failed_count}")
+
+        return {
+            "success": True,
+            "message": "Onboarding reminder emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process onboarding reminder emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process onboarding reminder emails: {str(e)}",
+        )
+
+
+@router.post("/contact-form", response_model=EmailResponse)
+async def submit_contact_form(
+    request: ContactFormRequest,
+):
+    """
+    Submit a contact form to reach support@vibemonitor.ai.
+
+    This is a public endpoint (no authentication required) that allows
+    potential customers or users to contact the VibeMonitor team.
+
+    Note: This endpoint does NOT store contact form data in the database.
+    It only sends an email to the configured recipient.
+
+    Args:
+        request: Contact form data (name, work_email, interested_topics)
+
+    Returns:
+        EmailResponse with email submission status
+    """
+    try:
+        result = await email_service.send_contact_form_email(
+            name=request.name,
+            work_email=request.work_email,
+            interested_topics=request.interested_topics,
+        )
+        return EmailResponse(**result)
+
+    except Exception as e:
+        logger.error(f"Failed to send contact form email: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to submit contact form. Please try again later.",
+        )
+
+
+@router.post("/send-user-help-emails")
+async def send_user_help_emails(
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Send help/onboarding emails to users who signed up in the last 24 hours.
+
+    Eligibility criteria:
+    - User signed up within the last 24 hours
+    - User has NOT already received this email
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        users_result = await db.execute(
+            select(User).where(User.created_at >= twenty_four_hours_ago)
+        )
+        new_users = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in new_users:
+            existing_email = await db.execute(
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == settings.USER_HELP_EMAIL_SUBJECT)
+                .where(Email.status == "sent")
+                .limit(1)
+            )
+            already_sent = existing_email.scalar_one_or_none() is not None
+
+            if not already_sent:
+                eligible_users.append(user)
+
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await email_service.send_user_help_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed to send user help email to user {user.id}: {str(e)}"
+                )
+                failed_count += 1
+
+        return {
+            "success": True,
+            "message": "User help emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process user help emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process user help emails: {str(e)}",
+        )
+
+
+@router.post("/send-usage-feedback-emails")
+async def send_usage_feedback_emails(
+    db: AsyncSession = Depends(get_db),
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Send usage feedback emails to active users.
+
+    Eligibility criteria:
+    - User signed up more than 7 days ago
+    - User has logged in at least once after signup (has refresh token created after signup)
+    - User has NOT already received this email (one-time only)
+
+    Returns:
+        Summary of emails sent
+    """
+    try:
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+        users_result = await db.execute(
+            select(User).where(User.created_at <= seven_days_ago)
+        )
+        users_7_days_old = users_result.scalars().all()
+
+        eligible_users = []
+
+        for user in users_7_days_old:
+            # Check if already received this email
+            already_sent_result = await db.execute(
+                select(Email)
+                .where(Email.user_id == user.id)
+                .where(Email.subject == settings.USAGE_FEEDBACK_EMAIL_SUBJECT)
+                .where(Email.status == "sent")
+                .limit(1)
+            )
+            if already_sent_result.scalar_one_or_none() is not None:
+                continue
+
+            # Check if user has logged in after signup (refresh token created > 5 min after signup)
+            login_after_signup = await db.execute(
+                select(RefreshToken)
+                .where(RefreshToken.user_id == user.id)
+                .where(RefreshToken.created_at > user.created_at + timedelta(minutes=5))
+                .limit(1)
+            )
+            if login_after_signup.scalar_one_or_none() is None:
+                continue
+
+            eligible_users.append(user)
+
+        sent_count = 0
+        failed_count = 0
+
+        for user in eligible_users:
+            try:
+                await email_service.send_usage_feedback_email(
+                    user_id=user.id,
+                    db=db,
+                )
+                sent_count += 1
+            except Exception:
+                failed_count += 1
+
+        return {
+            "success": True,
+            "message": "Usage feedback emails processed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_eligible": len(eligible_users),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process usage feedback emails: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process usage feedback emails: {str(e)}",
+        )
+
+
+@router.get("/unsubscribe/{token}", response_class=HTMLResponse)
+async def unsubscribe_from_marketing_emails(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One-click unsubscribe from marketing emails.
+
+    This endpoint is accessed via a link in marketing emails.
+    It decodes the JWT token to identify the user and disables
+    their newsletter_subscribed preference.
+
+    Args:
+        token: Signed JWT token containing user_id
+        db: Async database session
+
+    Returns:
+        HTML page confirming unsubscription
+    """
+    # Decode and validate token
+    user_id = decode_unsubscribe_token(token)
+    if not user_id:
+        # Return a simple error page for invalid/expired tokens
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Invalid Link - VibeMonitor</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Invalid or Expired Link</h1>
+                <p>This unsubscribe link is no longer valid.</p>
+                <p>Please contact support@vibemonitor.ai if you need help.</p>
+            </body>
+            </html>
+            """,
+            status_code=400,
+        )
+
+    # Find user and update preference
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return HTMLResponse(
+            content="""
+            <!DOCTYPE html>
+            <html>
+            <head><title>User Not Found - VibeMonitor</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>User Not Found</h1>
+                <p>We couldn't find your account.</p>
+                <p>Please contact support@vibemonitor.ai if you need help.</p>
+            </body>
+            </html>
+            """,
+            status_code=404,
+        )
+
+    # Update user preference
+    user.newsletter_subscribed = False
+    await db.commit()
+
+    logger.info(f"User {user_id} ({user.email}) unsubscribed from marketing emails")
+
+    # Load and render success template
+    template_path = TEMPLATES_DIR / "unsubscribe_success.html"
+    with open(template_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Replace template variables
+    html_content = html_content.replace("{{api_base_url}}", settings.API_BASE_URL or "")
+    html_content = html_content.replace(
+        "{{app_url}}", settings.WEB_APP_URL or "https://vibemonitor.ai"
+    )
+
+    return HTMLResponse(content=html_content)

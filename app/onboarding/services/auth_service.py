@@ -1,25 +1,26 @@
-from fastapi import HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
 import base64
 import hashlib
-from typing import Dict, Optional
-import uuid
+import logging
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
+from typing import Dict, Optional
 from urllib.parse import urlencode
 
-from app.models import User, RefreshToken
-from ..schemas.schemas import UserResponse
-from ...core.database import get_db
+import httpx
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import RefreshToken, User
+
 from ...core.config import settings
-from ...utils.retry_decorator import retry_external_api
-from .workspace_service import WorkspaceService
+from ...core.database import get_db
 from ...email.service import email_service
-import logging
+from ...utils.retry_decorator import retry_external_api
+from ..schemas.schemas import UserResponse
 
 logger = logging.getLogger(__name__)
 
@@ -188,18 +189,10 @@ class AuthService:
         await db.commit()
         await db.refresh(new_user)
 
-        # Automatically create a workspace for the new user
-        workspace_service = WorkspaceService()
-        try:
-            await workspace_service.create_personal_workspace(user=new_user, db=db)
-        except Exception as e:
-            # Log the error but don't fail user creation
-            logger.error(f"Failed to create workspace for user {user_id}: {str(e)}")
-
         # Send welcome email to new user
         try:
             await email_service.send_welcome_email(user_id=user_id, db=db)
-            logger.info(f"Welcome email queued for user {user_id} ({email})")
+            logger.info(f"Welcome email queued for user {user_id}")
         except Exception as e:
             # Log the error but don't fail user creation
             logger.error(f"Failed to send welcome email to user {user_id}: {str(e)}")

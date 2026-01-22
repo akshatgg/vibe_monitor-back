@@ -2,29 +2,32 @@
 Chat service for managing sessions, turns, and message processing.
 """
 
+import html
 import logging
-import re
 import uuid
-from typing import Optional, List, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.models import (
     ChatSession,
     ChatTurn,
-    TurnStep,
+    FeedbackSource,
     Job,
-    JobStatus,
     JobSource,
-    TurnStatus,
-    StepType,
+    JobStatus,
     StepStatus,
+    StepType,
+    TurnComment,
+    TurnFeedback,
+    TurnStatus,
+    TurnStep,
 )
 from app.services.sqs.client import sqs_client
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +87,25 @@ class ChatService:
         """
         Generate session title from first message.
 
-        Sanitizes input to prevent XSS by removing dangerous characters.
-        Frontend should still sanitize before rendering (defense in depth).
+        Sanitizes HTML to prevent stored XSS (defense in depth).
+        Frontend should still escape when rendering.
         """
-        # Remove special characters that could cause XSS issues
-        title = re.sub(r'[<>"\'&]', "", message.strip())
+        # Strip whitespace
+        title = message.strip()
+
+        # Validate not empty
+        if not title:
+            return "Untitled Chat"
+
+        # Sanitize HTML entities to prevent stored XSS
+        # Uses html.escape() which converts: < > & " ' to HTML entities
+        title = html.escape(title)
+
         # Truncate if needed
         if len(title) > max_length:
-            title = title[: max_length - 3] + "..."
-        return title or "Untitled Chat"  # Handle empty string after sanitization
+            title = title[:max_length - 3] + "..."
+
+        return title
 
     async def create_turn(
         self,
@@ -205,7 +218,9 @@ class ChatService:
         )
 
         if include_turns:
-            query = query.options(selectinload(ChatSession.turns))
+            query = query.options(
+                selectinload(ChatSession.turns).selectinload(ChatTurn.files)
+            )
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -236,8 +251,8 @@ class ChatService:
                 ChatSession.user_id == user_id,
             )
             .options(
-                selectinload(ChatSession.turns)
-            )  # Eagerly load turns to avoid MissingGreenlet error
+                selectinload(ChatSession.turns).selectinload(ChatTurn.files)
+            )  # Eagerly load turns and files
             .order_by(desc(ChatSession.updated_at), desc(ChatSession.created_at))
             .limit(limit)
             .offset(offset)
@@ -329,6 +344,7 @@ class ChatService:
                 ChatSession.workspace_id == workspace_id,
                 ChatSession.user_id == user_id,
             )
+            .options(selectinload(ChatTurn.files))  # Eagerly load files for attachments
         )
 
         if include_steps:
@@ -337,38 +353,126 @@ class ChatService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def submit_feedback(
+    async def search_sessions(
         self,
-        turn_id: str,
         workspace_id: str,
         user_id: str,
-        score: int,
-        comment: Optional[str] = None,
-    ) -> Optional[ChatTurn]:
+        query: str,
+        limit: int = 20,
+    ) -> List[dict]:
         """
-        Submit feedback for a turn.
+        Search sessions by title and message content.
 
         Args:
-            turn_id: Turn ID
             workspace_id: Workspace ID
             user_id: User ID
-            score: Feedback score (1-5)
-            comment: Optional comment
+            query: Search query string
+            limit: Max results to return
 
         Returns:
-            Updated ChatTurn or None
+            List of search results with matched content
         """
-        turn = await self.get_turn(turn_id, workspace_id, user_id, include_steps=False)
-        if not turn:
-            return None
+        if not query or len(query.strip()) < 2:
+            return []
 
-        turn.feedback_score = score
-        turn.feedback_comment = comment
-        turn.updated_at = datetime.now(timezone.utc)
-        await self.db.flush()
+        search_pattern = f"%{query}%"
 
-        logger.info(f"Feedback submitted for turn {turn_id}: score={score}")
-        return turn
+        # Search in session titles and turn messages
+        # Using raw SQL for the complex UNION query
+        from sqlalchemy import text
+
+        sql = text(
+            """
+            WITH title_matches AS (
+                SELECT
+                    s.id as session_id,
+                    s.title,
+                    s.title as matched_content,
+                    'title' as match_type,
+                    s.created_at,
+                    s.updated_at
+                FROM chat_sessions s
+                WHERE s.workspace_id = :workspace_id
+                    AND s.user_id = :user_id
+                    AND s.title ILIKE :pattern
+            ),
+            message_matches AS (
+                SELECT DISTINCT ON (s.id)
+                    s.id as session_id,
+                    s.title,
+                    COALESCE(
+                        CASE WHEN t.user_message ILIKE :pattern THEN t.user_message ELSE NULL END,
+                        t.final_response
+                    ) as matched_content,
+                    'message' as match_type,
+                    s.created_at,
+                    s.updated_at
+                FROM chat_sessions s
+                JOIN chat_turns t ON t.session_id = s.id
+                WHERE s.workspace_id = :workspace_id
+                    AND s.user_id = :user_id
+                    AND (t.user_message ILIKE :pattern OR t.final_response ILIKE :pattern)
+                    AND s.id NOT IN (SELECT session_id FROM title_matches)
+                ORDER BY s.id, t.created_at DESC
+            )
+            SELECT * FROM title_matches
+            UNION ALL
+            SELECT * FROM message_matches
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC
+            LIMIT :limit
+        """
+        )
+
+        result = await self.db.execute(
+            sql,
+            {
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "pattern": search_pattern,
+                "limit": limit,
+            },
+        )
+
+        rows = result.fetchall()
+        results = []
+        seen_sessions = set()
+
+        for row in rows:
+            session_id = row.session_id
+            if session_id in seen_sessions:
+                continue
+            seen_sessions.add(session_id)
+
+            # Truncate matched content to ~100 chars with context
+            matched_content = row.matched_content or ""
+            if len(matched_content) > 150:
+                # Try to center around the match
+                query_lower = query.lower()
+                content_lower = matched_content.lower()
+                idx = content_lower.find(query_lower)
+                if idx >= 0:
+                    start = max(0, idx - 50)
+                    end = min(len(matched_content), idx + len(query) + 50)
+                    matched_content = (
+                        ("..." if start > 0 else "")
+                        + matched_content[start:end]
+                        + ("..." if end < len(matched_content) else "")
+                    )
+                else:
+                    matched_content = matched_content[:147] + "..."
+
+            results.append(
+                {
+                    "session_id": session_id,
+                    "title": row.title,
+                    "matched_content": matched_content,
+                    "match_type": row.match_type,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                }
+            )
+
+        return results
 
     async def update_turn_status(
         self,
@@ -692,37 +796,229 @@ class ChatService:
         Returns:
             ChatTurn or None
         """
-        result = await self.db.execute(select(ChatTurn).where(ChatTurn.id == turn_id))
+        result = await self.db.execute(
+            select(ChatTurn)
+            .where(ChatTurn.id == turn_id)
+            .options(selectinload(ChatTurn.files))  # Eagerly load files for attachments
+        )
         return result.scalar_one_or_none()
 
-    async def submit_feedback_by_turn_id(
+    # ═══════════════════════════════════════════════════════════════
+    # NEW MULTI-USER FEEDBACK METHODS (using turn_feedbacks table)
+    # ═══════════════════════════════════════════════════════════════
+
+    async def submit_turn_feedback(
         self,
         turn_id: str,
-        score: int,
-        comment: Optional[str] = None,
-    ) -> Optional[ChatTurn]:
+        user_id: str,
+        is_positive: bool,
+    ) -> Optional[TurnFeedback]:
         """
-        Submit feedback for a turn by turn_id (no auth check).
-
-        Used by Slack where we pass turn_id in the feedback button.
+        Submit feedback from a web user (upsert - one feedback per user per turn).
 
         Args:
-            turn_id: Turn ID (from feedback button value)
-            score: Feedback score (1=thumbs down, 5=thumbs up)
-            comment: Optional comment
+            turn_id: Turn ID
+            user_id: User ID (from auth)
+            is_positive: True for thumbs up, False for thumbs down
 
         Returns:
-            Updated ChatTurn or None if not found
+            TurnFeedback record or None if turn not found
         """
+        # Verify turn exists
         turn = await self.get_turn_by_id(turn_id)
         if not turn:
             logger.warning(f"No turn found for turn_id: {turn_id}")
             return None
 
-        turn.feedback_score = score
-        turn.feedback_comment = comment
-        turn.updated_at = datetime.now(timezone.utc)
-        await self.db.flush()
+        # Check for existing feedback from this user
+        result = await self.db.execute(
+            select(TurnFeedback).where(
+                TurnFeedback.turn_id == turn_id,
+                TurnFeedback.user_id == user_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
 
-        logger.info(f"Feedback submitted for turn {turn_id}: score={score}")
-        return turn
+        if existing:
+            # Update existing feedback
+            existing.is_positive = is_positive
+            existing.updated_at = datetime.now(timezone.utc)
+            await self.db.flush()
+            logger.info(f"Feedback updated for turn {turn_id} by user {user_id}")
+            return existing
+        else:
+            # Create new feedback
+            feedback = TurnFeedback(
+                id=str(uuid.uuid4()),
+                turn_id=turn_id,
+                user_id=user_id,
+                is_positive=is_positive,
+                source=FeedbackSource.WEB,
+            )
+            self.db.add(feedback)
+            await self.db.flush()
+            logger.info(f"Feedback created for turn {turn_id} by user {user_id}")
+            return feedback
+
+    async def submit_turn_feedback_slack(
+        self,
+        turn_id: str,
+        slack_user_id: str,
+        is_positive: bool,
+    ) -> Optional[TurnFeedback]:
+        """
+        Submit feedback from a Slack user (upsert - one feedback per Slack user per turn).
+
+        Args:
+            turn_id: Turn ID
+            slack_user_id: Slack user ID
+            is_positive: True for thumbs up, False for thumbs down
+
+        Returns:
+            TurnFeedback record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Check for existing feedback from this Slack user
+        result = await self.db.execute(
+            select(TurnFeedback).where(
+                TurnFeedback.turn_id == turn_id,
+                TurnFeedback.slack_user_id == slack_user_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Update existing feedback
+            existing.is_positive = is_positive
+            existing.updated_at = datetime.now(timezone.utc)
+            await self.db.flush()
+            logger.info(
+                f"Feedback updated for turn {turn_id} by Slack user {slack_user_id}"
+            )
+            return existing
+        else:
+            # Create new feedback
+            feedback = TurnFeedback(
+                id=str(uuid.uuid4()),
+                turn_id=turn_id,
+                slack_user_id=slack_user_id,
+                is_positive=is_positive,
+                source=FeedbackSource.SLACK,
+            )
+            self.db.add(feedback)
+            await self.db.flush()
+            logger.info(
+                f"Feedback created for turn {turn_id} by Slack user {slack_user_id}"
+            )
+            return feedback
+
+    async def add_turn_comment(
+        self,
+        turn_id: str,
+        user_id: str,
+        comment: str,
+    ) -> Optional[TurnComment]:
+        """
+        Add a comment from a web user.
+
+        Args:
+            turn_id: Turn ID
+            user_id: User ID (from auth)
+            comment: Comment text
+
+        Returns:
+            TurnComment record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Create new comment (multiple comments allowed)
+        turn_comment = TurnComment(
+            id=str(uuid.uuid4()),
+            turn_id=turn_id,
+            user_id=user_id,
+            comment=comment,
+            source=FeedbackSource.WEB,
+        )
+        self.db.add(turn_comment)
+        await self.db.flush()
+        logger.info(f"Comment added for turn {turn_id} by user {user_id}")
+        return turn_comment
+
+    async def add_turn_comment_slack(
+        self,
+        turn_id: str,
+        slack_user_id: str,
+        comment: str,
+    ) -> Optional[TurnComment]:
+        """
+        Add a comment from a Slack user.
+
+        Args:
+            turn_id: Turn ID
+            slack_user_id: Slack user ID
+            comment: Comment text
+
+        Returns:
+            TurnComment record or None if turn not found
+        """
+        # Verify turn exists
+        turn = await self.get_turn_by_id(turn_id)
+        if not turn:
+            logger.warning(f"No turn found for turn_id: {turn_id}")
+            return None
+
+        # Create new comment (multiple comments allowed)
+        turn_comment = TurnComment(
+            id=str(uuid.uuid4()),
+            turn_id=turn_id,
+            slack_user_id=slack_user_id,
+            comment=comment,
+            source=FeedbackSource.SLACK,
+        )
+        self.db.add(turn_comment)
+        await self.db.flush()
+        logger.info(f"Comment added for turn {turn_id} by Slack user {slack_user_id}")
+        return turn_comment
+
+    async def get_turn_feedbacks(self, turn_id: str) -> List[TurnFeedback]:
+        """
+        Get all feedbacks for a turn.
+
+        Args:
+            turn_id: Turn ID
+
+        Returns:
+            List of TurnFeedback records
+        """
+        result = await self.db.execute(
+            select(TurnFeedback)
+            .where(TurnFeedback.turn_id == turn_id)
+            .order_by(TurnFeedback.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def get_turn_comments(self, turn_id: str) -> List[TurnComment]:
+        """
+        Get all comments for a turn.
+
+        Args:
+            turn_id: Turn ID
+
+        Returns:
+            List of TurnComment records
+        """
+        result = await self.db.execute(
+            select(TurnComment)
+            .where(TurnComment.turn_id == turn_id)
+            .order_by(TurnComment.created_at)
+        )
+        return list(result.scalars().all())

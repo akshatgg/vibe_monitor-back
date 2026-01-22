@@ -1,0 +1,17 @@
+Hey!
+
+I noticed you signed up for VibeMonitor recently — thanks for checking us out!
+
+I wanted to personally reach out and see if there's anything I can help you with. Whether it's setting up integrations, understanding the RCA tools, or just exploring what's possible — I'm happy to hop on a quick call or answer any questions over email.
+
+What are you hoping to achieve with VibeMonitor? Would love to hear about your setup and challenges so we can make this as useful as possible for you.
+
+Just hit reply and let me know — no pressure, just genuinely here to help.
+
+Best,
+{{sender_name}}
+Founder, Vibemonitor.ai
+
+---
+You're receiving this email because you signed up for VibeMonitor.
+To unsubscribe from marketing emails: {{unsubscribe_url}}

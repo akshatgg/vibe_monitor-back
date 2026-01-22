@@ -4,22 +4,24 @@ Uses Datadog Integration credentials (API key and App key)
 """
 
 import logging
+
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.datadog.integration.service import get_datadog_domain, get_datadog_credentials
+from app.datadog.integration.service import get_datadog_credentials, get_datadog_domain
+
 from .schemas import (
-    QueryTimeseriesRequest,
-    QueryTimeseriesResponse,
-    TimeseriesData,
-    TimeseriesAttributes,
-    TimeseriesSeries,
-    SimpleQueryRequest,
-    SimpleQueryResponse,
-    SimpleMetricPoint,
     EventsSearchRequest,
     EventsSearchResponse,
+    QueryTimeseriesRequest,
+    QueryTimeseriesResponse,
+    SimpleMetricPoint,
+    SimpleQueryRequest,
+    SimpleQueryResponse,
     TagsListResponse,
+    TimeseriesAttributes,
+    TimeseriesData,
+    TimeseriesSeries,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,9 +196,9 @@ class DatadogMetricsService:
         try:
             # Create timeseries request
             from .schemas import (
-                TimeseriesQuery,
-                TimeseriesFormulaAndFunction,
                 QueryTimeseriesRequest,
+                TimeseriesFormulaAndFunction,
+                TimeseriesQuery,
             )
 
             timeseries_request = QueryTimeseriesRequest(
