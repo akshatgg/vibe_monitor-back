@@ -156,6 +156,6 @@ class WebProgressCallback(AsyncCallbackHandler):
         """Mark processing as complete with final response."""
         await self.notifier.on_complete(final_response)
 
-    async def send_error(self, message: str) -> None:
+    async def send_error(self, message: str, action_url: str | None = None) -> None:
         """Send an error notification."""
-        await self.notifier.on_error(message)
+        await self.notifier.on_error(message, action_url=action_url)

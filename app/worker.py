@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+from sqlalchemy import select
 
 from app.chat.notifiers import WebProgressCallback
 from app.chat.service import ChatService
@@ -15,7 +16,7 @@ from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
 from app.engagement.service import engagement_service
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
-from app.models import Job, JobSource, JobStatus, TurnStatus
+from app.models import Job, JobSource, JobStatus, Membership, Role, TurnStatus, User
 from app.services.rca.agent import rca_agent_service
 from app.services.rca.callbacks import (
     SlackProgressCallback,
@@ -30,6 +31,72 @@ from app.utils.data_masker import PIIMapper, redact_query_for_log
 from app.workers.base_worker import BaseWorker
 
 logger = logging.getLogger(__name__)
+
+
+async def fail_and_notify_job(
+    *,
+    db,
+    job: Job,
+    requested_context: dict,
+    error_message: str,
+    error_type: str,
+    team_id: str | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+):
+    """
+    Single point of truth for job failure.
+    1. Updates job state in DB
+    2. Records metrics
+    3. Sends notification to client (Web or Slack)
+
+    This MUST be the only place that handles job failure.
+    """
+    # 1. Mutate job state
+    job.status = JobStatus.FAILED
+    job.finished_at = datetime.now(timezone.utc)
+    job.error_message = error_message
+    await db.commit()
+
+    # 2. Record metrics
+    JOB_METRICS["jobs_failed_total"].add(
+        1,
+        {
+            "job_source": job.source.value,
+            "error_type": error_type,
+        },
+    )
+
+    # 3. Determine action URL based on error type
+    action_url = None
+    if error_type in ("OnboardingNotCompleted", "no_healthy_integrations"):
+        action_url = f"{settings.WEB_APP_URL}/integrations"
+
+    # 4. Notify client based on job source
+    if job.source == JobSource.WEB:
+        turn_id = requested_context.get("turn_id")
+        if turn_id:
+            web_callback = WebProgressCallback(turn_id=turn_id, db=db)
+            await web_callback.send_error(error_message, action_url=action_url)
+        return
+
+    # Slack path
+    if team_id and channel_id:
+        slack_callback = SlackProgressCallback(
+            team_id=team_id,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            send_tool_output=False,
+        )
+
+        if error_type == "OnboardingNotCompleted":
+            await slack_callback.send_onboarding_required_message()
+        elif error_type == "no_healthy_integrations":
+            await slack_callback.send_no_healthy_integrations_message()
+        else:
+            await slack_callback.send_final_error(
+                error_msg=error_message, retry_count=0
+            )
 
 
 async def scan_repositories_in_batches(
@@ -223,9 +290,9 @@ async def fetch_environment_context(workspace_id: str, db: AsyncSessionLocal) ->
                         f"in environment {env.name}: {e}"
                     )
 
-            environment_context["deployed_commits_by_environment"][env.name] = (
-                env_commits
-            )
+            environment_context["deployed_commits_by_environment"][
+                env.name
+            ] = env_commits
             logger.info(f"Environment {env.name}: {len(env_commits)} deployed commits")
 
         total_commits = sum(
@@ -428,61 +495,41 @@ class RCAOrchestratorWorker(BaseWorker):
                     else:
                         logger.info("📝 No thread history - this is a new conversation")
 
-                    # PRE-CHECK: Verify GitHub integration exists and is healthy (required)
+                    # PRE-CHECK: Verify workspace owner has completed onboarding
+                    result = await db.execute(
+                        select(User.is_onboarded)
+                        .join(Membership, Membership.user_id == User.id)
+                        .where(
+                            Membership.workspace_id == workspace_id,
+                            Membership.role == Role.OWNER,
+                        )
+                    )
+                    owner_onboarded = result.scalar_one_or_none()
+
+                    if not owner_onboarded:
+                        logger.warning(
+                            f"Workspace owner not onboarded for workspace {workspace_id}"
+                        )
+
+                        await fail_and_notify_job(
+                            db=db,
+                            job=job,
+                            requested_context=requested_context,
+                            error_message=f"Onboarding not completed. Please complete your onboarding and connect your GitHub account to get started.",
+                            error_type="OnboardingNotCompleted",
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                        )
+                        return
+
+                    # Get integrations for health tracking
                     all_integrations = await get_workspace_integrations(
                         workspace_id, db
                     )
                     github_integration = next(
                         (i for i in all_integrations if i.provider == "github"), None
                     )
-
-                    if not github_integration:
-                        logger.warning(
-                            f"GitHub integration not found for workspace {workspace_id}"
-                        )
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = "GitHub integration not configured"
-                        await db.commit()
-
-                        JOB_METRICS["jobs_failed_total"].add(
-                            1,
-                            {
-                                "job_source": job.source.value,
-                                "error_type": "MissingGitHubIntegration",
-                            },
-                        )
-
-                        # Notify client based on source
-                        if job.source == JobSource.WEB:
-                            turn_id = requested_context.get("turn_id")
-                            if turn_id:
-                                web_callback = WebProgressCallback(
-                                    turn_id=turn_id,
-                                    db=db,
-                                )
-                                await web_callback.send_error(
-                                    "GitHub integration not configured. Please connect GitHub first."
-                                )
-                        elif team_id and channel_id:
-                            slack_callback = SlackProgressCallback(
-                                team_id=team_id,
-                                channel_id=channel_id,
-                                thread_ts=thread_ts,
-                                send_tool_output=False,
-                            )
-                            await slack_callback.send_missing_integration_message(
-                                "github"
-                            )
-                        return
-
-                    # Log warning if health_status is not healthy, but proceed anyway
-                    # The actual API call will determine real health status
-                    if github_integration.health_status not in ("healthy", None):
-                        logger.info(
-                            f"GitHub integration has health_status={github_integration.health_status}, "
-                            f"will verify with actual API call for workspace {workspace_id}"
-                        )
 
                     # PRE-PROCESSING: Discover service→repo mappings
                     logger.info(
@@ -502,7 +549,10 @@ class RCAOrchestratorWorker(BaseWorker):
 
                         if repos_response.get("success"):
                             # GitHub API succeeded - mark integration as healthy
-                            if github_integration.health_status != "healthy":
+                            if (
+                                github_integration
+                                and github_integration.health_status != "healthy"
+                            ):
                                 github_integration.health_status = "healthy"
                                 github_integration.status = "active"
                                 github_integration.last_error = None
@@ -529,58 +579,45 @@ class RCAOrchestratorWorker(BaseWorker):
                             )
                         else:
                             # GitHub API call failed - mark integration as unhealthy
-                            github_integration.health_status = "failed"
-                            github_integration.status = "error"
-                            github_integration.last_error = (
-                                "Failed to fetch repositories"
-                            )
-                            github_integration.last_verified_at = datetime.now(
-                                timezone.utc
-                            )
-                            await db.commit()
+                            if github_integration:
+                                github_integration.health_status = "failed"
+                                github_integration.status = "error"
+                                github_integration.last_error = (
+                                    "Failed to fetch repositories"
+                                )
+                                github_integration.last_verified_at = datetime.now(
+                                    timezone.utc
+                                )
+                                await db.commit()
                             logger.warning(
-                                f"Failed to fetch repositories for service discovery, "
-                                f"marked GitHub integration as unhealthy: workspace_id={workspace_id}"
+                                f"Failed to fetch repositories for service discovery: workspace_id={workspace_id}"
                             )
 
                     except Exception as e:
                         # GitHub API call threw exception - mark integration as unhealthy
-                        github_integration.health_status = "failed"
-                        github_integration.status = "error"
-                        github_integration.last_error = str(e)
-                        github_integration.last_verified_at = datetime.now(timezone.utc)
+                        if github_integration:
+                            github_integration.health_status = "failed"
+                            github_integration.status = "error"
+                            github_integration.last_error = str(e)
+                            github_integration.last_verified_at = datetime.now(
+                                timezone.utc
+                            )
+                            await db.commit()
 
                         logger.error(
-                            f"Error during service discovery pre-processing: {e}"
-                        )
-                        # Mark job as failed
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = f"Service discovery failed: {str(e)}"
-                        await db.commit()
-
-                        JOB_METRICS["jobs_failed_total"].add(
-                            1,
-                            {
-                                "job_source": job.source.value,
-                                "error_type": "ServiceDiscoveryError",
-                            },
+                            f"Error during service discovery pre-processing: {e}",
+                            exc_info=True,
                         )
 
-                        # Notify client based on source
-                        if job.source == JobSource.WEB:
-                            turn_id = requested_context.get("turn_id")
-                            if turn_id:
-                                web_callback = WebProgressCallback(
-                                    turn_id=turn_id,
-                                    db=db,
-                                )
-                                await web_callback.send_error(
-                                    f"Service discovery failed: {str(e)}"
-                                )
-
-                        logger.warning(
-                            "Service discovery failed, marking job as FAILED and exiting"
+                        await fail_and_notify_job(
+                            db=db,
+                            job=job,
+                            requested_context=requested_context,
+                            error_message=f"Service discovery failed: {str(e)}",
+                            error_type="ServiceDiscoveryError",
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
                         )
                         return
 
@@ -801,48 +838,29 @@ class RCAOrchestratorWorker(BaseWorker):
                         error_msg = (result or {}).get(
                             "error", "Unknown error occurred"
                         )
-                        error_type = (result or {}).get("error_type")
+                        error_type = (result or {}).get("error_type", "UnknownError")
                         logger.error(f"❌ Job {job_id} failed: {error_msg}")
-
-                        # Mark job as failed
-                        job.status = JobStatus.FAILED
-                        job.finished_at = datetime.now(timezone.utc)
-                        job.error_message = error_msg
-                        await db.commit()
 
                         agent_duration = time.time() - agent_start_time
                         if AGENT_METRICS:
                             AGENT_METRICS["rca_agent_invocations_total"].add(
                                 1,
-                                {
-                                    "status": "failure",
-                                },
+                                {"status": "failure"},
                             )
                             AGENT_METRICS["rca_agent_duration_seconds"].record(
                                 agent_duration
                             )
 
-                        JOB_METRICS["jobs_failed_total"].add(
-                            1,
-                            {
-                                "job_source": job.source.value,
-                                "error_type": "UnknownError",
-                            },
+                        await fail_and_notify_job(
+                            db=db,
+                            job=job,
+                            requested_context=requested_context,
+                            error_message=error_msg,
+                            error_type=error_type,
+                            team_id=team_id,
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
                         )
-
-                        # Send error based on source
-                        if job.source == JobSource.WEB and web_callback:
-                            await web_callback.send_error(error_msg)
-                        elif progress_callback and hasattr(
-                            progress_callback, "send_no_healthy_integrations_message"
-                        ):
-                            # Slack callback with special methods
-                            if error_type == "no_healthy_integrations":
-                                await progress_callback.send_no_healthy_integrations_message()
-                            else:
-                                await progress_callback.send_final_error(
-                                    error_msg=error_msg, retry_count=0
-                                )
 
                 except Exception as e:
                     logger.exception(
@@ -852,42 +870,17 @@ class RCAOrchestratorWorker(BaseWorker):
                     # Try to mark job as failed
                     try:
                         job = await db.get(Job, job_id)
-                        if job:
-                            job.status = JobStatus.FAILED
-                            job.finished_at = datetime.now(timezone.utc)
-                            job.error_message = f"Worker exception: {str(e)}"
-                            await db.commit()
-
-                            JOB_METRICS["jobs_failed_total"].add(
-                                1,
-                                {
-                                    "job_source": job.source.value,
-                                    "error_type": "InternalError",
-                                },
+                        if job and job.requested_context:
+                            await fail_and_notify_job(
+                                db=db,
+                                job=job,
+                                requested_context=job.requested_context,
+                                error_message="An unexpected error occurred. Please try again.",
+                                error_type="InternalError",
+                                team_id=job.requested_context.get("team_id"),
+                                channel_id=job.trigger_channel_id,
+                                thread_ts=job.trigger_thread_ts,
                             )
-
-                            # Attempt to send error notification based on source
-                            if job.requested_context:
-                                if job.source == JobSource.WEB:
-                                    turn_id = job.requested_context.get("turn_id")
-                                    if turn_id:
-                                        error_web_callback = WebProgressCallback(
-                                            turn_id=turn_id,
-                                            db=db,
-                                        )
-                                        await error_web_callback.send_error(
-                                            "An unexpected error occurred. Please try again."
-                                        )
-                                else:
-                                    team_id = job.requested_context.get("team_id")
-                                    if team_id and job.trigger_channel_id:
-                                        # Create temporary callback for error notification
-                                        error_callback = SlackProgressCallback(
-                                            team_id=team_id,
-                                            channel_id=job.trigger_channel_id,
-                                            thread_ts=job.trigger_thread_ts,
-                                        )
-                                        await error_callback.send_unexpected_error()
                     except Exception as recovery_error:
                         logger.error(f"Failed to handle job failure: {recovery_error}")
         except Exception:

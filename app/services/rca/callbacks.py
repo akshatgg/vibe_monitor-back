@@ -542,6 +542,21 @@ class SlackProgressCallback(AsyncCallbackHandler):
             context=f"missing {provider} integration message",
         )
 
+    async def send_onboarding_required_message(self) -> None:
+        """
+        Send notification when workspace owner has not completed onboarding.
+        """
+        integrations_url = f"{settings.WEB_APP_URL}/integrations" if settings.WEB_APP_URL else "the dashboard"
+        await self._send_to_slack(
+            text=(
+                "⚠️ *Onboarding not completed*\n\n"
+                "Please complete the onboarding process to use RCA analysis.\n\n"
+                "*To resolve this:*\n"
+                f"• <{integrations_url}|Click here> to complete you onboarding and connect your GitHub account"
+            ),
+            context="onboarding required message",
+        )
+
     async def send_degraded_integrations_warning(
         self, unhealthy_providers: list[str]
     ) -> None:

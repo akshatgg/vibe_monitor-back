@@ -152,23 +152,26 @@ class WebNotifier(BaseNotifier):
         )
         logger.info(f"[Turn {self.turn_id}] Processing complete")
 
-    async def on_error(self, message: str) -> None:
+    async def on_error(self, message: str, action_url: Optional[str] = None) -> None:
         """Notify that an error occurred."""
-        # Update turn status to failed
+        # Update turn status to failed and save error message
         await self.service.update_turn_status(
             turn_id=self.turn_id,
             status=TurnStatus.FAILED,
+            final_response=message,  # Save error message to DB
         )
         await self.db.commit()
 
         # Publish to Redis
-        await publish_event(
-            self.channel,
-            {
-                "event": "error",
-                "message": message,
-            },
-        )
+        event_data = {
+            "event": "error",
+            "message": message,
+        }
+        if action_url:
+            event_data["action_url"] = action_url
+
+        await publish_event(self.channel, event_data)
+
         # Structured logging for log aggregation tools (Datadog, CloudWatch)
         logger.error(
             f"[Turn {self.turn_id}] Error: {message}",

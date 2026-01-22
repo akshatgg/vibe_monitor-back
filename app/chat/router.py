@@ -642,11 +642,20 @@ async def stream_turn(
             },
         )
 
-    # If failed, return error
+    # If failed, return error with actual message from DB
     if turn.status == TurnStatus.FAILED:
+        error_message = turn.final_response or "Processing failed"
+
+        # Derive action_url for onboarding/integration errors
+        action_url = None
+        if "onboarding" in error_message.lower() or "integration" in error_message.lower():
+            action_url = f"{settings.WEB_APP_URL}/integrations"
 
         async def error_stream() -> AsyncIterator[str]:
-            yield f"data: {json.dumps({'event': 'error', 'message': 'Processing failed'})}\n\n"
+            event_data = {"event": "error", "message": error_message}
+            if action_url:
+                event_data["action_url"] = action_url
+            yield f"data: {json.dumps(event_data)}\n\n"
 
         return StreamingResponse(
             error_stream(),
@@ -662,14 +671,21 @@ async def stream_turn(
 
     if is_stale:
         # Mark turn and job as failed
-        await service.mark_turn_failed_with_cleanup(
-            turn, stale_reason or "Processing failed", job
-        )
+        stale_message = stale_reason or "Processing failed"
+        await service.mark_turn_failed_with_cleanup(turn, stale_message, job)
         await db.commit()
         logger.warning(f"Turn {turn_id} marked as stale: {stale_reason}")
 
+        # Derive action_url for onboarding/integration errors
+        stale_action_url = None
+        if "onboarding" in stale_message.lower() or "integration" in stale_message.lower():
+            stale_action_url = f"{settings.WEB_APP_URL}/integrations"
+
         async def stale_error_stream() -> AsyncIterator[str]:
-            yield f"data: {json.dumps({'event': 'error', 'message': stale_reason or 'Processing failed'})}\n\n"
+            event_data = {"event": "error", "message": stale_message}
+            if stale_action_url:
+                event_data["action_url"] = stale_action_url
+            yield f"data: {json.dumps(event_data)}\n\n"
 
         return StreamingResponse(
             stale_error_stream(),
