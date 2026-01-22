@@ -258,7 +258,7 @@ class TestVerifyConfig:
             model_name="gpt-4-turbo",
         )
 
-        with patch("openai.OpenAI") as mock_openai:
+        with patch("app.llm.service.OpenAI") as mock_openai:
             mock_client = MagicMock()
             mock_client.models.list.return_value = [{"id": "gpt-4"}, {"id": "gpt-3.5"}]
             mock_openai.return_value = mock_client

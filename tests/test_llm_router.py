@@ -431,7 +431,7 @@ class TestVerifyLlmConfig:
             model_name="gpt-4-turbo",
         )
 
-        with patch("openai.OpenAI") as mock_openai:
+        with patch("app.llm.service.OpenAI") as mock_openai:
             mock_client = MagicMock()
             mock_client.models.list.return_value = [{"id": "gpt-4"}]
             mock_openai.return_value = mock_client
@@ -461,7 +461,7 @@ class TestVerifyLlmConfig:
             api_key="invalid-key",
         )
 
-        with patch("openai.OpenAI") as mock_openai:
+        with patch("app.llm.service.OpenAI") as mock_openai:
             mock_openai.return_value.models.list.side_effect = Exception(
                 "Invalid API key"
             )

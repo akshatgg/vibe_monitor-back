@@ -447,19 +447,24 @@ class TestSlackWebhooks:
 
     @pytest.mark.asyncio
     async def test_slack_oauth_callback_missing_code(self, client, test_db):
-        """Test OAuth callback with missing authorization code."""
-        response = await client.get(f"{API_PREFIX}/slack/oauth/callback")
+        """Test OAuth callback with missing authorization code redirects with error."""
+        response = await client.get(
+            f"{API_PREFIX}/slack/oauth/callback", follow_redirects=False
+        )
 
-        assert response.status_code == 400
-        assert "Missing authorization code" in response.json()["detail"]
+        assert response.status_code == 302
+        assert "error=" in response.headers["location"]
+        assert "Missing" in response.headers["location"]
 
     @pytest.mark.asyncio
     async def test_slack_oauth_callback_error_from_slack(self, client, test_db):
-        """Test OAuth callback when Slack returns an error."""
+        """Test OAuth callback when Slack returns an error redirects with error."""
         response = await client.get(
             f"{API_PREFIX}/slack/oauth/callback",
             params={"error": "access_denied"},
+            follow_redirects=False,
         )
 
-        assert response.status_code == 400
-        assert "Installation was cancelled" in response.json()["message"]
+        assert response.status_code == 302
+        assert "error=" in response.headers["location"]
+        assert "cancelled" in response.headers["location"]
