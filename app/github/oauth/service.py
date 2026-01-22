@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...integrations.health_checks import check_github_health
-from ...models import GitHubIntegration, Integration
+from ...models import GitHubIntegration, Integration, Membership, Role, User
 from ...utils.retry_decorator import retry_external_api
 from ...utils.token_processor import token_processor
 
@@ -25,6 +25,34 @@ class GitHubAppService:
         self.GITHUB_APP_ID = settings.GITHUB_APP_ID
         self.GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY_PEM
         self.GITHUB_API_BASE = settings.GITHUB_API_BASE_URL
+
+    async def _mark_workspace_owner_onboarded(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Mark workspace owner as onboarded after GitHub integration."""
+        try:
+            owner_result = await db.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace_id,
+                    Membership.role == Role.OWNER,
+                )
+            )
+            owner_membership = owner_result.scalar_one_or_none()
+
+            if owner_membership:
+                user_result = await db.execute(
+                    select(User).where(User.id == owner_membership.user_id)
+                )
+                owner_user = user_result.scalar_one_or_none()
+
+                if owner_user and not owner_user.is_onboarded:
+                    owner_user.is_onboarded = True
+                    await db.commit()
+                    logger.info(
+                        f"Marked user {owner_user.id} as onboarded after GitHub integration"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to update onboarding status for workspace owner: {e}")
 
     def generate_jwt(self) -> str:
         """Generate JWT for GitHub App authentication"""
@@ -125,6 +153,8 @@ class GitHubAppService:
                 f"Updated existing GitHub integration for workspace={workspace_id}, "
                 f"installation_id={installation_id}"
             )
+
+            await self._mark_workspace_owner_onboarded(workspace_id, db)
             return existing_integration
 
         # Check if there's any other integration for this workspace (different installation_id)
@@ -228,6 +258,7 @@ class GitHubAppService:
                 f"Health status remains unset."
             )
 
+        await self._mark_workspace_owner_onboarded(workspace_id, db)
         return new_integration
 
     async def get_installation_access_token(self, installation_id: str) -> Dict:

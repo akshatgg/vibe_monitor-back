@@ -308,17 +308,9 @@ async def test_contact_form_service_error(client):
         assert "failed to submit" in response.json()["detail"].lower()
 
 
-# =============================================================================
-# POST /api/v1/email/send-slack-nudge-emails Tests
-# =============================================================================
 
 
-@pytest.mark.asyncio
-async def test_send_slack_nudge_emails_unauthorized(client):
-    """Test that requests without scheduler token are rejected."""
-    response = await client.post(f"{API_PREFIX}/send-slack-nudge-emails")
-    # Should require authentication
-    assert response.status_code in [401, 403, 422]
+
 
 
 @pytest.mark.asyncio

@@ -481,103 +481,6 @@ class EmailService:
 
             raise
 
-    async def send_slack_integration_email(
-        self, user_id: str, db: AsyncSession
-    ) -> dict:
-        """
-        Send a Slack integration nudge email to a user.
-        This is a marketing email - respects user's newsletter_subscribed preference.
-
-        Args:
-            user_id: User ID to send email to
-            db: Async database session
-
-        Returns:
-            dict: Response containing email status and details
-        """
-        # Get user from database using async query
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if not user:
-            raise ValueError(f"User with id {user_id} not found")
-
-        # Check if user has opted out of marketing emails
-        if not user.newsletter_subscribed:
-            logger.info(
-                f"Skipping slack integration email for user {user_id} - marketing emails disabled"
-            )
-            return {
-                "success": False,
-                "message": "User has opted out of marketing emails",
-                "email": user.email,
-                "skipped": True,
-            }
-
-        # Email content
-        subject = "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
-
-        # Generate unsubscribe URL
-        unsubscribe_url = get_unsubscribe_url(user_id)
-
-        # Load and render HTML template
-        template = self._load_template("slack_integration.html")
-        html_content = self._render_template(
-            template,
-            user_name=user.name,
-            app_url=settings.WEB_APP_URL or "https://vibemonitor.ai",
-            api_base_url=settings.API_BASE_URL,
-            unsubscribe_url=unsubscribe_url,
-        )
-
-        try:
-            response = await self.send_email(
-                to_email=user.email,
-                subject=subject,
-                text="",
-                html_body=html_content,
-                message_stream=settings.POSTMARK_BROADCAST_STREAM,
-                unsubscribe_url=unsubscribe_url,
-            )
-
-            # Store email record in database
-            email_record = Email(
-                id=str(uuid.uuid4()),
-                user_id=user_id,
-                sent_at=datetime.now(timezone.utc),
-                subject=subject,
-                message_id=response.get("id"),
-                status="sent",
-            )
-            db.add(email_record)
-            await db.commit()
-
-            logger.info(f"Slack integration email sent to user {user_id}")
-
-            return {
-                "success": True,
-                "message": "Slack integration email sent successfully",
-                "email": user.email,
-                "message_id": response.get("id"),
-            }
-
-        except Exception as e:
-            logger.error(
-                f"Failed to send slack integration email to user {user_id}: {str(e)}"
-            )
-
-            # Store failed email record
-            email_record = Email(
-                id=str(uuid.uuid4()),
-                user_id=user_id,
-                sent_at=datetime.now(timezone.utc),
-                subject=subject,
-                status="failed",
-            )
-            db.add(email_record)
-            await db.commit()
-
-            raise
-
     async def send_contact_form_email(
         self,
         name: str,
@@ -808,6 +711,97 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         except Exception as e:
             logger.error(
                 f"Failed to send usage feedback email to user {user_id}: {str(e)}"
+            )
+
+            email_record = Email(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                status="failed",
+            )
+            db.add(email_record)
+            await db.commit()
+            raise
+
+    async def send_onboarding_reminder_email(
+        self, user_id: str, db: AsyncSession
+    ) -> dict:
+        """
+        Send onboarding reminder email to users who haven't integrated GitHub.
+        This is a marketing email - respects user's newsletter_subscribed preference.
+
+        Args:
+            user_id: User ID to send email to
+            db: Async database session
+
+        Returns:
+            dict: Response containing email status and details
+        """
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        # Check if user has opted out of marketing emails
+        if not user.newsletter_subscribed:
+            logger.info(
+                f"Skipping onboarding reminder email for user {user_id} - marketing emails disabled"
+            )
+            return {
+                "success": False,
+                "message": "User has opted out of marketing emails",
+                "email": user.email,
+                "skipped": True,
+            }
+
+        email_subject = settings.ONBOARDING_REMINDER_EMAIL_SUBJECT
+        # Generate unsubscribe URL
+        unsubscribe_url = get_unsubscribe_url(user_id)
+        # Load HTML template
+        html_template = self._load_template("onboarding_reminder.html")
+        html_content = self._render_template(
+            html_template,
+            sender_name=settings.PERSONAL_EMAIL_FROM_NAME,
+            unsubscribe_url=unsubscribe_url,
+        )
+
+        try:
+            # Use personal email settings for personalized outreach
+            response = await self.send_email(
+                to_email=user.email,
+                subject=email_subject,
+                text="",
+                html_body=html_content,
+                from_email=settings.PERSONAL_EMAIL_FROM_ADDRESS,
+                from_name=settings.PERSONAL_EMAIL_FROM_NAME,
+                message_stream=settings.POSTMARK_BROADCAST_STREAM,
+            )
+
+            email_record = Email(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                sent_at=datetime.now(timezone.utc),
+                subject=email_subject,
+                message_id=response.get("id"),
+                status="sent",
+            )
+            db.add(email_record)
+            await db.commit()
+
+            logger.info(f"Onboarding reminder email sent to user {user_id}")
+
+            return {
+                "success": True,
+                "message": "Onboarding reminder email sent successfully",
+                "email": user.email,
+                "message_id": response.get("id"),
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to send onboarding reminder email to user {user_id}: {str(e)}"
             )
 
             email_record = Email(

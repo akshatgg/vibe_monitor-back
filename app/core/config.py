@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     WELCOME_EMAIL_SUBJECT: str = "Welcome to VibeMonitor - quick intro"
     USER_HELP_EMAIL_SUBJECT: str = "Quick question about your setup"
     USAGE_FEEDBACK_EMAIL_SUBJECT: str = "How's it going so far?"
+    ONBOARDING_REMINDER_EMAIL_SUBJECT: str = "Complete Your Setup - Integrate GitHub"
+
+    # Onboarding Reminder Email Settings
+    ONBOARDING_REMINDER_INTERVAL_DAYS: int = 5  # Days between reminder emails
+    ONBOARDING_REMINDER_MAX_EMAILS: int = 3  # Maximum reminder emails per user
 
     # Slack Integration
     SLACK_SIGNING_SECRET: Optional[str] = None

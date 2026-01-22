@@ -20,7 +20,7 @@ from app.email_service.service import (
     email_service,
     verify_scheduler_token,
 )
-from app.models import Email, Membership, RefreshToken, SlackInstallation, User
+from app.models import Email, RefreshToken, User
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
@@ -64,80 +64,65 @@ async def send_welcome_email(
         )
 
 
-@router.post("/send-slack-nudge-emails")
-async def send_slack_nudge_emails(
+@router.post("/send-onboarding-reminder-emails")
+async def send_onboarding_reminder_emails(
     db: AsyncSession = Depends(get_db),
     _: bool = Depends(verify_scheduler_token),
 ):
     """
-    Send Slack integration nudge emails to eligible users.
+    Send onboarding reminder emails to users who haven't completed onboarding.
 
     Eligibility criteria:
+    - User has newsletter_subscribed = True
+    - User has is_onboarded = False (hasn't integrated GitHub to any owned workspace)
     - User created account 5+ days ago (for first email)
     - OR last email sent 5+ days ago (for follow-up emails)
-    - User has NOT integrated Slack yet
-    - User has received less than 5 emails (max limit)
+    - User has received less than 3 emails (max limit)
 
     Returns:
         Summary of emails sent
     """
     try:
-        # Subject for Slack integration emails (must match exactly with service.py)
-        slack_email_subject = (
-            "Don't Miss Critical Server Alerts - Integrate Slack & Grafana!"
+        logger.info("Starting onboarding reminder email job")
+
+        # Subject for onboarding reminder emails (must match exactly with service.py)
+        onboarding_email_subject = settings.ONBOARDING_REMINDER_EMAIL_SUBJECT
+
+        # Calculate interval threshold
+        interval_threshold = datetime.now(timezone.utc) - timedelta(
+            days=settings.ONBOARDING_REMINDER_INTERVAL_DAYS
         )
 
-        # Calculate 5 days ago
-        five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
-
-        # Get all users
-        users_result = await db.execute(select(User))
-        all_users = users_result.scalars().all()
+        # Get all users who are not onboarded and subscribed to newsletter
+        users_result = await db.execute(
+            select(User).where(
+                User.is_onboarded.is_(False),
+                User.newsletter_subscribed.is_(True),
+            )
+        )
+        not_onboarded_users = users_result.scalars().all()
 
         eligible_users = []
 
-        for user in all_users:
-            # Check if user has Slack integration in any of their workspaces
-            # Get all workspace IDs for this user
-            user_workspaces = await db.execute(
-                select(Membership.workspace_id).where(Membership.user_id == user.id)
-            )
-            workspace_ids = [ws_id for (ws_id,) in user_workspaces.all()]
-
-            if not workspace_ids:
-                # User has no workspaces, skip
-                continue
-
-            # Check if any of the user's workspaces have Slack integrated
-            slack_check = await db.execute(
-                select(SlackInstallation).where(
-                    SlackInstallation.workspace_id.in_(workspace_ids)
-                )
-            )
-            has_slack = slack_check.scalar_one_or_none() is not None
-
-            if has_slack:
-                # User already integrated Slack in  workspace, skip
-                continue
-
-            # Count how many SUCCESSFULLY sent Slack nudge emails this user has received
+        for user in not_onboarded_users:
+            # Count how many SUCCESSFULLY sent onboarding reminder emails this user has received
             email_count_result = await db.execute(
                 select(func.count(Email.id))
                 .where(Email.user_id == user.id)
-                .where(Email.subject == slack_email_subject)
+                .where(Email.subject == onboarding_email_subject)
                 .where(Email.status == "sent")  # Only count successful emails
             )
             email_count = email_count_result.scalar()
 
-            if email_count >= 5:
-                # User already received 5 emails, skip
+            if email_count >= settings.ONBOARDING_REMINDER_MAX_EMAILS:
+                # User already received max emails, skip
                 continue
 
-            # Get last SUCCESSFULLY sent email to this user
+            # Get last SUCCESSFULLY sent onboarding reminder email to this user
             last_email_result = await db.execute(
                 select(Email)
                 .where(Email.user_id == user.id)
-                .where(Email.subject == slack_email_subject)
+                .where(Email.subject == onboarding_email_subject)
                 .where(Email.status == "sent")  # Only check successful emails
                 .order_by(Email.sent_at.desc())
                 .limit(1)
@@ -146,15 +131,17 @@ async def send_slack_nudge_emails(
 
             # Determine if user is eligible
             if last_email:
-                # User has received email before, check if it's been MORE THAN 5 days
-                # last_email.sent_at should be OLDER than five_days_ago
-                if last_email.sent_at < five_days_ago:
+                # User has received email before, check if interval has passed
+                if last_email.sent_at < interval_threshold:
                     eligible_users.append(user)
-                # else: Email sent within last 5 days, skip
             else:
-                # User never received this email, check if account is MORE THAN 5 days old
-                if user.created_at < five_days_ago:
+                # User never received this email, check if account is older than interval
+                if user.created_at < interval_threshold:
                     eligible_users.append(user)
+
+        logger.info(
+            f"Found {len(eligible_users)} eligible users out of {len(not_onboarded_users)} not onboarded"
+        )
 
         # Send emails to eligible users
         sent_count = 0
@@ -162,30 +149,32 @@ async def send_slack_nudge_emails(
 
         for user in eligible_users:
             try:
-                await email_service.send_slack_integration_email(
+                await email_service.send_onboarding_reminder_email(
                     user_id=user.id,
                     db=db,
                 )
                 sent_count += 1
             except Exception as e:
                 logger.error(
-                    f"Failed to send slack nudge email to user {user.id}: {str(e)}"
+                    f"Failed to send onboarding reminder email to user {user.id}: {str(e)}"
                 )
                 failed_count += 1
 
+        logger.info(f"Onboarding reminder job complete: sent={sent_count}, failed={failed_count}")
+
         return {
             "success": True,
-            "message": "Slack nudge emails processed",
+            "message": "Onboarding reminder emails processed",
             "sent": sent_count,
             "failed": failed_count,
             "total_eligible": len(eligible_users),
         }
 
     except Exception as e:
-        logger.error(f"Failed to process slack nudge emails: {str(e)}")
+        logger.error(f"Failed to process onboarding reminder emails: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process slack nudge emails: {str(e)}",
+            detail=f"Failed to process onboarding reminder emails: {str(e)}",
         )
 
 

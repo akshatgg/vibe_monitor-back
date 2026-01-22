@@ -145,6 +145,9 @@ class User(Base):
     # Preferences
     newsletter_subscribed = Column(Boolean, default=True, nullable=False)
 
+    # Onboarding status (True when GitHub integrated to any owned workspace)
+    is_onboarded = Column(Boolean, default=False, nullable=False)
+
     # Workspace tracking
     last_visited_workspace_id = Column(
         String, ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True
