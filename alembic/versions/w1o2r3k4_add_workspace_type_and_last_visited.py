@@ -49,8 +49,9 @@ def upgrade() -> None:
 
     # Add last_visited_workspace_id to users
 
-    if "last_visited_workspace_id" not in [col["name"] for col in inspect.get_columns("users")]:
-
+    if "last_visited_workspace_id" not in [
+        col["name"] for col in inspect.get_columns("users")
+    ]:
         op.add_column(
             "users",
             sa.Column("last_visited_workspace_id", sa.String(), nullable=True),
@@ -74,7 +75,7 @@ def upgrade() -> None:
     # Personal workspaces are identified by:
     # - visible_to_org = False
     # - Has exactly one member who is the owner
-    # Note: The Role enum stores lowercase values (owner, user) in the database
+    # Note: At this point in the migration chain, the Role enum has uppercase values (OWNER, MEMBER)
     op.execute(
         text(
             """
@@ -86,7 +87,7 @@ def upgrade() -> None:
               ) = 1
               AND EXISTS (
                 SELECT 1 FROM memberships m
-                WHERE m.workspace_id = w.id AND m.role = 'owner'
+                WHERE m.workspace_id = w.id AND m.role = 'OWNER'
               )
             """
         )
