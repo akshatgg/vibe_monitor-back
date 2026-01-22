@@ -31,7 +31,7 @@ def upgrade() -> None:
     # Get all tables in dependency order (respects foreign keys)
     sorted_tables = Base.metadata.sorted_tables
 
-    print(f"\n=== Baseline Migration: Creating tables from models ===")
+    print("\n=== Baseline Migration: Creating tables from models ===")
 
     for table in sorted_tables:
         if table.name in existing_tables:
@@ -40,7 +40,7 @@ def upgrade() -> None:
             print(f"  ✓ Creating table '{table.name}'...")
             table.create(bind, checkfirst=True)
 
-    print(f"=== Baseline migration complete ===\n")
+    print("=== Baseline migration complete ===\n")
 
 
 def downgrade() -> None:

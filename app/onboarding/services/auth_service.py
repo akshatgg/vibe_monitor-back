@@ -21,7 +21,6 @@ from ...core.database import get_db
 from ...email.service import email_service
 from ...utils.retry_decorator import retry_external_api
 from ..schemas.schemas import UserResponse
-from .workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
 

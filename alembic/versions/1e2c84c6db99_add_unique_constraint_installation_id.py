@@ -5,16 +5,16 @@ Revises: 886ef6687692
 Create Date: 2026-01-14 15:27:19.867452
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 from sqlalchemy.sql import text
 
 
 # revision identifiers, used by Alembic.
-revision: str = '1e2c84c6db99'
-down_revision: Union[str, Sequence[str], None] = '886ef6687692'
+revision: str = "1e2c84c6db99"
+down_revision: Union[str, Sequence[str], None] = "886ef6687692"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -74,9 +74,11 @@ def upgrade() -> None:
     )
 
     # Get affected rows count from result
-    affected_rows = result.rowcount if hasattr(result, 'rowcount') else 0
+    affected_rows = result.rowcount if hasattr(result, "rowcount") else 0
     if affected_rows > 0:
-        print(f"Deleted {affected_rows} duplicate row(s), keeping newest for each installation_id")
+        print(
+            f"Deleted {affected_rows} duplicate row(s), keeping newest for each installation_id"
+        )
     else:
         print("No duplicates found to delete")
 
@@ -89,12 +91,14 @@ def upgrade() -> None:
     ).fetchone()
 
     if constraint_exists:
-        print("Unique constraint uq_github_integrations_installation_id already exists, skipping")
+        print(
+            "Unique constraint uq_github_integrations_installation_id already exists, skipping"
+        )
     else:
         op.create_unique_constraint(
-            'uq_github_integrations_installation_id',
-            'github_integrations',
-            ['installation_id']
+            "uq_github_integrations_installation_id",
+            "github_integrations",
+            ["installation_id"],
         )
         print("Added unique constraint on github_integrations.installation_id")
 
@@ -102,7 +106,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Remove unique constraint on github_integrations.installation_id."""
     op.drop_constraint(
-        'uq_github_integrations_installation_id',
-        'github_integrations',
-        type_='unique'
+        "uq_github_integrations_installation_id", "github_integrations", type_="unique"
     )

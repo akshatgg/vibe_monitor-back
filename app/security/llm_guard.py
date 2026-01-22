@@ -82,9 +82,14 @@ Your response must be exactly one word: true OR false"""
 
     def __init__(self):
         """Initialize the LLM Guard with its own LangChain Groq instance"""
-        if not settings.GROQ_API_KEY:
+        if not settings.GROQ_API_KEY or not settings.GROQ_LLM_MODEL:
+            missing = []
+            if not settings.GROQ_API_KEY:
+                missing.append("GROQ_API_KEY")
+            if not settings.GROQ_LLM_MODEL:
+                missing.append("GROQ_LLM_MODEL")
             logger.warning(
-                "GROQ_API_KEY not configured. LLM Guard will fail validations."
+                f"{', '.join(missing)} not configured. LLM Guard will fail validations."
             )
             self.llm = None
         else:

@@ -16,7 +16,7 @@ from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
 from app.engagement.service import engagement_service
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
-from app.models import Job, JobSource, JobStatus, Membership, Role, TurnStatus, User
+from app.models import Job, JobSource, JobStatus, TurnStatus
 from app.services.rca.agent import rca_agent_service
 from app.services.rca.callbacks import (
     SlackProgressCallback,
@@ -289,9 +289,9 @@ async def fetch_environment_context(workspace_id: str, db: AsyncSessionLocal) ->
                         f"in environment {env.name}: {e}"
                     )
 
-            environment_context["deployed_commits_by_environment"][
-                env.name
-            ] = env_commits
+            environment_context["deployed_commits_by_environment"][env.name] = (
+                env_commits
+            )
             logger.info(f"Environment {env.name}: {len(env_commits)} deployed commits")
 
         total_commits = sum(
@@ -556,32 +556,40 @@ class RCAOrchestratorWorker(BaseWorker):
                     )
 
                     service_repo_mapping = {}
-                    
+
                     # Fetch user-configured services from database
                     try:
                         from app.models import Service
-                        
+
                         result = await db.execute(
                             select(Service)
                             .where(Service.workspace_id == workspace_id)
-                            .where(Service.enabled == True)
+                            .where(Service.enabled.is_(True))
                         )
                         user_services = list(result.scalars().all())
-                        
+
                         for service in user_services:
                             if service.repository_name:
                                 # Extract repo name without org prefix (Vibe-Monitor/auth -> auth)
-                                repo_name = service.repository_name.split('/')[-1] if '/' in service.repository_name else service.repository_name
+                                repo_name = (
+                                    service.repository_name.split("/")[-1]
+                                    if "/" in service.repository_name
+                                    else service.repository_name
+                                )
                                 service_repo_mapping[service.name] = repo_name
-                        
-                        logger.info(f"✅ Loaded {len(service_repo_mapping)} user-configured services")
-                        
+
+                        logger.info(
+                            f"✅ Loaded {len(service_repo_mapping)} user-configured services"
+                        )
+
                         if len(service_repo_mapping) == 0:
-                            logger.warning("⚠️ No services configured in workspace. User should add services in the UI.")
+                            logger.warning(
+                                "⚠️ No services configured in workspace. User should add services in the UI."
+                            )
                     except Exception as e:
                         logger.error(f"Failed to load user-configured services: {e}")
                         service_repo_mapping = {}
-                    
+
                     # Verify GitHub integration health with a lightweight check
                     try:
                         repos_response = await list_repositories_graphql(
@@ -605,13 +613,15 @@ class RCAOrchestratorWorker(BaseWorker):
                                     timezone.utc
                                 )
                                 await db.commit()
-                                logger.info(f"✅ GitHub integration verified as healthy")
+                                logger.info("✅ GitHub integration verified as healthy")
                         else:
                             # GitHub API call failed - mark integration as unhealthy
                             if github_integration:
                                 github_integration.health_status = "failed"
                                 github_integration.status = "error"
-                                github_integration.last_error = "Failed to connect to GitHub"
+                                github_integration.last_error = (
+                                    "Failed to connect to GitHub"
+                                )
                                 github_integration.last_verified_at = datetime.now(
                                     timezone.utc
                                 )
@@ -717,7 +727,9 @@ class RCAOrchestratorWorker(BaseWorker):
                         "workspace_id": workspace_id,
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
                         "environment_context": environment_context,  # Environments + deployed commits
-                        "files": files if has_images else [],  # Pass files for multimodal analysis
+                        "files": files
+                        if has_images
+                        else [],  # Pass files for multimodal analysis
                     }
 
                     # Create appropriate progress callback based on job source

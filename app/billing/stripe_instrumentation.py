@@ -2,7 +2,6 @@
 Stripe metrics instrumentation helpers.
 """
 
-import asyncio
 import logging
 import time
 from functools import wraps
@@ -45,7 +44,9 @@ async def update_subscription_metrics_cache():
         async with AsyncSessionLocal() as db:
             count = await subscription_service.count_active_subscriptions(db)
             _cached_active_subscriptions = count
-            logger.debug(f"Updated subscription metrics cache: {count} active subscriptions")
+            logger.debug(
+                f"Updated subscription metrics cache: {count} active subscriptions"
+            )
     except Exception as e:
         logger.error(f"Error updating subscription metrics cache: {e}", exc_info=True)
 
@@ -54,10 +55,10 @@ def stripe_api_metric(operation_name: str):
     """
     Decorator to instrument Stripe API calls with metrics.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
-
             from app.core.otel_metrics import STRIPE_METRICS
 
             start_time = time.time()
@@ -73,12 +74,16 @@ def stripe_api_metric(operation_name: str):
             finally:
                 duration = time.time() - start_time
 
-                STRIPE_METRICS["stripe_api_calls_total"].add(1, {
-                    "operation": operation_name,
-                    "status": "success" if success else "error"
-                })
+                STRIPE_METRICS["stripe_api_calls_total"].add(
+                    1,
+                    {
+                        "operation": operation_name,
+                        "status": "success" if success else "error",
+                    },
+                )
 
                 logger.debug(f"Stripe {operation_name} took {duration:.3f}s")
 
         return wrapper
+
     return decorator

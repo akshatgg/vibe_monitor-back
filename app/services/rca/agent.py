@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class RCAAgentService:
     """
     LangGraph-based RCA Agent.
-    
+
     Improvements over previous LangChain agent:
     - Plan-Execute-Analyze pattern (vs pure ReAct)
     - Checks ALL repos in workspace for comprehensive investigation
@@ -33,21 +33,21 @@ class RCAAgentService:
     - Better dependency discovery from code
     - Detects performance issues (delays, loops, etc.)
     """
-    
+
     def __init__(self):
         """Initialize the agent service."""
         logger.info("Initializing LangGraph RCA Agent")
-        
+
         # Initialize LLMs lazily (only when needed)
         self._groq_llm = None
         self._gemini_llm = None
-        
+
         # Initialize tool registry and capability resolver
         self.tool_registry = ToolRegistry()
         self.capability_resolver = IntegrationCapabilityResolver(only_healthy=True)
-        
+
         logger.info("LangGraph RCA Agent initialized (lazy LLM loading)")
-    
+
     @property
     def groq_llm(self):
         """Lazy initialization of Groq LLM."""
@@ -63,7 +63,7 @@ class RCAAgentService:
             )
             logger.info(f"Groq LLM initialized: {settings.GROQ_LLM_MODEL}")
         return self._groq_llm
-    
+
     @property
     def gemini_llm(self):
         """Lazy initialization of Gemini LLM."""
@@ -74,9 +74,11 @@ class RCAAgentService:
                 temperature=settings.RCA_AGENT_TEMPERATURE,
                 max_output_tokens=settings.RCA_AGENT_MAX_TOKENS,
             )
-            logger.info(f"Gemini LLM initialized for multimodal support: {settings.GEMINI_LLM_MODEL}")
+            logger.info(
+                f"Gemini LLM initialized for multimodal support: {settings.GEMINI_LLM_MODEL}"
+            )
         return self._gemini_llm
-    
+
     async def analyze(
         self,
         user_query: str,
@@ -86,13 +88,13 @@ class RCAAgentService:
     ) -> Dict[str, Any]:
         """
         Perform RCA using LangGraph.
-        
+
         Args:
             user_query: User's incident description
             context: Workspace context (workspace_id, service_repo_mapping, etc)
             callbacks: Optional callbacks for monitoring
             db: Database session
-        
+
         Returns:
             Dict with:
                 - output: Final report (str)
@@ -101,23 +103,25 @@ class RCAAgentService:
                 - error: Optional error message
         """
         logger.info(f"Starting RCA investigation: {user_query[:100]}...")
-        
+
         try:
             # Extract workspace context
             workspace_id = context.get("workspace_id") if context else None
             if not workspace_id:
                 raise ValueError("workspace_id is required in context")
-            
+
             # ================================================================
             # Resolve capabilities and tools
             # ================================================================
-            
+
             logger.info(f"Resolving capabilities for workspace: {workspace_id}")
 
             execution_context = await self.capability_resolver.resolve(
                 workspace_id=workspace_id,
                 db=db,
-                service_mapping=context.get("service_repo_mapping", {}) if context else {},
+                service_mapping=context.get("service_repo_mapping", {})
+                if context
+                else {},
                 thread_history=context.get("thread_history") if context else None,
             )
 
@@ -131,34 +135,38 @@ class RCAAgentService:
             # Get tools for capabilities
             tools = self.tool_registry.get_tools_for_capabilities(capabilities)
             tools_dict = {tool.name: tool for tool in tools}
-            
+
             logger.info(f"Loaded {len(tools_dict)} tools: {list(tools_dict.keys())}")
-            
+
             # ================================================================
             # Choose LLM based on multimodal inputs
             # ================================================================
-            
+
             files = context.get("files", []) if context else []
             has_multimodal = bool(files)
-            
+
             if has_multimodal and self.gemini_llm:
-                logger.info(f"Using Gemini LLM for multimodal analysis ({len(files)} files)")
+                logger.info(
+                    f"Using Gemini LLM for multimodal analysis ({len(files)} files)"
+                )
                 selected_llm = self.gemini_llm
             else:
                 if has_multimodal and not self.gemini_llm:
-                    logger.warning("Multimodal input detected but Gemini LLM not available - using Groq")
+                    logger.warning(
+                        "Multimodal input detected but Gemini LLM not available - using Groq"
+                    )
                 selected_llm = self.groq_llm
-            
+
             # ================================================================
             # Create graph
             # ================================================================
-            
+
             graph = create_rca_graph(selected_llm, tools_dict)
-            
+
             # ================================================================
             # Initialize state
             # ================================================================
-            
+
             initial_state: RCAStateV2 = {
                 "user_query": user_query,
                 "workspace_id": workspace_id,
@@ -192,9 +200,9 @@ class RCAAgentService:
                 "error": None,
                 "intermediate_steps": [],
             }
-            
+
             logger.info("Initial state prepared, running graph...")
-            
+
             # ================================================================
             # Run graph
             # ================================================================
@@ -210,7 +218,9 @@ class RCAAgentService:
                     "workspace_id": workspace_id,
                     "channel_id": (context or {}).get("channel_id"),
                     "source": (context or {}).get("source", "unknown"),
-                    "model": settings.GROQ_LLM_MODEL if selected_llm == self.groq_llm else settings.GEMINI_LLM_MODEL,
+                    "model": settings.GROQ_LLM_MODEL
+                    if selected_llm == self.groq_llm
+                    else settings.GEMINI_LLM_MODEL,
                     "agent_version": "langgraph",
                 },
                 tags=["rca", "langgraph"],
@@ -224,44 +234,46 @@ class RCAAgentService:
             if all_callbacks:
                 config["callbacks"] = all_callbacks
 
-            final_state = await graph.ainvoke(initial_state, config=config if config else None)
-            
+            final_state = await graph.ainvoke(
+                initial_state, config=config if config else None
+            )
+
             logger.info("Graph execution completed")
-            
+
             # ================================================================
             # Format response
             # ================================================================
-            
+
             output = final_state.get("final_report", "Investigation completed")
             intermediate_steps = final_state.get("intermediate_steps", [])
             error = final_state.get("error")
-            
+
             result = {
                 "output": output,
                 "intermediate_steps": intermediate_steps,
                 "success": error is None,
                 "error": error,
             }
-            
+
             if error:
                 logger.error(f"Investigation completed with error: {error}")
             else:
-                logger.info(f"Investigation completed successfully")
+                logger.info("Investigation completed successfully")
                 logger.info(f"Report length: {len(output)} chars")
                 logger.info(f"Steps taken: {len(intermediate_steps)}")
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error in LangGraph RCA: {e}", exc_info=True)
-            
+
             return {
                 "output": f"❌ Investigation failed\n\nError: {str(e)}\n\nPlease try again or contact support.",
                 "intermediate_steps": [],
                 "success": False,
                 "error": str(e),
             }
-    
+
     async def analyze_with_retry(
         self,
         user_query: str,
@@ -272,20 +284,20 @@ class RCAAgentService:
     ) -> Dict[str, Any]:
         """
         Perform RCA with retry logic.
-        
+
         Args:
             user_query: User's incident description
             context: Workspace context
             callbacks: Optional callbacks
             db: Database session
             max_retries: Max retry attempts
-        
+
         Returns:
             Dict with investigation results
         """
         attempt = 0
         last_error = None
-        
+
         while attempt <= max_retries:
             try:
                 result = await self.analyze(
@@ -294,22 +306,22 @@ class RCAAgentService:
                     callbacks=callbacks,
                     db=db,
                 )
-                
+
                 if result["success"]:
                     return result
-                
+
                 last_error = result.get("error")
                 logger.warning(f"Attempt {attempt + 1} failed: {last_error}")
-                
+
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"Attempt {attempt + 1} error: {e}")
-            
+
             attempt += 1
-        
+
         # All retries failed
         logger.error(f"All {max_retries + 1} attempts failed. Last error: {last_error}")
-        
+
         return {
             "output": f"❌ Investigation failed after {max_retries + 1} attempts\n\nLast error: {last_error}",
             "intermediate_steps": [],
