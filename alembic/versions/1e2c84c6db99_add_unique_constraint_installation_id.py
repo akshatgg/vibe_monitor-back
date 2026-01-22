@@ -80,13 +80,23 @@ def upgrade() -> None:
     else:
         print("No duplicates found to delete")
 
-    # Add unique constraint on installation_id
-    op.create_unique_constraint(
-        'uq_github_integrations_installation_id',
-        'github_integrations',
-        ['installation_id']
-    )
-    print("Added unique constraint on github_integrations.installation_id")
+    # Add unique constraint on installation_id (if it doesn't already exist)
+    constraint_exists = conn.execute(
+        text("""
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_github_integrations_installation_id'
+        """)
+    ).fetchone()
+
+    if constraint_exists:
+        print("Unique constraint uq_github_integrations_installation_id already exists, skipping")
+    else:
+        op.create_unique_constraint(
+            'uq_github_integrations_installation_id',
+            'github_integrations',
+            ['installation_id']
+        )
+        print("Added unique constraint on github_integrations.installation_id")
 
 
 def downgrade() -> None:

@@ -23,7 +23,6 @@ from app.services.rca.callbacks import (
     ToolMetricsCallback,
     markdown_to_slack,
 )
-from app.services.rca.gemini_agent import gemini_rca_agent_service
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.services.sqs.client import sqs_client
 from app.slack.service import slack_event_service
@@ -495,34 +494,6 @@ class RCAOrchestratorWorker(BaseWorker):
                     else:
                         logger.info("📝 No thread history - this is a new conversation")
 
-                    # PRE-CHECK: Verify workspace owner has completed onboarding
-                    result = await db.execute(
-                        select(User.is_onboarded)
-                        .join(Membership, Membership.user_id == User.id)
-                        .where(
-                            Membership.workspace_id == workspace_id,
-                            Membership.role == Role.OWNER,
-                        )
-                    )
-                    owner_onboarded = result.scalar_one_or_none()
-
-                    if not owner_onboarded:
-                        logger.warning(
-                            f"Workspace owner not onboarded for workspace {workspace_id}"
-                        )
-
-                        await fail_and_notify_job(
-                            db=db,
-                            job=job,
-                            requested_context=requested_context,
-                            error_message=f"Onboarding not completed. Please complete your onboarding and connect your GitHub account to get started.",
-                            error_type="OnboardingNotCompleted",
-                            team_id=team_id,
-                            channel_id=channel_id,
-                            thread_ts=thread_ts,
-                        )
-                        return
-
                     # Get integrations for health tracking
                     all_integrations = await get_workspace_integrations(
                         workspace_id, db
@@ -531,17 +502,91 @@ class RCAOrchestratorWorker(BaseWorker):
                         (i for i in all_integrations if i.provider == "github"), None
                     )
 
-                    # PRE-PROCESSING: Discover service→repo mappings
+                    if not github_integration:
+                        logger.warning(
+                            f"GitHub integration not found for workspace {workspace_id}"
+                        )
+                        job.status = JobStatus.FAILED
+                        job.finished_at = datetime.now(timezone.utc)
+                        job.error_message = "GitHub integration not configured"
+                        await db.commit()
+
+                        JOB_METRICS["jobs_failed_total"].add(
+                            1,
+                            {
+                                "job_source": job.source.value,
+                                "error_type": "MissingGitHubIntegration",
+                            },
+                        )
+
+                        # Notify client based on source
+                        if job.source == JobSource.WEB:
+                            turn_id = requested_context.get("turn_id")
+                            if turn_id:
+                                web_callback = WebProgressCallback(
+                                    turn_id=turn_id,
+                                    db=db,
+                                )
+                                await web_callback.send_error(
+                                    "GitHub integration not configured. Please connect GitHub first."
+                                )
+                        elif team_id and channel_id:
+                            slack_callback = SlackProgressCallback(
+                                team_id=team_id,
+                                channel_id=channel_id,
+                                thread_ts=thread_ts,
+                                send_tool_output=False,
+                            )
+                            await slack_callback.send_missing_integration_message(
+                                "github"
+                            )
+                        return
+
+                    # Log warning if health_status is not healthy, but proceed anyway
+                    # The actual API call will determine real health status
+                    if github_integration.health_status not in ("healthy", None):
+                        logger.info(
+                            f"GitHub integration has health_status={github_integration.health_status}, "
+                            f"will verify with actual API call for workspace {workspace_id}"
+                        )
+
+                    # PRE-PROCESSING: Fetch user-configured service→repo mappings
                     logger.info(
-                        f"🔍 Pre-processing: Discovering service names for workspace {workspace_id}"
+                        f"🔍 Pre-processing: Loading service mappings for workspace {workspace_id}"
                     )
 
                     service_repo_mapping = {}
+                    
+                    # Fetch user-configured services from database
                     try:
-                        # Fetch all repositories
+                        from app.models import Service
+                        
+                        result = await db.execute(
+                            select(Service)
+                            .where(Service.workspace_id == workspace_id)
+                            .where(Service.enabled == True)
+                        )
+                        user_services = list(result.scalars().all())
+                        
+                        for service in user_services:
+                            if service.repository_name:
+                                # Extract repo name without org prefix (Vibe-Monitor/auth -> auth)
+                                repo_name = service.repository_name.split('/')[-1] if '/' in service.repository_name else service.repository_name
+                                service_repo_mapping[service.name] = repo_name
+                        
+                        logger.info(f"✅ Loaded {len(service_repo_mapping)} user-configured services")
+                        
+                        if len(service_repo_mapping) == 0:
+                            logger.warning("⚠️ No services configured in workspace. User should add services in the UI.")
+                    except Exception as e:
+                        logger.error(f"Failed to load user-configured services: {e}")
+                        service_repo_mapping = {}
+                    
+                    # Verify GitHub integration health with a lightweight check
+                    try:
                         repos_response = await list_repositories_graphql(
                             workspace_id=workspace_id,
-                            first=settings.RCA_MAX_REPOS_TO_FETCH,
+                            first=1,  # Just check if API works, don't fetch all repos
                             after=None,
                             user_id="rca-agent",
                             db=db,
@@ -560,37 +605,19 @@ class RCAOrchestratorWorker(BaseWorker):
                                     timezone.utc
                                 )
                                 await db.commit()
-                                logger.info(
-                                    f"✅ GitHub integration marked healthy after successful API call: "
-                                    f"workspace_id={workspace_id}"
-                                )
-
-                            repositories = repos_response.get("repositories", [])
-                            total_repos = len(repositories)
-                            logger.info(f"Found {total_repos} repositories to scan")
-
-                            # Extract service names from repositories in parallel batches
-                            service_repo_mapping = await scan_repositories_in_batches(
-                                repositories=repositories, workspace_id=workspace_id
-                            )
-
-                            logger.info(
-                                f"✅ Service discovery complete: {len(service_repo_mapping)} services mapped"
-                            )
+                                logger.info(f"✅ GitHub integration verified as healthy")
                         else:
                             # GitHub API call failed - mark integration as unhealthy
                             if github_integration:
                                 github_integration.health_status = "failed"
                                 github_integration.status = "error"
-                                github_integration.last_error = (
-                                    "Failed to fetch repositories"
-                                )
+                                github_integration.last_error = "Failed to connect to GitHub"
                                 github_integration.last_verified_at = datetime.now(
                                     timezone.utc
                                 )
                                 await db.commit()
                             logger.warning(
-                                f"Failed to fetch repositories for service discovery: workspace_id={workspace_id}"
+                                f"⚠️ GitHub integration marked as unhealthy: workspace_id={workspace_id}"
                             )
 
                     except Exception as e:
@@ -655,8 +682,8 @@ class RCAOrchestratorWorker(BaseWorker):
                         workspace_id=workspace_id, db=db
                     )
 
-                    # Perform RCA analysis using AI agent
-                    # Determine which LLM to use based on whether images/videos are present
+                    # Perform RCA analysis using LangGraph agent
+                    # LangGraph now handles both text and multimodal inputs
                     has_images = job.requested_context.get("has_images", False)
                     files = job.requested_context.get("files", [])
 
@@ -675,21 +702,22 @@ class RCAOrchestratorWorker(BaseWorker):
                             media_desc.append(f"{video_count} video(s)")
 
                         logger.info(
-                            f"🎬 Invoking Gemini RCA agent for job {job_id} (workspace: {workspace_id}) - {' and '.join(media_desc)} detected"
+                            f"🎬 Invoking LangGraph RCA agent (multimodal) for job {job_id} (workspace: {workspace_id}) - {' and '.join(media_desc)} detected"
                         )
-                        selected_agent = gemini_rca_agent_service
                     else:
                         logger.info(
-                            f"🤖 Invoking Groq RCA agent for job {job_id} (workspace: {workspace_id})"
+                            f"🤖 Invoking LangGraph RCA agent for job {job_id} (workspace: {workspace_id})"
                         )
-                        selected_agent = rca_agent_service
 
-                    # Add workspace_id, service mapping, and environment context for RCA tools
+                    selected_agent = rca_agent_service
+
+                    # Add workspace_id, service mapping, environment context, and files for RCA tools
                     analysis_context = {
                         **(job.requested_context or {}),
                         "workspace_id": workspace_id,
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
                         "environment_context": environment_context,  # Environments + deployed commits
+                        "files": files if has_images else [],  # Pass files for multimodal analysis
                     }
 
                     # Create appropriate progress callback based on job source

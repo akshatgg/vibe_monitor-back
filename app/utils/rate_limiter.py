@@ -8,6 +8,7 @@ BYOLLM Support:
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -295,15 +296,25 @@ async def check_rate_limit_with_byollm_bypass(
         if not allowed:
             return f"Rate limit exceeded: {count}/{limit}"
     """
-    # Check if workspace uses BYOLLM
+    # Check feature flag for rate limiting
+    RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
+    
+    if not RATE_LIMITING_ENABLED:
+        logger.info(
+            f"Rate limiting disabled globally via RATE_LIMITING_ENABLED=false "
+            f"for workspace {workspace_id} and resource {resource_type.value}"
+        )
+        return (True, 0, -1)
+    
+    # Check if workspace uses BYOLLM (bring your own LLM)
     if await is_byollm_workspace(workspace_id, session):
         logger.info(
             f"BYOLLM workspace {workspace_id} - bypassing rate limit for {resource_type.value}"
         )
         # Return unlimited indicator: allowed=True, count=0, limit=-1 (unlimited)
         return (True, 0, -1)
-
-    # Apply normal rate limiting for VibeMonitor AI users
+    
+    # Apply normal rate limiting for regular workspaces
     return await check_rate_limit(
         session=session,
         workspace_id=workspace_id,
@@ -311,3 +322,5 @@ async def check_rate_limit_with_byollm_bypass(
         limit=limit,
         increment=increment,
     )
+
+

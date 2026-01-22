@@ -49,6 +49,7 @@ langchain-groq = "^0.3.8"
 langchain-openai = "^0.3.0"  # For BYOLLM (ChatOpenAI, AzureChatOpenAI)
 langchain-google-genai = "^2.0.8"
 langchain-core = "^0.3.78"
+langgraph = "^0.2.0"
 openai = "^1.0.0"  # For BYOLLM verification (OpenAI and Azure OpenAI)
 google-generativeai = "^0.8.0"  # For BYOLLM verification (Gemini)
 greenlet = "^3.2.4"
@@ -72,6 +73,7 @@ python-magic = "^0.4.27"
 pypdf2 = "^3.0.1"
 presidio-analyzer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
 presidio-anonymizer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
+en-core-web-lg = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"}
 
 
 [tool.poetry.group.dev.dependencies]
