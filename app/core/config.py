@@ -140,8 +140,8 @@ class Settings(BaseSettings):
     SQS_QUEUE_URL: Optional[str] = None
     AWS_ENDPOINT_URL: Optional[str] = None
 
-    # Redis (ElastiCache Serverless)
-    REDIS_URL: Optional[str] = None  # e.g., rediss://...elasticache.amazonaws.com:6379
+    # Redis (ElastiCache replication group with TLS)
+    REDIS_URL: Optional[str] = None  # e.g., rediss://master...cache.amazonaws.com:6379
     REDIS_MAX_CONNECTIONS: int = 100  # Connection pool size
     REDIS_SOCKET_CONNECT_TIMEOUT: float = 5.0  # Seconds
     REDIS_SOCKET_KEEPALIVE: bool = True

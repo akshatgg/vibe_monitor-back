@@ -1,7 +1,8 @@
 """
 Redis client for pub/sub messaging (SSE streaming).
 
-Uses ElastiCache Serverless in production.
+Uses ElastiCache replication group (cache.t4g.micro) in production
+with TLS encryption in-transit and at-rest.
 """
 
 import json
