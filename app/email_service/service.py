@@ -841,6 +841,11 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
         # Build accept URL
         accept_url = f"{settings.WEB_APP_URL}/invite/accept?token={token}"
 
+        # Build asset URLs - using S3 hosted assets
+        logo_url = "https://vibe-monitor-assets.s3.us-west-1.amazonaws.com/assets/email_vm_logo3.png"
+        bg_url = "https://vibe-monitor-assets.s3.us-west-1.amazonaws.com/assets/email_bg2.png"
+        contact_us_url = "https://preview.vibemonitor.ai/contact"
+
         # Load and render HTML template
         template = self._load_template("workspace_invitation.html")
         html_content = self._render_template(
@@ -849,6 +854,9 @@ Submitted on: {datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")}
             workspace_name=workspace_name,
             role=role.capitalize(),
             accept_url=accept_url,
+            logo_url=logo_url,
+            bg_url=bg_url,
+            contact_us_url=contact_us_url,
         )
 
         try:
