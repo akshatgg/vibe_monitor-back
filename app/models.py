@@ -158,6 +158,7 @@ class User(Base):
 
     # Relationships
     memberships = relationship("Membership", back_populates="user")
+    team_memberships = relationship("TeamMembership", back_populates="user")
     last_visited_workspace = relationship(
         "Workspace", foreign_keys=[last_visited_workspace_id]
     )
@@ -182,6 +183,9 @@ class Workspace(Base):
     # Relationships - all with cascade delete to clean up when workspace is deleted
     memberships = relationship(
         "Membership", back_populates="workspace", cascade="all, delete-orphan"
+    )
+    teams = relationship(
+        "Team", back_populates="workspace", cascade="all, delete-orphan"
     )
     grafana_integration = relationship(
         "GrafanaIntegration",
@@ -234,6 +238,64 @@ class Membership(Base):
         UniqueConstraint(
             "user_id", "workspace_id", name="uq_membership_user_workspace"
         ),
+    )
+
+
+class Team(Base):
+    """
+    Represents a team within a workspace.
+    Teams are used to organize users and services within a workspace.
+    """
+
+    __tablename__ = "teams"
+
+    id = Column(String, primary_key=True)
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(255), nullable=False)
+    geography = Column(String(255), nullable=True)  # Team location/region
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="teams")
+    memberships = relationship(
+        "TeamMembership", back_populates="team", cascade="all, delete-orphan"
+    )
+    services = relationship("Service", back_populates="team")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        Index("uq_team_workspace_name", "workspace_id", "name", unique=True),
+        Index("idx_teams_workspace", "workspace_id"),
+        Index("idx_teams_name", "name"),
+    )
+
+
+class TeamMembership(Base):
+    """
+    Many-to-many relationship between Teams and Users.
+    Tracks which users belong to which teams.
+    """
+
+    __tablename__ = "team_membership"
+
+    id = Column(String, primary_key=True)
+    team_id = Column(String, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    team = relationship("Team", back_populates="memberships")
+    user = relationship("User", back_populates="team_memberships")
+
+    # Constraints and Indexes
+    __table_args__ = (
+        Index("uq_team_membership", "team_id", "user_id", unique=True),
+        Index("idx_team_membership_team", "team_id"),
+        Index("idx_team_membership_user", "user_id"),
     )
 
 
@@ -1165,6 +1227,11 @@ class Service(Base):
     )
     name = Column(String(255), nullable=False)
 
+    # Optional team assignment (one service -> one team, one team -> many services)
+    team_id = Column(
+        String, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Optional repository link (one service -> one repo, but one repo -> many services)
     repository_id = Column(
         String, ForeignKey("github_integrations.id", ondelete="SET NULL"), nullable=True
@@ -1180,12 +1247,14 @@ class Service(Base):
 
     # Relationships
     workspace = relationship("Workspace", back_populates="services")
+    team = relationship("Team", back_populates="services")
     repository = relationship("GitHubIntegration", backref="services")
 
     # Constraints and Indexes
     __table_args__ = (
         Index("uq_workspace_service_name", "workspace_id", "name", unique=True),
         Index("idx_services_workspace", "workspace_id"),
+        Index("idx_services_team", "team_id"),
         Index("idx_services_repository", "repository_id"),
         Index("idx_services_enabled", "enabled"),
     )
