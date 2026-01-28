@@ -40,6 +40,7 @@ from app.onboarding.routes.membership_router import router as membership_router
 from app.onboarding.routes.workspace_router import router as workspace_router
 from app.services.rca.get_service_name.router import router as get_servicename
 from app.slack.router import slack_router, slack_webhook_router
+from app.teams.router import router as teams_router
 
 # Create main API router
 api_router = APIRouter()
@@ -74,6 +75,7 @@ api_router.include_router(email_router, tags=["email"])
 api_router.include_router(grafana_router, tags=["grafana"])
 api_router.include_router(integrations_router, tags=["integrations"])
 api_router.include_router(environments_router, tags=["environments"])
+api_router.include_router(teams_router, tags=["teams"])
 api_router.include_router(deployments_router, tags=["deployments"])
 
 # AWS, NewRelic, Datadog integrations

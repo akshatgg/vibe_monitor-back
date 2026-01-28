@@ -49,6 +49,10 @@ class ServiceUpdate(BaseModel):
         max_length=255,
         description="Repository name to link (format: owner/repo)",
     )
+    team_id: Optional[str] = Field(
+        None,
+        description="Team ID to assign this service to (set to null to unassign)",
+    )
     enabled: Optional[bool] = Field(None, description="Whether the service is enabled")
 
 
@@ -60,6 +64,7 @@ class ServiceResponse(BaseModel):
     name: str
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
+    team_id: Optional[str] = None
     enabled: bool
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

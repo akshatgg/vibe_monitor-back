@@ -303,6 +303,10 @@ class ServiceService:
             service.repository_id = repository_id
             service.repository_name = repository_name
 
+        # Update team assignment if provided (None means unassign)
+        if hasattr(service_data, 'team_id'):
+            service.team_id = service_data.team_id
+
         # Update enabled status if provided
         if service_data.enabled is not None:
             service.enabled = service_data.enabled
