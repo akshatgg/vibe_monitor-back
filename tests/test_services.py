@@ -6,6 +6,7 @@ Tests CRUD operations, authorization, and service limits.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
+from datetime import datetime
 
 from app.billing.schemas import (
     ServiceCreate,
@@ -61,16 +62,21 @@ def sample_membership():
 @pytest.fixture
 def sample_service():
     """Create a sample service."""
-    service = MagicMock(spec=Service)
-    service.id = str(uuid.uuid4())
-    service.workspace_id = str(uuid.uuid4())
-    service.name = "api-gateway"
-    service.repository_id = None
-    service.repository_name = None
-    service.enabled = True
-    service.created_at = None
-    service.updated_at = None
-    return service
+    # Create a simple object instead of MagicMock to avoid spec issues
+    class MockService:
+        def __init__(self):
+            self.id = str(uuid.uuid4())
+            self.workspace_id = str(uuid.uuid4())
+            self.name = "api-gateway"
+            self.repository_id = None
+            self.repository_name = None
+            self.team_id = None
+            self.team = None
+            self.enabled = True
+            self.created_at = datetime.now()
+            self.updated_at = datetime.now()
+
+    return MockService()
 
 
 class TestServiceServiceOwnerVerification:
@@ -380,15 +386,29 @@ class TestServiceServiceList:
         member_result = MagicMock()
         member_result.scalar_one_or_none.return_value = sample_membership
 
-        # Mock services query
+        # Mock services query (with team relationship)
         services_result = MagicMock()
         services_result.scalars.return_value.all.return_value = [sample_service]
 
-        # Mock limit check
+        # Mock total count query (for filtered results)
+        count_result = MagicMock()
+        count_result.scalar.return_value = 1
+
+        # Mock service limit check (workspace query)
         workspace_result = MagicMock()
         workspace_result.scalar_one_or_none.return_value = sample_workspace
 
-        mock_db.execute.side_effect = [member_result, services_result, workspace_result]
+        # Mock all services count query (for limit_reached check)
+        all_count_result = MagicMock()
+        all_count_result.scalar.return_value = 1
+
+        mock_db.execute.side_effect = [
+            member_result,
+            count_result,  # Count query comes before services query
+            services_result,  # Services query comes after count query
+            workspace_result,
+            all_count_result,
+        ]
 
         result = await service_service.list_services(
             workspace_id=sample_workspace.id,
@@ -477,7 +497,11 @@ class TestServiceServiceUpdate:
         unique_result = MagicMock()
         unique_result.scalar_one_or_none.return_value = None
 
-        mock_db.execute.side_effect = [owner_result, service_result, unique_result]
+        # Mock reload query (after commit, with team relationship)
+        reload_result = MagicMock()
+        reload_result.scalar_one_or_none.return_value = sample_service
+
+        mock_db.execute.side_effect = [owner_result, service_result, unique_result, reload_result]
 
         update_data = ServiceUpdate(name="new-api-gateway")
 
@@ -505,7 +529,11 @@ class TestServiceServiceUpdate:
         service_result = MagicMock()
         service_result.scalar_one_or_none.return_value = sample_service
 
-        mock_db.execute.side_effect = [owner_result, service_result]
+        # Mock reload query (after commit, with team relationship)
+        reload_result = MagicMock()
+        reload_result.scalar_one_or_none.return_value = sample_service
+
+        mock_db.execute.side_effect = [owner_result, service_result, reload_result]
 
         update_data = ServiceUpdate(enabled=False)
 

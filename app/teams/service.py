@@ -155,13 +155,15 @@ class TeamService:
                 }
             )
 
+        from app.teams.schemas import ServiceSummaryResponse
+
         services = [
-            {
-                "id": s.id,
-                "name": s.name,
-                "repository_name": s.repository_name,
-                "enabled": s.enabled,
-            }
+            ServiceSummaryResponse(
+                id=s.id,
+                name=s.name,
+                repository_name=s.repository_name,
+                enabled=s.enabled,
+            )
             for s in team.services
         ]
 

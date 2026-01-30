@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import PlanType, SubscriptionStatus
+from app.teams.schemas import TeamSummaryResponse
 
 # Constants
 FREE_TIER_SERVICE_LIMIT = 5
@@ -65,6 +66,10 @@ class ServiceResponse(BaseModel):
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
     team_id: Optional[str] = None
+    team: Optional[TeamSummaryResponse] = Field(
+        None,
+        description="Team details if service is assigned to a team"
+    )
     enabled: bool
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -73,16 +78,21 @@ class ServiceResponse(BaseModel):
 
 
 class ServiceListResponse(BaseModel):
-    """Schema for list of services with metadata."""
+    """Schema for list of services with pagination metadata."""
 
     services: list[ServiceResponse]
     total_count: int
+    offset: int = Field(default=0, description="Current pagination offset")
     limit: int = Field(
         default=FREE_TIER_SERVICE_LIMIT,
-        description="Maximum services allowed in current tier",
+        description="Page size",
     )
     limit_reached: bool = Field(
-        default=False, description="True if at tier limit and cannot add more"
+        default=False, description="True if at service tier limit (for billing)"
+    )
+    service_limit: int = Field(
+        default=FREE_TIER_SERVICE_LIMIT,
+        description="Maximum services allowed in current tier"
     )
 
 

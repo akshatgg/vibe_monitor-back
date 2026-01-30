@@ -4,6 +4,7 @@ Billing domain API routers for Service management and Subscription APIs.
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -121,15 +122,23 @@ async def create_service(
 @service_router.get("", response_model=ServiceListResponse)
 async def list_services(
     workspace_id: str,
+    search: Optional[str] = Query(None, description="Filter by service name (case-insensitive)"),
+    team_id: Optional[str] = Query(None, description="Filter by team ID"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all services in the workspace."""
+    """List all services in the workspace with optional search, filter, and pagination."""
     try:
         return await service_service.list_services(
             workspace_id=workspace_id,
             user_id=current_user.id,
             db=db,
+            search=search,
+            team_id=team_id,
+            offset=offset,
+            limit=limit,
         )
     except HTTPException:
         raise
