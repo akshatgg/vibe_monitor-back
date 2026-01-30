@@ -1,8 +1,7 @@
 """
 Billing domain schemas for Subscription APIs.
 
-Note: Service schemas have been moved to app.workspace.schemas
-      Re-exported here for backward compatibility.
+Includes schemas for plans, subscriptions, invoices, and usage tracking.
 """
 
 from datetime import datetime
@@ -11,12 +10,6 @@ from typing import Optional
 from pydantic import BaseModel, Field, computed_field
 
 from app.models import PlanType, SubscriptionStatus
-
-# Re-export service schemas from workspace for backward compatibility
-from app.workspace.client_workspace_services.schemas import (
-    ServiceResponse,
-    ServiceUpdate,
-)
 
 
 # ============================================================================
