@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 
 from app.billing.services.subscription_service import SubscriptionService
@@ -24,7 +25,7 @@ from app.models import Plan, PlanType, Subscription, SubscriptionStatus, Workspa
 class TestSubscriptionLifecycle:
     """Integration tests for subscription lifecycle scenarios."""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def test_workspace(self):
         """Create a test workspace with owner."""
         async with AsyncSessionLocal() as db:
@@ -65,12 +66,12 @@ class TestSubscriptionLifecycle:
             await db.delete(user)
             await db.commit()
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def subscription_service(self):
         """Create a SubscriptionService instance."""
         return SubscriptionService()
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def free_plan(self):
         """Get the FREE plan from database."""
         async with AsyncSessionLocal() as db:
@@ -96,7 +97,7 @@ class TestSubscriptionLifecycle:
                 await db.refresh(plan)
             return plan
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def pro_plan(self):
         """Get the PRO plan from database."""
         async with AsyncSessionLocal() as db:
@@ -157,7 +158,7 @@ class TestSubscriptionLifecycle:
             await db.commit()
             await db.refresh(subscription)
 
-            print(f"\n1️⃣  Created PRO subscription:")
+            print("\n1️⃣  Created PRO subscription:")
             print(f"   - Plan: PRO ({pro_plan.id})")
             print(f"   - Status: {subscription.status}")
             print(f"   - Period End: {subscription.current_period_end}")
@@ -168,7 +169,7 @@ class TestSubscriptionLifecycle:
             await db.commit()
             await db.refresh(subscription)
 
-            print(f"\n2️⃣  User canceled subscription:")
+            print("\n2️⃣  User canceled subscription:")
             print(f"   - Canceled At: {subscription.canceled_at}")
             print(f"   - Status: {subscription.status} (still ACTIVE until period ends)")
 
@@ -189,7 +190,7 @@ class TestSubscriptionLifecycle:
             await db.commit()
             await db.refresh(subscription)
 
-            print(f"\n4️⃣  Subscription downgraded to FREE:")
+            print("\n4️⃣  Subscription downgraded to FREE:")
             print(f"   - Plan: FREE ({free_plan.id})")
             print(f"   - Status: {subscription.status}")
             print(f"   - Stripe Sub ID: {subscription.stripe_subscription_id} (None = no billing)")
@@ -201,7 +202,7 @@ class TestSubscriptionLifecycle:
             assert subscription.stripe_subscription_id is None, "No Stripe subscription (no billing)"
             assert subscription.canceled_at is None, "Canceled flag should be cleared"
 
-            print(f"\n✅ TEST PASSED: Subscription successfully downgraded to FREE!")
+            print("\n✅ TEST PASSED: Subscription successfully downgraded to FREE!")
             print("=" * 70)
 
             # Cleanup
@@ -247,14 +248,14 @@ class TestSubscriptionLifecycle:
             await db.commit()
             await db.refresh(subscription)
 
-            print(f"\n1️⃣  Created PRO subscription:")
+            print("\n1️⃣  Created PRO subscription:")
             print(f"   - Plan: PRO ({pro_plan.id})")
             print(f"   - Status: {subscription.status}")
             print(f"   - Period: {subscription.current_period_start} to {subscription.current_period_end}")
             print(f"   - Stripe Sub ID: {subscription.stripe_subscription_id}")
 
             # Step 2: Verify NOT canceled
-            print(f"\n2️⃣  User did NOT cancel:")
+            print("\n2️⃣  User did NOT cancel:")
             print(f"   - Canceled At: {subscription.canceled_at} (None = will auto-renew)")
             print(f"   - Status: {subscription.status}")
 

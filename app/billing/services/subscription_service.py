@@ -251,7 +251,7 @@ class SubscriptionService:
 
         # Cancel in Stripe if there's an active subscription
         if subscription.stripe_subscription_id:
-            stripe_subscription = await stripe_service.cancel_subscription(
+            await stripe_service.cancel_subscription(
                 subscription_id=subscription.stripe_subscription_id,
                 immediate=immediate,
             )
