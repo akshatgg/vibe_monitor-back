@@ -241,7 +241,6 @@ class ServiceService:
         await db.commit()
         await db.refresh(new_service)
 
-        return self._format_service_response(new_service)
         # Update subscription billing with new service count
         try:
             # Count total services in workspace
