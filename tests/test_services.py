@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 from datetime import datetime
 
-from app.billing.schemas import (
+from app.workspace.client_workspace_services.schemas import (
     ServiceCreate,
     ServiceUpdate,
     ServiceResponse,
@@ -16,7 +16,7 @@ from app.billing.schemas import (
     ServiceCountResponse,
     FREE_TIER_SERVICE_LIMIT,
 )
-from app.billing.services.service_service import ServiceService
+from app.workspace.client_workspace_services.service_service import ServiceService
 from app.models import Service, Workspace, Membership, Role
 
 
@@ -239,7 +239,7 @@ class TestServiceServiceCreate:
     """Tests for service creation."""
 
     @pytest.mark.asyncio
-    @patch("app.billing.services.service_service.limit_service")
+    @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_create_service_success(
         self,
         mock_limit_service,
@@ -326,7 +326,7 @@ class TestServiceServiceCreate:
         assert exc_info.value.detail["upgrade_available"] is True
 
     @pytest.mark.asyncio
-    @patch("app.billing.services.service_service.limit_service")
+    @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_create_service_duplicate_name(
         self,
         mock_limit_service,

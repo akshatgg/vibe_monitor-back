@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import HTTPException
 
-from app.billing.services.limit_service import (
+from app.workspace.client_workspace_services.limit_service import (
     DEFAULT_FREE_RCA_DAILY_LIMIT,
     DEFAULT_FREE_SERVICE_LIMIT,
     LimitService,

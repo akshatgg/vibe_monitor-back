@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.google.service import AuthService
-from app.billing.schemas import (  # Service schemas; Billing schemas
+from app.billing.schemas import (  # Billing schemas
     BillingPortalRequest,
     BillingPortalResponse,
     CancelSubscriptionRequest,
@@ -20,18 +20,20 @@ from app.billing.schemas import (  # Service schemas; Billing schemas
     InvoicesListResponse,
     PlanResponse,
     PlansListResponse,
-    ServiceCountResponse,
-    ServiceCreate,
-    ServiceListResponse,
-    ServiceResponse,
-    ServiceUpdate,
     SubscribeToProRequest,
     SubscriptionResponse,
     UpdateServiceCountRequest,
     UsageResponse,
 )
-from app.billing.services.limit_service import limit_service
-from app.billing.services.service_service import ServiceService
+from app.workspace.client_workspace_services.schemas import (  # Service schemas
+    ServiceCountResponse,
+    ServiceCreate,
+    ServiceListResponse,
+    ServiceResponse,
+    ServiceUpdate,
+)
+from app.workspace.client_workspace_services.limit_service import limit_service
+from app.workspace.client_workspace_services.service_service import ServiceService
 from app.billing.services.stripe_service import stripe_service
 from app.billing.services.subscription_service import subscription_service
 from app.core.database import get_db

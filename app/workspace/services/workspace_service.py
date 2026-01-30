@@ -7,11 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import GitHubIntegration, Membership, PlanType, Role, User, Workspace
+from app.models import ChatFile, ChatSession, ChatTurn, GitHubIntegration, Membership, PlanType, Role, User, Workspace
 from app.core.otel_metrics import WORKSPACE_METRICS
 from app.billing.services.subscription_service import SubscriptionService
 
-from ..schemas.schemas import (
+from ..schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceWithMembership,

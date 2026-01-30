@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Membership, Role, Service, Workspace
-from app.teams.schemas import TeamSummaryResponse
+from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
 
-from ..schemas import (
+from .schemas import (
     FREE_TIER_SERVICE_LIMIT,
     ServiceCountResponse,
     ServiceCreate,
@@ -25,7 +25,7 @@ from ..schemas import (
     ServiceUpdate,
 )
 from .limit_service import limit_service
-from .subscription_service import SubscriptionService
+from app.billing.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 

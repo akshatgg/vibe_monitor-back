@@ -155,7 +155,7 @@ class TeamService:
                 }
             )
 
-        from app.teams.schemas import ServiceSummaryResponse
+        from .schemas import ServiceSummaryResponse
 
         services = [
             ServiceSummaryResponse(
@@ -163,7 +163,7 @@ class TeamService:
                 name=s.name,
                 repository_name=s.repository_name,
                 enabled=s.enabled,
-            )
+            ).model_dump()
             for s in team.services
         ]
 

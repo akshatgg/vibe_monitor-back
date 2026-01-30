@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.google.service import AuthService
 from app.core.database import get_db
 from app.models import User
-from app.teams.schemas import (
+from .schemas import (
     TeamCreate,
     TeamDetailResponse,
     TeamListResponse,
@@ -20,7 +20,7 @@ from app.teams.schemas import (
     TeamResponse,
     TeamUpdate,
 )
-from app.teams.service import TeamService
+from .service import TeamService
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()

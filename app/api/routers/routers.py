@@ -37,10 +37,10 @@ from app.newrelic.integration.router import router as newrelic_router
 from app.newrelic.Logs.router import router as newrelic_logs_router
 from app.newrelic.Metrics.router import router as newrelic_metrics_router
 from app.onboarding.routes.membership_router import router as membership_router
-from app.onboarding.routes.workspace_router import router as workspace_router
+from app.workspace.routes.workspace_router import router as workspace_router
 from app.services.rca.get_service_name.router import router as get_servicename
 from app.slack.router import slack_router, slack_webhook_router
-from app.teams.router import router as teams_router
+from app.workspace.client_workspace_teams.router import router as teams_router
 
 # Create main API router
 api_router = APIRouter()
