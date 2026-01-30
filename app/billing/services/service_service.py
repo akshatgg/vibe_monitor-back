@@ -3,6 +3,7 @@ Service management business logic.
 Handles CRUD operations for billable services within workspaces.
 """
 
+import logging
 import uuid
 from typing import Optional, Tuple
 
@@ -24,10 +25,17 @@ from ..schemas import (
     ServiceUpdate,
 )
 from .limit_service import limit_service
+from .subscription_service import SubscriptionService
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceService:
     """Business logic for service management."""
+
+    def __init__(self):
+        """Initialize service with subscription service for billing updates."""
+        self.subscription_service = SubscriptionService()
 
     async def _verify_owner(
         self, workspace_id: str, user_id: str, db: AsyncSession
@@ -234,6 +242,31 @@ class ServiceService:
         await db.refresh(new_service)
 
         return self._format_service_response(new_service)
+        # Update subscription billing with new service count
+        try:
+            # Count total services in workspace
+            count_query = (
+                select(sql_func.count())
+                .select_from(Service)
+                .where(Service.workspace_id == workspace_id)
+            )
+            result = await db.execute(count_query)
+            total_services = result.scalar() or 0
+
+            # Update Stripe subscription with new count (handles proration)
+            await self.subscription_service.update_service_count(
+                db=db,
+                workspace_id=workspace_id,
+                service_count=total_services,
+            )
+            logger.info(
+                f"Updated billing for workspace {workspace_id}: {total_services} services"
+            )
+        except Exception as e:
+            # Log but don't fail the service creation if billing update fails
+            logger.error(f"Failed to update billing after service creation: {e}")
+
+        return ServiceResponse.model_validate(new_service)
 
     async def list_services(
         self,

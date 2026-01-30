@@ -5,7 +5,7 @@ Billing domain schemas for Service management and Subscription APIs.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models import PlanType, SubscriptionStatus
 from app.teams.schemas import TeamSummaryResponse
@@ -173,6 +173,18 @@ class SubscriptionResponse(BaseModel):
 
     # Include plan details
     plan: Optional[PlanResponse] = None
+
+    @computed_field
+    @property
+    def plan_name(self) -> Optional[str]:
+        """Plan type for frontend compatibility (free/pro)."""
+        return self.plan.plan_type.value if self.plan else None
+
+    @computed_field
+    @property
+    def cancel_at_period_end(self) -> bool:
+        """Whether subscription cancels at period end."""
+        return self.canceled_at is not None and self.status == SubscriptionStatus.ACTIVE
 
     model_config = {"from_attributes": True}
 

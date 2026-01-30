@@ -345,6 +345,10 @@ class StripeService:
                 success_url=success_url,
                 cancel_url=cancel_url,
                 metadata=metadata or {},
+                # Pass metadata to the subscription that will be created
+                subscription_data={
+                    "metadata": metadata or {},
+                },
             )
             logger.info(
                 f"Created checkout session {session.id} for customer {customer_id}"

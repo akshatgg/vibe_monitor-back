@@ -7,17 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models import GitHubIntegration, Membership, PlanType, Role, User, Workspace
 from app.core.otel_metrics import WORKSPACE_METRICS
-from app.models import (
-    ChatFile,
-    ChatSession,
-    ChatTurn,
-    GitHubIntegration,
-    Membership,
-    Role,
-    User,
-    Workspace,
-)
+from app.billing.services.subscription_service import SubscriptionService
 
 from ..schemas.schemas import (
     WorkspaceCreate,
@@ -29,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class WorkspaceService:
+    def __init__(self):
+        self.subscription_service = SubscriptionService()
+
     async def create_workspace(
         self, workspace_data: WorkspaceCreate, owner_user_id: str, db: AsyncSession
     ) -> WorkspaceWithMembership:
@@ -70,6 +65,21 @@ class WorkspaceService:
         )
 
         db.add(membership)
+
+        # Create FREE subscription for new workspace
+        free_plan = await self.subscription_service.get_plan_by_type(db, PlanType.FREE)
+        if free_plan:
+            await self.subscription_service.create_subscription(
+                db=db,
+                workspace_id=workspace_id,
+                plan_id=free_plan.id,
+            )
+            logger.info(f"Created FREE subscription for workspace {workspace_id}")
+        else:
+            logger.warning(
+                f"FREE plan not found, workspace {workspace_id} created without subscription"
+            )
+
         await db.commit()
 
         # Refresh to get the updated workspace
