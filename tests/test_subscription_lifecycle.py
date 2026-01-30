@@ -173,7 +173,7 @@ class TestSubscriptionLifecycle:
             print(f"   - Status: {subscription.status} (still ACTIVE until period ends)")
 
             # Step 3: Simulate period ending (Feb 28 arrives)
-            print(f"\n3️⃣  Simulating period end (Feb 28 arrives)...")
+            print("\n3️⃣  Simulating period end (Feb 28 arrives)...")
 
             # Check if canceled
             assert subscription.canceled_at is not None, "Subscription should have canceled_at set"
@@ -261,7 +261,7 @@ class TestSubscriptionLifecycle:
             assert subscription.canceled_at is None, "Should not have canceled_at"
 
             # Step 3: Simulate period ending (Feb 28 arrives) + Auto-renewal
-            print(f"\n3️⃣  Simulating period end + auto-renewal (Feb 28 arrives)...")
+            print("\n3️⃣  Simulating period end + auto-renewal (Feb 28 arrives)...")
             print(f"   - Stripe would charge: ${pro_plan.base_price_cents / 100:.2f}")
 
             # Simulate Stripe renewal webhook
@@ -272,7 +272,7 @@ class TestSubscriptionLifecycle:
             await db.commit()
             await db.refresh(subscription)
 
-            print(f"\n4️⃣  Subscription renewed for another month:")
+            print("\n4️⃣  Subscription renewed for another month:")
             print(f"   - Plan: PRO ({pro_plan.id}) - STILL PRO ✓")
             print(f"   - Status: {subscription.status}")
             print(f"   - New Period: {subscription.current_period_start} to {subscription.current_period_end}")
@@ -286,7 +286,7 @@ class TestSubscriptionLifecycle:
             assert subscription.canceled_at is None, "Should not be canceled"
             assert subscription.current_period_start == old_period_end, "New period should start at old end"
 
-            print(f"\n✅ TEST PASSED: Subscription successfully auto-renewed!")
+            print("\n✅ TEST PASSED: Subscription successfully auto-renewed!")
             print("=" * 70)
 
             # Cleanup
@@ -330,7 +330,7 @@ class TestSubscriptionLifecycle:
             # Create response schema
             response = SubscriptionResponse.model_validate(subscription)
 
-            print(f"\n1️⃣  Subscription with canceled_at set:")
+            print("\n1️⃣  Subscription with canceled_at set:")
             print(f"   - Status: {response.status}")
             print(f"   - Canceled At: {response.canceled_at}")
             print(f"   - cancel_at_period_end: {response.cancel_at_period_end}")
@@ -338,7 +338,7 @@ class TestSubscriptionLifecycle:
             # Assertion
             assert response.cancel_at_period_end is True, "Should be True when canceled_at is set and status is ACTIVE"
 
-            print(f"\n✅ TEST PASSED: Computed field works correctly!")
+            print("\n✅ TEST PASSED: Computed field works correctly!")
             print("=" * 70)
 
             # Cleanup

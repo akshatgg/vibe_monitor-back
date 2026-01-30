@@ -8,16 +8,12 @@ Note: Service schemas have been moved to app.workspace.schemas
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, Field, computed_field
 
 from app.models import PlanType, SubscriptionStatus
 
 # Re-export service schemas from workspace for backward compatibility
 from app.workspace.client_workspace_services.schemas import (
-    FREE_TIER_SERVICE_LIMIT,
-    ServiceCountResponse,
-    ServiceCreate,
-    ServiceListResponse,
     ServiceResponse,
     ServiceUpdate,
 )
