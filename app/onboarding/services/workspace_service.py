@@ -7,8 +7,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import GitHubIntegration, Membership, Role, User, Workspace
 from app.core.otel_metrics import WORKSPACE_METRICS
+from app.models import (
+    ChatFile,
+    ChatSession,
+    ChatTurn,
+    GitHubIntegration,
+    Membership,
+    Role,
+    User,
+    Workspace,
+)
 
 from ..schemas.schemas import (
     WorkspaceCreate,
@@ -66,8 +75,10 @@ class WorkspaceService:
         # Refresh to get the updated workspace
         await db.refresh(new_workspace)
 
-        WORKSPACE_METRICS["workspace_created_total"].add(1)
-        WORKSPACE_METRICS["active_workspaces"].add(1)
+        if metric := WORKSPACE_METRICS.get("workspace_created_total"):
+            metric.add(1)
+        if metric := WORKSPACE_METRICS.get("active_workspaces"):
+            metric.add(1)
 
         # Return workspace with membership role
         workspace_data_dict = {
@@ -113,9 +124,7 @@ class WorkspaceService:
             visible_to_org=False,
         )
         workspace = await self.create_workspace(
-            workspace_data=default_workspace_data,
-            owner_user_id=user_id,
-            db=db
+            workspace_data=default_workspace_data, owner_user_id=user_id, db=db
         )
 
         # Update user's last_visited_workspace_id
@@ -377,11 +386,15 @@ class WorkspaceService:
         # Revoke GitHub App installations before deleting workspace
         await self._revoke_github_installations(workspace_id, db)
 
+        # Delete S3 files before cascade delete removes DB records
+        await self._delete_workspace_files(workspace_id, db)
+
         # Delete the workspace (cascade will handle related records)
         await db.delete(workspace)
         await db.commit()
 
-        WORKSPACE_METRICS["active_workspaces"].add(-1)
+        if metric := WORKSPACE_METRICS.get("active_workspaces"):
+            metric.add(-1)
 
         return True
 
@@ -419,3 +432,27 @@ class WorkspaceService:
                     f"Failed to revoke GitHub App installation {integration.installation_id} "
                     f"for workspace {workspace_id}: {e}. Continuing with workspace deletion."
                 )
+
+    async def _delete_workspace_files(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Delete all S3 files associated with a workspace.
+
+        This must be called before cascade delete removes the DB records,
+        otherwise we lose the S3 keys needed to clean up the files.
+        """
+        from app.services.s3.client import s3_client
+
+        # Get all S3 keys for files in this workspace
+        query = (
+            select(ChatFile.s3_key)
+            .join(ChatTurn, ChatFile.turn_id == ChatTurn.id)
+            .join(ChatSession, ChatTurn.session_id == ChatSession.id)
+            .where(ChatSession.workspace_id == workspace_id)
+        )
+        result = await db.execute(query)
+        s3_keys = [row[0] for row in result.fetchall()]
+
+        if s3_keys:
+            await s3_client.delete_files(s3_keys)
+            logger.info(f"Deleted {len(s3_keys)} S3 files for workspace {workspace_id}")

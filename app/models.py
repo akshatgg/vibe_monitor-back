@@ -209,7 +209,10 @@ class Workspace(Base):
         cascade="all, delete-orphan",
     )
     environments = relationship(
-        "Environment", back_populates="workspace", cascade="all, delete-orphan"
+        "Environment",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     api_keys = relationship(
         "WorkspaceApiKey", back_populates="workspace", cascade="all, delete-orphan"
@@ -220,7 +223,7 @@ class Membership(Base):
     __tablename__ = "memberships"
 
     id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
     role = Column(
         Enum(Role, values_callable=lambda x: [e.value for e in x]),
@@ -311,10 +314,12 @@ class WorkspaceInvitation(Base):
     workspace_id = Column(
         String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
-    inviter_id = Column(String, ForeignKey("users.id"), nullable=False)
+    inviter_id = Column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     invitee_email = Column(String, nullable=False)
     invitee_id = Column(
-        String, ForeignKey("users.id"), nullable=True
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )  # Null if user doesn't exist yet
     role = Column(
         Enum(Role, values_callable=lambda x: [e.value for e in x]),
@@ -528,7 +533,9 @@ class GitHubIntegration(Base):
     # Indexes and constraints
     __table_args__ = (
         Index("idx_github_integration_installation", "installation_id"),
-        UniqueConstraint("installation_id", name="uq_github_integrations_installation_id"),
+        UniqueConstraint(
+            "installation_id", name="uq_github_integrations_installation_id"
+        ),
     )
 
 
@@ -558,7 +565,7 @@ class Job(Base):
 
     # Slack context
     slack_integration_id = Column(
-        String, ForeignKey("slack_installations.id"), nullable=True
+        String, ForeignKey("slack_installations.id", ondelete="CASCADE"), nullable=True
     )
     trigger_channel_id = Column(String, nullable=True)  # Slack channel ID (C...)
     trigger_thread_ts = Column(String, nullable=True)  # Root thread timestamp
@@ -846,7 +853,7 @@ class SecurityEvent(Base):
     # Context
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)
     slack_integration_id = Column(
-        String, ForeignKey("slack_installations.id"), nullable=True
+        String, ForeignKey("slack_installations.id", ondelete="CASCADE"), nullable=True
     )
     slack_user_id = Column(
         String, nullable=True
@@ -1046,7 +1053,7 @@ class ChatFile(Base):
 
     # File metadata
     filename = Column(String(255), nullable=False)
-    file_type = Column(String(50), nullable=False) 
+    file_type = Column(String(50), nullable=False)
     mime_type = Column(String(100), nullable=False)
     size_bytes = Column(Integer, nullable=False)
     relative_path = Column(String(500), nullable=True)
@@ -1054,7 +1061,9 @@ class ChatFile(Base):
     extracted_text = Column(Text, nullable=True)
 
     # Audit
-    uploaded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    uploaded_by = Column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -1228,9 +1237,7 @@ class Service(Base):
     name = Column(String(255), nullable=False)
 
     # Optional team assignment (one service -> one team, one team -> many services)
-    team_id = Column(
-        String, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
-    )
+    team_id = Column(String, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
 
     # Optional repository link (one service -> one repo, but one repo -> many services)
     repository_id = Column(
@@ -1531,7 +1538,9 @@ class Deployment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    environment = relationship("Environment", backref="deployments")
+    environment = relationship(
+        "Environment", backref=backref("deployments", passive_deletes=True)
+    )
 
     # Indexes for fast "latest deployment" queries
     __table_args__ = (
