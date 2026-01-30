@@ -6,15 +6,15 @@ from pydantic import BaseModel
 
 
 class Role(str, Enum):
-    OWNER = "owner"
-    USER = "user"  # Renamed from MEMBER
+    OWNER = "OWNER"
+    USER = "USER"  # Renamed from MEMBER
 
 
 class InvitationStatus(str, Enum):
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    DECLINED = "declined"
-    EXPIRED = "expired"
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+    EXPIRED = "EXPIRED"
 
 
 # User schemas
