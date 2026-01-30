@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import (
+    ChatFile,
     ChatSession,
+    ChatTurn,
     Email,
     EmailVerification,
     Membership,
@@ -367,6 +369,9 @@ class AccountService:
         # Delete emails
         await db.execute(delete(Email).where(Email.user_id == user_id))
 
+        # Delete S3 files before cascade delete removes DB records
+        await self._delete_user_files(user_id, db)
+
         # Delete chat sessions (this will cascade to turns and steps)
         await db.execute(delete(ChatSession).where(ChatSession.user_id == user_id))
 
@@ -377,6 +382,37 @@ class AccountService:
             user.last_visited_workspace_id = None
 
         await db.flush()
+
+    async def _delete_user_files(
+        self,
+        user_id: str,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Delete all S3 files from user's chat sessions.
+
+        This must be called before cascade delete removes the DB records,
+        otherwise we lose the S3 keys needed to clean up the files.
+
+        Args:
+            user_id: User ID
+            db: Database session
+        """
+        from app.services.s3.client import s3_client
+
+        # Get all S3 keys for files in user's sessions
+        query = (
+            select(ChatFile.s3_key)
+            .join(ChatTurn, ChatFile.turn_id == ChatTurn.id)
+            .join(ChatSession, ChatTurn.session_id == ChatSession.id)
+            .where(ChatSession.user_id == user_id)
+        )
+        result = await db.execute(query)
+        s3_keys = [row[0] for row in result.fetchall()]
+
+        if s3_keys:
+            await s3_client.delete_files(s3_keys)
+            logger.info(f"Deleted {len(s3_keys)} S3 files for user {user_id}")
 
 
 # Singleton instance
