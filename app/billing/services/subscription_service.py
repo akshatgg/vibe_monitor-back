@@ -540,9 +540,10 @@ class SubscriptionService:
             return
 
         # Update local subscription with Stripe details
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
         subscription.stripe_subscription_id = stripe_subscription.id
         subscription.stripe_customer_id = stripe_subscription.customer
-        subscription.status = SubscriptionStatus(stripe_subscription.status)
+        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
         subscription.current_period_start = datetime.fromtimestamp(
             stripe_subscription.current_period_start, tz=timezone.utc
         )
@@ -586,7 +587,8 @@ class SubscriptionService:
         if not subscription:
             return None
 
-        subscription.status = SubscriptionStatus(stripe_sub.status)
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
+        subscription.status = SubscriptionStatus(stripe_sub.status.upper())
         subscription.current_period_start = datetime.fromtimestamp(
             stripe_sub.current_period_start, tz=timezone.utc
         )
