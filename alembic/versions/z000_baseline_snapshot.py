@@ -32,40 +32,24 @@ def upgrade():
 
     # =========================================================================
     # ENUM TYPES (all UPPERCASE values)
+    # Alembic will automatically CREATE TYPE when used in tables
     # =========================================================================
 
-    role_enum = postgresql.ENUM('OWNER', 'USER', name='role', create_type=False)
-    jobstatus_enum = postgresql.ENUM('QUEUED', 'RUNNING', 'WAITING_INPUT', 'COMPLETED', 'FAILED', name='jobstatus', create_type=False)
-    jobsource_enum = postgresql.ENUM('SLACK', 'WEB', 'MSTEAMS', name='jobsource', create_type=False)
-    feedbacksource_enum = postgresql.ENUM('WEB', 'SLACK', name='feedbacksource', create_type=False)
-    turnstatus_enum = postgresql.ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='turnstatus', create_type=False)
-    steptype_enum = postgresql.ENUM('TOOL_CALL', 'THINKING', 'STATUS', name='steptype', create_type=False)
-    stepstatus_enum = postgresql.ENUM('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', name='stepstatus', create_type=False)
-    invitationstatus_enum = postgresql.ENUM('PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', name='invitationstatus', create_type=False)
-    deploymentstatus_enum = postgresql.ENUM('PENDING', 'IN_PROGRESS', 'SUCCESS', 'FAILED', 'CANCELLED', name='deploymentstatus', create_type=False)
-    deploymentsource_enum = postgresql.ENUM('MANUAL', 'WEBHOOK', 'GITHUB_ACTIONS', 'GITHUB_DEPLOYMENTS', 'ARGOCD', 'JENKINS', name='deploymentsource', create_type=False)
-    llmprovider_enum = postgresql.ENUM('VIBEMONITOR', 'OPENAI', 'AZURE_OPENAI', 'GEMINI', name='llmprovider', create_type=False)
-    llmconfigstatus_enum = postgresql.ENUM('ACTIVE', 'ERROR', 'UNCONFIGURED', name='llmconfigstatus', create_type=False)
-    plantype_enum = postgresql.ENUM('FREE', 'PRO', name='plantype', create_type=False)
-    subscriptionstatus_enum = postgresql.ENUM('ACTIVE', 'PAST_DUE', 'CANCELED', 'INCOMPLETE', 'TRIALING', name='subscriptionstatus', create_type=False)
-    securityeventtype_enum = postgresql.ENUM('PROMPT_INJECTION', 'GUARD_DEGRADED', name='securityeventtype', create_type=False)
-
-    # Create all enum types
-    role_enum.create(op.get_bind(), checkfirst=True)
-    jobstatus_enum.create(op.get_bind(), checkfirst=True)
-    jobsource_enum.create(op.get_bind(), checkfirst=True)
-    feedbacksource_enum.create(op.get_bind(), checkfirst=True)
-    turnstatus_enum.create(op.get_bind(), checkfirst=True)
-    steptype_enum.create(op.get_bind(), checkfirst=True)
-    stepstatus_enum.create(op.get_bind(), checkfirst=True)
-    invitationstatus_enum.create(op.get_bind(), checkfirst=True)
-    deploymentstatus_enum.create(op.get_bind(), checkfirst=True)
-    deploymentsource_enum.create(op.get_bind(), checkfirst=True)
-    llmprovider_enum.create(op.get_bind(), checkfirst=True)
-    llmconfigstatus_enum.create(op.get_bind(), checkfirst=True)
-    plantype_enum.create(op.get_bind(), checkfirst=True)
-    subscriptionstatus_enum.create(op.get_bind(), checkfirst=True)
-    securityeventtype_enum.create(op.get_bind(), checkfirst=True)
+    role_enum = postgresql.ENUM('OWNER', 'USER', name='role')
+    jobstatus_enum = postgresql.ENUM('QUEUED', 'RUNNING', 'WAITING_INPUT', 'COMPLETED', 'FAILED', name='jobstatus')
+    jobsource_enum = postgresql.ENUM('SLACK', 'WEB', 'MSTEAMS', name='jobsource')
+    feedbacksource_enum = postgresql.ENUM('WEB', 'SLACK', name='feedbacksource')
+    turnstatus_enum = postgresql.ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='turnstatus')
+    steptype_enum = postgresql.ENUM('TOOL_CALL', 'THINKING', 'STATUS', name='steptype')
+    stepstatus_enum = postgresql.ENUM('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', name='stepstatus')
+    invitationstatus_enum = postgresql.ENUM('PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', name='invitationstatus')
+    deploymentstatus_enum = postgresql.ENUM('PENDING', 'IN_PROGRESS', 'SUCCESS', 'FAILED', 'CANCELLED', name='deploymentstatus')
+    deploymentsource_enum = postgresql.ENUM('MANUAL', 'WEBHOOK', 'GITHUB_ACTIONS', 'GITHUB_DEPLOYMENTS', 'ARGOCD', 'JENKINS', name='deploymentsource')
+    llmprovider_enum = postgresql.ENUM('VIBEMONITOR', 'OPENAI', 'AZURE_OPENAI', 'GEMINI', name='llmprovider')
+    llmconfigstatus_enum = postgresql.ENUM('ACTIVE', 'ERROR', 'UNCONFIGURED', name='llmconfigstatus')
+    plantype_enum = postgresql.ENUM('FREE', 'PRO', name='plantype')
+    subscriptionstatus_enum = postgresql.ENUM('ACTIVE', 'PAST_DUE', 'CANCELED', 'INCOMPLETE', 'TRIALING', name='subscriptionstatus')
+    securityeventtype_enum = postgresql.ENUM('PROMPT_INJECTION', 'GUARD_DEGRADED', name='securityeventtype')
 
     # =========================================================================
     # CORE TABLES (in dependency order)
@@ -118,7 +102,7 @@ def upgrade():
     op.create_index('ix_integrations_workspace_id', 'integrations', ['workspace_id'])
     op.create_index('ix_integrations_workspace_provider', 'integrations', ['workspace_id', 'provider'])
 
-    # --- memberships ---
+    # --- memberships (first table using role_enum) ---
     op.create_table('memberships',
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('user_id', sa.String(), nullable=False),
