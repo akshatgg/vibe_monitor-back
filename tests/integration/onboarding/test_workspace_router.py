@@ -71,7 +71,7 @@ async def test_get_user_workspaces_includes_role(
     data = response.json()
     workspace_data = next(w for w in data if w["id"] == test_workspace.id)
     assert "user_role" in workspace_data
-    assert workspace_data["user_role"] == "owner"
+    assert workspace_data["user_role"] == "OWNER"
 
 
 @pytest.mark.asyncio

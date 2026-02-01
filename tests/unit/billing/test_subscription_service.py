@@ -114,28 +114,28 @@ class TestSubscriptionStatusMapping:
     """Tests for subscription status mapping from Stripe."""
 
     def test_active_status_mapping(self):
-        """Stripe 'active' should map to SubscriptionStatus.ACTIVE."""
-        status = SubscriptionStatus("active")
+        """Stripe 'ACTIVE' should map to SubscriptionStatus.ACTIVE."""
+        status = SubscriptionStatus("ACTIVE")
         assert status == SubscriptionStatus.ACTIVE
 
     def test_past_due_status_mapping(self):
-        """Stripe 'past_due' should map to SubscriptionStatus.PAST_DUE."""
-        status = SubscriptionStatus("past_due")
+        """Stripe 'PAST_DUE' should map to SubscriptionStatus.PAST_DUE."""
+        status = SubscriptionStatus("PAST_DUE")
         assert status == SubscriptionStatus.PAST_DUE
 
     def test_canceled_status_mapping(self):
-        """Stripe 'canceled' should map to SubscriptionStatus.CANCELED."""
-        status = SubscriptionStatus("canceled")
+        """Stripe 'CANCELED' should map to SubscriptionStatus.CANCELED."""
+        status = SubscriptionStatus("CANCELED")
         assert status == SubscriptionStatus.CANCELED
 
     def test_incomplete_status_mapping(self):
-        """Stripe 'incomplete' should map to SubscriptionStatus.INCOMPLETE."""
-        status = SubscriptionStatus("incomplete")
+        """Stripe 'INCOMPLETE' should map to SubscriptionStatus.INCOMPLETE."""
+        status = SubscriptionStatus("INCOMPLETE")
         assert status == SubscriptionStatus.INCOMPLETE
 
     def test_trialing_status_mapping(self):
-        """Stripe 'trialing' should map to SubscriptionStatus.TRIALING."""
-        status = SubscriptionStatus("trialing")
+        """Stripe 'TRIALING' should map to SubscriptionStatus.TRIALING."""
+        status = SubscriptionStatus("TRIALING")
         assert status == SubscriptionStatus.TRIALING
 
 

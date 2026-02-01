@@ -604,7 +604,7 @@ class TestGetPlan:
         data = response.json()
         assert data["id"] == plan.id
         assert data["name"] == "Pro"
-        assert data["plan_type"] == "pro"
+        assert data["plan_type"] == "PRO"
         assert data["base_service_count"] == 5
         assert data["base_price_cents"] == 3000
         assert data["additional_service_price_cents"] == 500

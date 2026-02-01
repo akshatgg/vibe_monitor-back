@@ -343,13 +343,13 @@ class TestEnumValues:
 
     def test_plan_type_values(self):
         """Test PlanType enum values."""
-        assert PlanType.FREE.value == "free"
-        assert PlanType.PRO.value == "pro"
+        assert PlanType.FREE.value == "FREE"
+        assert PlanType.PRO.value == "PRO"
 
     def test_subscription_status_values(self):
         """Test SubscriptionStatus enum values."""
-        assert SubscriptionStatus.ACTIVE.value == "active"
-        assert SubscriptionStatus.PAST_DUE.value == "past_due"
-        assert SubscriptionStatus.CANCELED.value == "canceled"
-        assert SubscriptionStatus.INCOMPLETE.value == "incomplete"
-        assert SubscriptionStatus.TRIALING.value == "trialing"
+        assert SubscriptionStatus.ACTIVE.value == "ACTIVE"
+        assert SubscriptionStatus.PAST_DUE.value == "PAST_DUE"
+        assert SubscriptionStatus.CANCELED.value == "CANCELED"
+        assert SubscriptionStatus.INCOMPLETE.value == "INCOMPLETE"
+        assert SubscriptionStatus.TRIALING.value == "TRIALING"

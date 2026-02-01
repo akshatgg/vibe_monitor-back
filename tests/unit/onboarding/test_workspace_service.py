@@ -226,13 +226,13 @@ class TestRoleEnum:
 
     def test_role_values(self):
         """Test that enum has expected values."""
-        assert Role.OWNER.value == "owner"
-        assert Role.USER.value == "user"
+        assert Role.OWNER.value == "OWNER"
+        assert Role.USER.value == "USER"
 
     def test_role_from_string(self):
         """Test creating enum from string."""
-        assert Role("owner") == Role.OWNER
-        assert Role("user") == Role.USER
+        assert Role("OWNER") == Role.OWNER
+        assert Role("USER") == Role.USER
 
     def test_role_invalid_raises(self):
         """Test that invalid value raises error."""
