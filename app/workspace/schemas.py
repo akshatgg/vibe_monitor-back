@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 
 class Role(str, Enum):
-    OWNER = "owner"
-    USER = "user"  # Renamed from MEMBER
+    OWNER = "OWNER"
+    USER = "USER"  # Renamed from MEMBER
 
 
 # User schemas

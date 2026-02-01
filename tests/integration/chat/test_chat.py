@@ -527,7 +527,7 @@ class TestGetTurn:
         assert data["id"] == turn.id
         assert data["user_message"] == "What caused the error?"
         assert data["final_response"] == "The error was caused by..."
-        assert data["status"] == "completed"
+        assert data["status"] == "COMPLETED"
 
     @pytest.mark.asyncio
     async def test_get_turn_not_found_returns_404(self, client, test_db):

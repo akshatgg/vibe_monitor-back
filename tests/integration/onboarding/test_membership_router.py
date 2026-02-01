@@ -528,7 +528,7 @@ async def test_non_owner_cannot_invite(auth_client, test_db, test_user, second_u
     # Try to invite as test_user (who is just a member)
     response = await auth_client.post(
         f"{API_PREFIX}/workspaces/{workspace.id}/invitations",
-        json={"email": "shouldfail@example.com", "role": "user"},
+        json={"email": "shouldfail@example.com", "role": "USER"},
     )
     assert response.status_code in [400, 403]
 
