@@ -66,7 +66,7 @@ echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
 
 # Step 2: Start infrastructure containers
-echo -e "${YELLOW}[2/4] Starting infrastructure containers (Supabase, LocalStack, Langfuse)...${NC}"
+echo -e "${YELLOW}[2/4] Starting infrastructure containers (PostgreSQL, LocalStack, Redis, Langfuse)...${NC}"
 docker compose -f docker-compose.dev.yml up -d
 
 # Wait for containers to be healthy
@@ -86,15 +86,15 @@ for i in {1..30}; do
     sleep 2
 done
 
-# Check Supabase DB
-echo -e "${YELLOW}Checking Supabase DB...${NC}"
+# Check PostgreSQL DB
+echo -e "${YELLOW}Checking PostgreSQL DB...${NC}"
 for i in {1..30}; do
-    if docker compose -f docker-compose.dev.yml exec -T supabase-db pg_isready -U postgres &> /dev/null 2>&1; then
-        echo -e "${GREEN}✓ Supabase DB is ready${NC}"
+    if docker compose -f docker-compose.dev.yml exec -T postgres-db pg_isready -U postgres &> /dev/null 2>&1; then
+        echo -e "${GREEN}✓ PostgreSQL DB is ready${NC}"
         break
     fi
     if [ $i -eq 30 ]; then
-        echo -e "${YELLOW}Warning: Supabase DB may not be fully ready${NC}"
+        echo -e "${YELLOW}Warning: PostgreSQL DB may not be fully ready${NC}"
     fi
     sleep 2
 done
@@ -206,9 +206,9 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 echo -e "${YELLOW}Services available:${NC}"
 echo -e "  • API: http://localhost:8000"
-echo -e "  • Supabase Studio: http://localhost:3500"
-echo -e "  • LocalStack: http://localhost:4566"
-echo -e "  • Supabase DB: postgresql://postgres:postgres@localhost:54322/postgres"
+echo -e "  • PostgreSQL DB: postgresql://postgres:postgres@localhost:54322/postgres"
+echo -e "  • Redis: redis://localhost:6379"
+echo -e "  • LocalStack (AWS): http://localhost:4566"
 echo -e "  • Langfuse (LLM Observability): http://localhost:3703"
 echo ""
 echo -e "${YELLOW}First time setup for Langfuse:${NC}"
