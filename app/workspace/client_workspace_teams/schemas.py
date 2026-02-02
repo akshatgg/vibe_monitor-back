@@ -87,3 +87,26 @@ class TeamMemberResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TeamSummaryResponse(BaseModel):
+    """Lightweight team summary for embedding in service responses."""
+
+    id: str
+    name: str
+    geography: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ServiceSummaryResponse(BaseModel):
+    """Lightweight service summary for embedding in team responses."""
+
+    id: str
+    name: str
+    repository_name: Optional[str] = None
+    enabled: bool
+
+    class Config:
+        from_attributes = True

@@ -161,15 +161,15 @@ class DeploymentService:
                 detail=f"Environment '{data.environment}' not found in this workspace",
             )
 
-        # Parse status
+        # Parse status (webhook sends lowercase, convert to UPPERCASE for our enum)
         try:
-            deployment_status = DeploymentStatus(data.status or "success")
+            deployment_status = DeploymentStatus((data.status or "success").upper())
         except ValueError:
             deployment_status = DeploymentStatus.SUCCESS
 
-        # Parse source
+        # Parse source (webhook sends lowercase, convert to UPPERCASE for our enum)
         try:
-            deployment_source = DeploymentSource(data.source or "webhook")
+            deployment_source = DeploymentSource((data.source or "webhook").upper())
         except ValueError:
             deployment_source = DeploymentSource.WEBHOOK
 

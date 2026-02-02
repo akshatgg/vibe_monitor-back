@@ -9,6 +9,9 @@ from typing import Any, Callable, Optional
 
 from opentelemetry.metrics import CallbackOptions, Observation
 
+from app.core.config import settings
+from app.core.otel_metrics import STRIPE_METRICS
+
 logger = logging.getLogger(__name__)
 
 # Cached subscription count
@@ -59,8 +62,6 @@ def stripe_api_metric(operation_name: str):
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
-            from app.core.otel_metrics import STRIPE_METRICS
-
             start_time = time.time()
             success = False
 
@@ -74,13 +75,15 @@ def stripe_api_metric(operation_name: str):
             finally:
                 duration = time.time() - start_time
 
-                STRIPE_METRICS["stripe_api_calls_total"].add(
-                    1,
-                    {
-                        "operation": operation_name,
-                        "status": "success" if success else "error",
-                    },
-                )
+                # Only record metrics if OpenTelemetry is enabled
+                if settings.OTEL_ENABLED and STRIPE_METRICS:
+                    STRIPE_METRICS["stripe_api_calls_total"].add(
+                        1,
+                        {
+                            "operation": operation_name,
+                            "status": "success" if success else "error",
+                        },
+                    )
 
                 logger.debug(f"Stripe {operation_name} took {duration:.3f}s")
 

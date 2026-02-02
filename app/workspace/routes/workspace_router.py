@@ -7,7 +7,7 @@ from app.auth.google.service import AuthService
 from app.models import User
 
 from ...core.database import get_db
-from ..schemas.schemas import (
+from ..schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceUpdate,

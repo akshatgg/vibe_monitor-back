@@ -120,23 +120,23 @@ class TestDeploymentStatusParsing:
     """Tests for DeploymentStatus enum parsing logic."""
 
     def test_valid_status_success(self):
-        """'success' is a valid status."""
-        status = DeploymentStatus("success")
+        """'SUCCESS' is a valid status."""
+        status = DeploymentStatus("SUCCESS")
         assert status == DeploymentStatus.SUCCESS
 
     def test_valid_status_failed(self):
-        """'failed' is a valid status."""
-        status = DeploymentStatus("failed")
+        """'FAILED' is a valid status."""
+        status = DeploymentStatus("FAILED")
         assert status == DeploymentStatus.FAILED
 
     def test_valid_status_in_progress(self):
-        """'in_progress' is a valid status."""
-        status = DeploymentStatus("in_progress")
+        """'IN_PROGRESS' is a valid status."""
+        status = DeploymentStatus("IN_PROGRESS")
         assert status == DeploymentStatus.IN_PROGRESS
 
     def test_valid_status_pending(self):
-        """'pending' is a valid status."""
-        status = DeploymentStatus("pending")
+        """'PENDING' is a valid status."""
+        status = DeploymentStatus("PENDING")
         assert status == DeploymentStatus.PENDING
 
     def test_invalid_status_raises(self):
@@ -149,18 +149,18 @@ class TestDeploymentSourceParsing:
     """Tests for DeploymentSource enum parsing logic."""
 
     def test_valid_source_manual(self):
-        """'manual' is a valid source."""
-        source = DeploymentSource("manual")
+        """'MANUAL' is a valid source."""
+        source = DeploymentSource("MANUAL")
         assert source == DeploymentSource.MANUAL
 
     def test_valid_source_webhook(self):
-        """'webhook' is a valid source."""
-        source = DeploymentSource("webhook")
+        """'WEBHOOK' is a valid source."""
+        source = DeploymentSource("WEBHOOK")
         assert source == DeploymentSource.WEBHOOK
 
     def test_valid_source_github_actions(self):
-        """'github_actions' is a valid source."""
-        source = DeploymentSource("github_actions")
+        """'GITHUB_ACTIONS' is a valid source."""
+        source = DeploymentSource("GITHUB_ACTIONS")
         assert source == DeploymentSource.GITHUB_ACTIONS
 
     def test_invalid_source_raises(self):

@@ -34,8 +34,8 @@ class AccountUpdateRequest(BaseModel):
 class Role(str, Enum):
     """Role of user in a workspace"""
 
-    OWNER = "owner"
-    USER = "user"
+    OWNER = "OWNER"
+    USER = "USER"
 
 
 class BlockingWorkspace(BaseModel):

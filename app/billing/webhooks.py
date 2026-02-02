@@ -78,8 +78,8 @@ async def handle_stripe_webhook(
             await subscription_service.handle_payment_failed(db, data)
 
         elif event_type == "checkout.session.completed":
-            # Checkout session completed - subscription created via checkout
-            # The subscription.created event will also fire, so we just log here
+            # Checkout session completed - update subscription immediately
+            await subscription_service.handle_checkout_completed(db, data)
             logger.info(
                 f"Checkout session completed: {data.id}, customer: {data.customer}"
             )

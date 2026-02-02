@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.otel_metrics import AUTH_METRICS
 from app.email_service.service import email_service
 from app.models import EmailVerification, RefreshToken, User
-from app.onboarding.services.workspace_service import WorkspaceService
+from app.workspace.services.workspace_service import WorkspaceService
 from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)

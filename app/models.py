@@ -30,104 +30,104 @@ Base = declarative_base()
 
 # Enums
 class Role(enum.Enum):
-    OWNER = "owner"
-    USER = "user"  # Renamed from MEMBER
+    OWNER = "OWNER"
+    USER = "USER"  # Renamed from MEMBER
 
 
 class JobStatus(enum.Enum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    WAITING_INPUT = "waiting_input"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    WAITING_INPUT = "WAITING_INPUT"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class JobSource(enum.Enum):
     """Source channel that triggered the job"""
 
-    SLACK = "slack"
-    WEB = "web"
-    MSTEAMS = "msteams"  # Future
+    SLACK = "SLACK"
+    WEB = "WEB"
+    MSTEAMS = "MSTEAMS"  # Future
 
 
 class FeedbackSource(enum.Enum):
     """Source of feedback (web UI or Slack)"""
 
-    WEB = "web"
-    SLACK = "slack"
+    WEB = "WEB"
+    SLACK = "SLACK"
 
 
 class TurnStatus(enum.Enum):
     """Status of a chat turn"""
 
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class StepType(enum.Enum):
     """Type of processing step within a turn"""
 
-    TOOL_CALL = "tool_call"
-    THINKING = "thinking"
-    STATUS = "status"
+    TOOL_CALL = "TOOL_CALL"
+    THINKING = "THINKING"
+    STATUS = "STATUS"
 
 
 class StepStatus(enum.Enum):
     """Status of a processing step"""
 
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class InvitationStatus(enum.Enum):
     """Status of a workspace invitation"""
 
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    DECLINED = "declined"
-    EXPIRED = "expired"
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+    EXPIRED = "EXPIRED"
 
 
 class DeploymentStatus(enum.Enum):
     """Status of a deployment"""
 
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    SUCCESS = "success"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class DeploymentSource(enum.Enum):
     """Source that reported the deployment"""
 
-    MANUAL = "manual"
-    WEBHOOK = "webhook"
-    GITHUB_ACTIONS = "github_actions"
-    GITHUB_DEPLOYMENTS = "github_deployments"
-    ARGOCD = "argocd"
-    JENKINS = "jenkins"
+    MANUAL = "MANUAL"
+    WEBHOOK = "WEBHOOK"
+    GITHUB_ACTIONS = "GITHUB_ACTIONS"
+    GITHUB_DEPLOYMENTS = "GITHUB_DEPLOYMENTS"
+    ARGOCD = "ARGOCD"
+    JENKINS = "JENKINS"
 
 
 class LLMProvider(enum.Enum):
     """Available LLM providers for BYOLLM"""
 
-    VIBEMONITOR = "vibemonitor"  # Default (uses Groq)
-    OPENAI = "openai"
-    AZURE_OPENAI = "azure_openai"
-    GEMINI = "gemini"
+    VIBEMONITOR = "VIBEMONITOR"  # Default (uses Groq)
+    OPENAI = "OPENAI"
+    AZURE_OPENAI = "AZURE_OPENAI"
+    GEMINI = "GEMINI"
 
 
 class LLMConfigStatus(enum.Enum):
     """Status of LLM provider configuration"""
 
-    ACTIVE = "active"
-    ERROR = "error"
-    UNCONFIGURED = "unconfigured"
+    ACTIVE = "ACTIVE"
+    ERROR = "ERROR"
+    UNCONFIGURED = "UNCONFIGURED"
 
 
 # User and Workspace Models
@@ -810,25 +810,25 @@ class DatadogIntegration(Base):
 
 
 class SecurityEventType(enum.Enum):
-    PROMPT_INJECTION = "prompt_injection"
-    GUARD_DEGRADED = "guard_degraded"
+    PROMPT_INJECTION = "PROMPT_INJECTION"
+    GUARD_DEGRADED = "GUARD_DEGRADED"
 
 
 class PlanType(enum.Enum):
     """Billing plan types"""
 
-    FREE = "free"
-    PRO = "pro"
+    FREE = "FREE"
+    PRO = "PRO"
 
 
 class SubscriptionStatus(enum.Enum):
     """Subscription status mirroring Stripe's subscription states"""
 
-    ACTIVE = "active"
-    PAST_DUE = "past_due"
-    CANCELED = "canceled"
-    INCOMPLETE = "incomplete"
-    TRIALING = "trialing"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+    INCOMPLETE = "INCOMPLETE"
+    TRIALING = "TRIALING"
 
 
 class SecurityEvent(Base):

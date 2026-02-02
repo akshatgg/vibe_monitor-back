@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import HTTPException
 
-from app.billing.services.limit_service import (
+from app.workspace.client_workspace_services.limit_service import (
     DEFAULT_FREE_RCA_DAILY_LIMIT,
     DEFAULT_FREE_SERVICE_LIMIT,
     LimitService,
@@ -431,7 +431,7 @@ class TestLimitServiceGetUsageStats:
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
         assert stats["plan_name"] == "Pro"
-        assert stats["plan_type"] == "pro"
+        assert stats["plan_type"] == "PRO"
         assert stats["is_paid"] is True
         assert stats["service_count"] == 15
         assert stats["service_limit"] is None  # Unlimited for Pro
@@ -441,7 +441,7 @@ class TestLimitServiceGetUsageStats:
         assert stats["rca_session_limit_daily"] == 100
         assert stats["rca_sessions_remaining"] == 75
         assert stats["can_start_rca"] is True
-        assert stats["subscription_status"] == "active"
+        assert stats["subscription_status"] == "ACTIVE"
 
     @pytest.mark.asyncio
     async def test_free_plan_usage_stats_no_subscription(self, limit_service, mock_db):
@@ -453,7 +453,7 @@ class TestLimitServiceGetUsageStats:
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
         assert stats["plan_name"] == "Free"
-        assert stats["plan_type"] == "free"
+        assert stats["plan_type"] == "FREE"
         assert stats["is_paid"] is False
         assert stats["service_limit"] == DEFAULT_FREE_SERVICE_LIMIT
         assert stats["services_remaining"] == 2  # 5 - 3

@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.otel_metrics import AUTH_METRICS
 from app.email_service.service import email_service
 from app.models import RefreshToken, User
-from app.onboarding.services.workspace_service import WorkspaceService
+from app.workspace.services.workspace_service import WorkspaceService
 from app.utils.retry_decorator import retry_external_api
 
 from .schemas import UserResponse

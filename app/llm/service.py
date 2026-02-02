@@ -62,10 +62,11 @@ class LLMConfigService:
                 has_custom_key=False,
             )
 
+        # Convert DB UPPERCASE to API lowercase
         return LLMConfigResponse(
-            provider=config.provider.value,
+            provider=config.provider.value.lower(),
             model_name=config.model_name,
-            status=config.status.value,
+            status=config.status.value.lower(),
             last_verified_at=config.last_verified_at,
             last_error=config.last_error,
             has_custom_key=bool(config.config_encrypted),
@@ -102,8 +103,8 @@ class LLMConfigService:
         # Build encrypted config blob
         encrypted_config = LLMConfigService._build_encrypted_config(config_data)
 
-        # Map string provider to enum
-        provider_enum = LLMProvider(config_data.provider)
+        # Map string provider to enum (API sends lowercase, DB stores UPPERCASE)
+        provider_enum = LLMProvider(config_data.provider.upper())
 
         if existing_config:
             # Update existing config
@@ -124,10 +125,11 @@ class LLMConfigService:
                 f"provider={config_data.provider}"
             )
 
+            # Convert DB UPPERCASE to API lowercase
             return LLMConfigResponse(
-                provider=existing_config.provider.value,
+                provider=existing_config.provider.value.lower(),
                 model_name=existing_config.model_name,
-                status=existing_config.status.value,
+                status=existing_config.status.value.lower(),
                 last_verified_at=existing_config.last_verified_at,
                 last_error=existing_config.last_error,
                 has_custom_key=bool(existing_config.config_encrypted),
@@ -153,10 +155,11 @@ class LLMConfigService:
                 f"provider={config_data.provider}"
             )
 
+            # Convert DB UPPERCASE to API lowercase
             return LLMConfigResponse(
-                provider=new_config.provider.value,
+                provider=new_config.provider.value.lower(),
                 model_name=new_config.model_name,
-                status=new_config.status.value,
+                status=new_config.status.value.lower(),
                 last_verified_at=new_config.last_verified_at,
                 last_error=new_config.last_error,
                 has_custom_key=bool(new_config.config_encrypted),

@@ -3,6 +3,7 @@ Service management business logic.
 Handles CRUD operations for billable services within workspaces.
 """
 
+import logging
 import uuid
 from typing import Optional, Tuple
 
@@ -10,10 +11,12 @@ from fastapi import HTTPException
 from sqlalchemy import func as sql_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Membership, Role, Service, Workspace
+from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
 
-from ..schemas import (
+from .schemas import (
     FREE_TIER_SERVICE_LIMIT,
     ServiceCountResponse,
     ServiceCreate,
@@ -22,10 +25,17 @@ from ..schemas import (
     ServiceUpdate,
 )
 from .limit_service import limit_service
+from app.billing.services.subscription_service import SubscriptionService
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceService:
     """Business logic for service management."""
+
+    def __init__(self):
+        """Initialize service with subscription service for billing updates."""
+        self.subscription_service = SubscriptionService()
 
     async def _verify_owner(
         self, workspace_id: str, user_id: str, db: AsyncSession
@@ -105,6 +115,39 @@ class ServiceService:
         # the GitHub integration for this workspace.
         # Return None for repository_id since we don't have a direct repo table.
         return None, repository_name
+
+    def _format_service_response(self, service: Service) -> ServiceResponse:
+        """
+        Format a Service ORM object to ServiceResponse schema with team data.
+        """
+        service_dict = {
+            "id": service.id,
+            "workspace_id": service.workspace_id,
+            "name": service.name,
+            "repository_id": service.repository_id,
+            "repository_name": service.repository_name,
+            "team_id": service.team_id,
+            "enabled": service.enabled,
+            "created_at": service.created_at,
+            "updated_at": service.updated_at,
+        }
+
+        # Add team details if service is assigned to a team
+        if service.team:
+            service_dict["team"] = TeamSummaryResponse(
+                id=service.team.id,
+                name=service.team.name,
+                geography=service.team.geography,
+            )
+        else:
+            service_dict["team"] = None
+
+        return ServiceResponse(**service_dict)
+
+    @staticmethod
+    def _escape_like_pattern(value: str) -> str:
+        """Escape LIKE/ILIKE special characters to prevent unintended wildcard matching."""
+        return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
     async def get_service_count(
         self, workspace_id: str, db: AsyncSession
@@ -198,37 +241,111 @@ class ServiceService:
         await db.commit()
         await db.refresh(new_service)
 
+        # Update subscription billing with new service count
+        try:
+            # Count total services in workspace
+            count_query = (
+                select(sql_func.count())
+                .select_from(Service)
+                .where(Service.workspace_id == workspace_id)
+            )
+            result = await db.execute(count_query)
+            total_services = result.scalar() or 0
+
+            # Update Stripe subscription with new count (handles proration)
+            await self.subscription_service.update_service_count(
+                db=db,
+                workspace_id=workspace_id,
+                service_count=total_services,
+            )
+            logger.info(
+                f"Updated billing for workspace {workspace_id}: {total_services} services"
+            )
+        except Exception as e:
+            # Log but don't fail the service creation if billing update fails
+            logger.error(f"Failed to update billing after service creation: {e}")
+
         return ServiceResponse.model_validate(new_service)
 
     async def list_services(
-        self, workspace_id: str, user_id: str, db: AsyncSession
+        self,
+        workspace_id: str,
+        user_id: str,
+        db: AsyncSession,
+        search: Optional[str] = None,
+        team_id: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
     ) -> ServiceListResponse:
         """
-        List all services in a workspace.
+        List all services in a workspace with optional search, filter, and pagination.
         Any workspace member can view services.
         """
         # Verify user is a member
         await self._verify_member(workspace_id, user_id, db)
 
-        # Get services
-        services_query = (
+        # Build base query
+        query = (
             select(Service)
             .where(Service.workspace_id == workspace_id)
-            .order_by(Service.created_at.desc())
+            .options(selectinload(Service.team))
         )
-        result = await db.execute(services_query)
+
+        # Apply search filter
+        if search:
+            escaped_search = self._escape_like_pattern(search)
+            query = query.where(
+                Service.name.ilike(f"%{escaped_search}%", escape="\\")
+            )
+
+        # Apply team filter
+        if team_id:
+            query = query.where(Service.team_id == team_id)
+
+        # Count total (with filters applied)
+        count_query = select(sql_func.count(Service.id)).where(
+            Service.workspace_id == workspace_id
+        )
+        if search:
+            escaped_search = self._escape_like_pattern(search)
+            count_query = count_query.where(
+                Service.name.ilike(f"%{escaped_search}%", escape="\\")
+            )
+        if team_id:
+            count_query = count_query.where(Service.team_id == team_id)
+
+        total_count_result = await db.execute(count_query)
+        total_count = total_count_result.scalar() or 0
+
+        # Apply pagination and ordering
+        query = query.offset(offset).limit(limit).order_by(Service.created_at.desc())
+
+        # Execute query
+        result = await db.execute(query)
         services = result.scalars().all()
 
-        # Get limit info
-        limit = await self._get_service_limit(workspace_id, db)
-        total_count = len(services)
-        limit_reached = total_count >= limit
+        # Get service limit (for billing limit check)
+        service_limit = await self._get_service_limit(workspace_id, db)
+
+        # Get actual count of all services (without filters) for limit check
+        if search or team_id:
+            all_services_count_query = select(sql_func.count(Service.id)).where(
+                Service.workspace_id == workspace_id
+            )
+            all_count_result = await db.execute(all_services_count_query)
+            all_services_count = all_count_result.scalar() or 0
+        else:
+            all_services_count = total_count
+
+        limit_reached = all_services_count >= service_limit
 
         return ServiceListResponse(
-            services=[ServiceResponse.model_validate(s) for s in services],
+            services=[self._format_service_response(s) for s in services],
             total_count=total_count,
-            limit=limit if limit < 999999 else FREE_TIER_SERVICE_LIMIT,
+            offset=offset,
+            limit=limit,
             limit_reached=limit_reached,
+            service_limit=service_limit if service_limit < 999999 else FREE_TIER_SERVICE_LIMIT,
         )
 
     async def get_service(
@@ -241,10 +358,14 @@ class ServiceService:
         # Verify user is a member
         await self._verify_member(workspace_id, user_id, db)
 
-        # Get service
-        service_query = select(Service).where(
-            Service.id == service_id,
-            Service.workspace_id == workspace_id,
+        # Get service with team relationship
+        service_query = (
+            select(Service)
+            .where(
+                Service.id == service_id,
+                Service.workspace_id == workspace_id,
+            )
+            .options(selectinload(Service.team))
         )
         result = await db.execute(service_query)
         service = result.scalar_one_or_none()
@@ -252,7 +373,7 @@ class ServiceService:
         if not service:
             raise HTTPException(status_code=404, detail="Service not found")
 
-        return ServiceResponse.model_validate(service)
+        return self._format_service_response(service)
 
     async def update_service(
         self,
@@ -312,9 +433,26 @@ class ServiceService:
             service.enabled = service_data.enabled
 
         await db.commit()
+
+        # Refresh service to load team relationship
         await db.refresh(service)
 
-        return ServiceResponse.model_validate(service)
+        service_query = (
+            select(Service)
+            .where(Service.id == service_id)
+            .options(selectinload(Service.team))
+        )
+        result = await db.execute(service_query)
+        refreshed_service = result.scalar_one_or_none()
+
+        # This should never be None since we just updated it, but handle defensively
+        if not refreshed_service:
+            raise HTTPException(
+                status_code=500,
+                detail="Service not found after update - this should not happen"
+            )
+
+        return self._format_service_response(refreshed_service)
 
     async def delete_service(
         self, workspace_id: str, service_id: str, user_id: str, db: AsyncSession

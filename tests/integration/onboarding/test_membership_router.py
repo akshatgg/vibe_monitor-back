@@ -31,14 +31,14 @@ async def test_invite_member(auth_client, test_user, test_workspace):
         f"{API_PREFIX}/workspaces/{test_workspace.id}/invitations",
         json={
             "email": "newmember@example.com",
-            "role": "user",
+            "role": "USER",
         },
     )
     assert response.status_code == 200
     data = response.json()
     assert data["invitee_email"] == "newmember@example.com"
-    assert data["role"] == "user"
-    assert data["status"] == "pending"
+    assert data["role"] == "USER"
+    assert data["status"] == "PENDING"
     assert data["workspace_id"] == test_workspace.id
 
 
@@ -49,12 +49,12 @@ async def test_invite_member_as_owner_role(auth_client, test_user, test_workspac
         f"{API_PREFIX}/workspaces/{test_workspace.id}/invitations",
         json={
             "email": "newowner@example.com",
-            "role": "owner",
+            "role": "OWNER",
         },
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["role"] == "owner"
+    assert data["role"] == "OWNER"
 
 
 @pytest.mark.asyncio
@@ -389,7 +389,7 @@ async def test_list_members_includes_role(auth_client, test_user, test_workspace
     assert response.status_code == 200
     data = response.json()
     member = next(m for m in data if m["user_id"] == test_user.id)
-    assert member["role"] == "owner"
+    assert member["role"] == "OWNER"
     assert "user_name" in member
     assert "user_email" in member
 
@@ -414,11 +414,11 @@ async def test_update_member_role(
     # Update their role to owner
     response = await auth_client.patch(
         f"{API_PREFIX}/workspaces/{test_workspace.id}/members/{second_user.id}",
-        json={"role": "owner"},
+        json={"role": "OWNER"},
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["role"] == "owner"
+    assert data["role"] == "OWNER"
 
 
 @pytest.mark.asyncio
@@ -528,7 +528,7 @@ async def test_non_owner_cannot_invite(auth_client, test_db, test_user, second_u
     # Try to invite as test_user (who is just a member)
     response = await auth_client.post(
         f"{API_PREFIX}/workspaces/{workspace.id}/invitations",
-        json={"email": "shouldfail@example.com", "role": "user"},
+        json={"email": "shouldfail@example.com", "role": "USER"},
     )
     assert response.status_code in [400, 403]
 

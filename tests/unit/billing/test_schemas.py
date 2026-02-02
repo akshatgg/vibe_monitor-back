@@ -8,17 +8,19 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from app.billing.schemas import (
-    FREE_TIER_SERVICE_LIMIT,
-    ServiceCreate,
-    ServiceUpdate,
-    ServiceResponse,
-    ServiceCountResponse,
     PlanResponse,
     SubscribeToProRequest,
     CancelSubscriptionRequest,
     UpdateServiceCountRequest,
     UsageLimitsResponse,
     UsageResponse,
+)
+from app.workspace.client_workspace_services.schemas import (
+    FREE_TIER_SERVICE_LIMIT,
+    ServiceCreate,
+    ServiceUpdate,
+    ServiceResponse,
+    ServiceCountResponse,
 )
 from app.models import PlanType
 

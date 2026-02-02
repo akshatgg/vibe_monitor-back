@@ -256,16 +256,31 @@ class SubscriptionService:
                 immediate=immediate,
             )
 
-        if immediate:
-            subscription.status = SubscriptionStatus.CANCELED
-            subscription.canceled_at = datetime.now(timezone.utc)
+            if immediate:
+                # Immediate cancellation - downgrade to FREE now
+                subscription.status = SubscriptionStatus.CANCELED
+                subscription.canceled_at = datetime.now(timezone.utc)
 
-            # Downgrade to Free plan
-            free_plan = await self.get_plan_by_type(db, PlanType.FREE)
-            if free_plan:
-                subscription.plan_id = free_plan.id
-                subscription.stripe_subscription_id = None
-                subscription.status = SubscriptionStatus.ACTIVE
+                # Downgrade to Free plan
+                free_plan = await self.get_plan_by_type(db, PlanType.FREE)
+                if free_plan:
+                    subscription.plan_id = free_plan.id
+                    subscription.stripe_subscription_id = None
+                    subscription.status = SubscriptionStatus.ACTIVE
+            else:
+                # Cancel at period end - keep PRO until period ends
+                subscription.canceled_at = datetime.now(timezone.utc)
+                # Status stays ACTIVE until period ends
+        else:
+            # No Stripe subscription - just cancel locally
+            if immediate:
+                subscription.status = SubscriptionStatus.CANCELED
+                subscription.canceled_at = datetime.now(timezone.utc)
+
+                free_plan = await self.get_plan_by_type(db, PlanType.FREE)
+                if free_plan:
+                    subscription.plan_id = free_plan.id
+                    subscription.status = SubscriptionStatus.ACTIVE
 
         await db.commit()
         await db.refresh(subscription)
@@ -311,9 +326,12 @@ class SubscriptionService:
         stripe_subscription: stripe.Subscription,
     ) -> None:
         """Handle customer.subscription.created webhook event."""
+        logger.info(f"Processing subscription.created webhook for {stripe_subscription.id}")
+        logger.info(f"Subscription metadata: {stripe_subscription.metadata}")
+
         workspace_id = stripe_subscription.metadata.get("workspace_id")
         if not workspace_id:
-            logger.warning("Subscription created without workspace_id in metadata")
+            logger.warning(f"Subscription {stripe_subscription.id} created without workspace_id in metadata")
             return
 
         subscription = await self.get_workspace_subscription(db, workspace_id)
@@ -322,8 +340,9 @@ class SubscriptionService:
             return
 
         # Update with Stripe subscription details
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
         subscription.stripe_subscription_id = stripe_subscription.id
-        subscription.status = SubscriptionStatus(stripe_subscription.status)
+        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
         subscription.current_period_start = datetime.fromtimestamp(
             stripe_subscription.current_period_start, tz=timezone.utc
         )
@@ -334,10 +353,13 @@ class SubscriptionService:
         # Update plan if specified in metadata
         plan_id = stripe_subscription.metadata.get("plan_id")
         if plan_id:
+            logger.info(f"Updating workspace {workspace_id} to plan {plan_id}")
             subscription.plan_id = plan_id
+        else:
+            logger.warning(f"No plan_id in subscription metadata for workspace {workspace_id}")
 
         await db.commit()
-        logger.info(f"Handled subscription created for workspace {workspace_id}")
+        logger.info(f"Successfully updated subscription for workspace {workspace_id}: plan={subscription.plan_id}, stripe_sub={subscription.stripe_subscription_id}")
 
     async def handle_subscription_updated(
         self,
@@ -360,7 +382,8 @@ class SubscriptionService:
             return
 
         # Update status and period
-        subscription.status = SubscriptionStatus(stripe_subscription.status)
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
+        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
         subscription.current_period_start = datetime.fromtimestamp(
             stripe_subscription.current_period_start, tz=timezone.utc
         )
@@ -444,8 +467,11 @@ class SubscriptionService:
     ) -> None:
         """Handle invoice.payment_failed webhook event."""
 
+        from app.core.config import settings
         from app.core.otel_metrics import STRIPE_METRICS
-        STRIPE_METRICS["stripe_payment_failures_total"].add(1)
+
+        if settings.OTEL_ENABLED and STRIPE_METRICS:
+            STRIPE_METRICS["stripe_payment_failures_total"].add(1)
 
         if not invoice.subscription:
             return  # Not a subscription invoice
@@ -469,6 +495,68 @@ class SubscriptionService:
             f"workspace {subscription.workspace_id}"
         )
         # TODO: Send notification to workspace owner
+
+    async def handle_checkout_completed(
+        self,
+        db: AsyncSession,
+        checkout_session: stripe.checkout.Session,
+    ) -> None:
+        """
+        Handle checkout.session.completed webhook event.
+        This fires when a user successfully completes payment through Checkout.
+        """
+        logger.info(f"Processing checkout.session.completed for {checkout_session.id}")
+        logger.info(f"Checkout session metadata: {checkout_session.metadata}")
+
+        # Get workspace_id from metadata
+        workspace_id = checkout_session.metadata.get("workspace_id")
+        if not workspace_id:
+            logger.warning(f"Checkout session {checkout_session.id} without workspace_id in metadata")
+            return
+
+        # Get plan_id from metadata
+        plan_id = checkout_session.metadata.get("plan_id")
+        if not plan_id:
+            logger.warning(f"Checkout session {checkout_session.id} without plan_id in metadata")
+            return
+
+        # Get the subscription that was created
+        stripe_subscription_id = checkout_session.subscription
+        if not stripe_subscription_id:
+            logger.warning(f"Checkout session {checkout_session.id} without subscription")
+            return
+
+        # Get local subscription
+        subscription = await self.get_workspace_subscription(db, workspace_id)
+        if not subscription:
+            logger.warning(f"No local subscription found for workspace {workspace_id}")
+            return
+
+        # Fetch full subscription details from Stripe
+        from app.billing.services.stripe_service import stripe_service
+        stripe_subscription = await stripe_service.get_subscription(stripe_subscription_id)
+        if not stripe_subscription:
+            logger.error(f"Failed to fetch Stripe subscription {stripe_subscription_id}")
+            return
+
+        # Update local subscription with Stripe details
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
+        subscription.stripe_subscription_id = stripe_subscription.id
+        subscription.stripe_customer_id = stripe_subscription.customer
+        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
+        subscription.current_period_start = datetime.fromtimestamp(
+            stripe_subscription.current_period_start, tz=timezone.utc
+        )
+        subscription.current_period_end = datetime.fromtimestamp(
+            stripe_subscription.current_period_end, tz=timezone.utc
+        )
+        subscription.plan_id = plan_id
+
+        await db.commit()
+        logger.info(
+            f"Successfully updated subscription for workspace {workspace_id}: "
+            f"plan={subscription.plan_id}, stripe_sub={subscription.stripe_subscription_id}"
+        )
 
     async def sync_subscription_from_stripe(
         self,
@@ -499,7 +587,8 @@ class SubscriptionService:
         if not subscription:
             return None
 
-        subscription.status = SubscriptionStatus(stripe_sub.status)
+        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
+        subscription.status = SubscriptionStatus(stripe_sub.status.upper())
         subscription.current_period_start = datetime.fromtimestamp(
             stripe_sub.current_period_start, tz=timezone.utc
         )

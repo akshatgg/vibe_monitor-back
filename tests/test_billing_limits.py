@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from app.billing.services.limit_service import (
+from app.workspace.client_workspace_services.limit_service import (
     LimitService,
     DEFAULT_FREE_SERVICE_LIMIT,
 )
@@ -452,7 +452,7 @@ class TestLimitServiceGetUsageStats:
         )
 
         assert stats["plan_name"] == "Free"
-        assert stats["plan_type"] == "free"
+        assert stats["plan_type"] == "FREE"
         assert stats["is_paid"] is False
         assert stats["service_count"] == 3
         assert stats["service_limit"] == 5

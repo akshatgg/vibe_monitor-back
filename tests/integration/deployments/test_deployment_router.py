@@ -32,8 +32,8 @@ async def test_create_deployment(
             "repo_full_name": "owner/my-repo",
             "branch": "main",
             "commit_sha": "abc123def456789",
-            "status": "success",
-            "source": "manual",
+            "status": "SUCCESS",
+            "source": "MANUAL",
         },
     )
     assert response.status_code == 201
@@ -41,7 +41,7 @@ async def test_create_deployment(
     assert data["repo_full_name"] == "owner/my-repo"
     assert data["branch"] == "main"
     assert data["commit_sha"] == "abc123def456789"
-    assert data["status"] == "success"
+    assert data["status"] == "SUCCESS"
     assert data["environment_id"] == test_environment.id
 
 
@@ -60,8 +60,8 @@ async def test_create_deployment_minimal(
     assert response.status_code == 201
     data = response.json()
     assert data["repo_full_name"] == "owner/minimal-repo"
-    assert data["status"] == "success"  # Default
-    assert data["source"] == "manual"  # Default
+    assert data["status"] == "SUCCESS"  # Default
+    assert data["source"] == "MANUAL"  # Default
 
 
 @pytest.mark.asyncio
@@ -346,14 +346,14 @@ async def test_webhook_deployment_with_valid_key(
             "repository": "owner/webhook-repo",
             "branch": "main",
             "commit_sha": "webhook123456",
-            "status": "success",
+            "status": "SUCCESS",
         },
         headers={"X-Workspace-Key": raw_key},
     )
     assert response.status_code == 201
     data = response.json()
     assert data["repo_full_name"] == "owner/webhook-repo"
-    assert data["source"] == "webhook"
+    assert data["source"] == "WEBHOOK"
 
 
 @pytest.mark.asyncio
@@ -485,7 +485,7 @@ async def test_deployment_statuses(
     auth_client, test_user, test_workspace, test_environment
 ):
     """Test creating deployments with different statuses."""
-    statuses = ["pending", "in_progress", "success", "failed", "cancelled"]
+    statuses = ["PENDING", "IN_PROGRESS", "SUCCESS", "FAILED", "CANCELLED"]
 
     for i, status in enumerate(statuses):
         response = await auth_client.post(

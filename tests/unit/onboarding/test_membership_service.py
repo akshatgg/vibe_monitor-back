@@ -212,17 +212,17 @@ class TestInvitationStatusEnum:
 
     def test_invitation_status_values(self):
         """Test that enum has expected values."""
-        assert InvitationStatus.PENDING.value == "pending"
-        assert InvitationStatus.ACCEPTED.value == "accepted"
-        assert InvitationStatus.DECLINED.value == "declined"
-        assert InvitationStatus.EXPIRED.value == "expired"
+        assert InvitationStatus.PENDING.value == "PENDING"
+        assert InvitationStatus.ACCEPTED.value == "ACCEPTED"
+        assert InvitationStatus.DECLINED.value == "DECLINED"
+        assert InvitationStatus.EXPIRED.value == "EXPIRED"
 
     def test_invitation_status_from_string(self):
         """Test creating enum from string."""
-        assert InvitationStatus("pending") == InvitationStatus.PENDING
-        assert InvitationStatus("accepted") == InvitationStatus.ACCEPTED
-        assert InvitationStatus("declined") == InvitationStatus.DECLINED
-        assert InvitationStatus("expired") == InvitationStatus.EXPIRED
+        assert InvitationStatus("PENDING") == InvitationStatus.PENDING
+        assert InvitationStatus("ACCEPTED") == InvitationStatus.ACCEPTED
+        assert InvitationStatus("DECLINED") == InvitationStatus.DECLINED
+        assert InvitationStatus("EXPIRED") == InvitationStatus.EXPIRED
 
     def test_invitation_status_invalid(self):
         """Test that invalid value raises error."""
