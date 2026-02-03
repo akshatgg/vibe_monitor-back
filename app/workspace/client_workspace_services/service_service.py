@@ -478,4 +478,28 @@ class ServiceService:
         await db.delete(service)
         await db.commit()
 
+        # Update billing after service deletion
+        try:
+            # Count remaining services in workspace
+            count_query = (
+                select(sql_func.count())
+                .select_from(Service)
+                .where(Service.workspace_id == workspace_id)
+            )
+            result = await db.execute(count_query)
+            total_services = result.scalar() or 0
+
+            # Update Stripe subscription with new count (handles proration)
+            await self.subscription_service.update_service_count(
+                db=db,
+                workspace_id=workspace_id,
+                service_count=total_services,
+            )
+            logger.info(
+                f"Updated billing for workspace {workspace_id}: {total_services} services after deletion"
+            )
+        except Exception as e:
+            # Log but don't fail the service deletion if billing update fails
+            logger.error(f"Failed to update billing after service deletion: {e}")
+
         return True

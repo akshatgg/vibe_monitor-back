@@ -90,8 +90,8 @@ class LimitService:
         """
         Check if workspace can add another service.
 
-        Free plan: Hard limit of 5 services
-        Pro plan: No limit (tracks for billing)
+        Free plan: Hard limit of 5 services (cannot exceed)
+        Pro plan: 5 base services + unlimited additional at $5/each
 
         Returns:
             Tuple of (can_add, details_dict)
@@ -101,15 +101,15 @@ class LimitService:
 
         # Determine limit based on plan
         if plan and plan.plan_type == PlanType.PRO:
-            # Pro plan: unlimited services
+            # Pro plan: can always add services (5 base + $5 per additional)
             return True, {
                 "current_count": current_count,
-                "limit": None,  # Unlimited
+                "limit": plan.base_service_count,  # Show base limit
                 "plan_name": plan.name,
                 "is_paid": True,
             }
 
-        # Free plan or no subscription: enforce limit
+        # Free plan or no subscription: enforce hard limit
         limit = plan.base_service_count if plan else DEFAULT_FREE_SERVICE_LIMIT
         can_add = current_count < limit
 
@@ -234,9 +234,8 @@ class LimitService:
             plan_name = plan.name
             plan_type = plan.plan_type
             is_paid = plan.plan_type == PlanType.PRO
-            service_limit = (
-                None if plan.plan_type == PlanType.PRO else plan.base_service_count
-            )
+            # Both Free and Pro have base service limits (Free: 5, Pro: 5 base + $5/each additional)
+            service_limit = plan.base_service_count
             rca_daily_limit = plan.rca_session_limit_daily
         else:
             plan_name = "Free"
@@ -246,9 +245,7 @@ class LimitService:
             rca_daily_limit = DEFAULT_FREE_RCA_DAILY_LIMIT
 
         # Calculate remaining
-        services_remaining = (
-            None if service_limit is None else max(0, service_limit - service_count)
-        )
+        services_remaining = max(0, service_limit - service_count)
         rca_remaining = max(0, rca_daily_limit - rca_sessions_today)
 
         return {
@@ -259,9 +256,7 @@ class LimitService:
             "service_count": service_count,
             "service_limit": service_limit,
             "services_remaining": services_remaining,
-            "can_add_service": (
-                True if service_limit is None else service_count < service_limit
-            ),
+            "can_add_service": service_count < service_limit,
             # RCA usage
             "rca_sessions_today": rca_sessions_today,
             "rca_session_limit_daily": rca_daily_limit,

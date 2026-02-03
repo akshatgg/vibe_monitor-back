@@ -1,10 +1,9 @@
 """
-Billing domain API routers for Service management and Subscription APIs.
+Billing domain API routers for Subscription APIs.
 """
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -25,24 +24,20 @@ from app.billing.schemas import (  # Billing schemas
     UpdateServiceCountRequest,
     UsageResponse,
 )
-from app.workspace.client_workspace_services.schemas import (  # Service schemas
-    ServiceCountResponse,
-    ServiceCreate,
-    ServiceListResponse,
-    ServiceResponse,
-    ServiceUpdate,
-)
-from app.workspace.client_workspace_services.limit_service import limit_service
-from app.workspace.client_workspace_services.service_service import ServiceService
 from app.billing.services.stripe_service import stripe_service
 from app.billing.services.subscription_service import subscription_service
+from app.billing.services.service_downgrade import (
+    downgrade_services,
+    cancel_pending_downgrade,
+    get_pending_changes,
+)
 from app.core.database import get_db
 from app.models import Membership, PlanType, Role, User, Workspace
+from app.workspace.client_workspace_services.limit_service import limit_service
 
 logger = logging.getLogger(__name__)
 
 auth_service = AuthService()
-service_service = ServiceService()
 
 
 # ============================================================================
@@ -82,172 +77,6 @@ async def get_workspace_with_owner_check(
         )
 
     return workspace
-
-
-# ============================================================================
-# Service Router
-# ============================================================================
-
-service_router = APIRouter(
-    prefix="/workspaces/{workspace_id}/services", tags=["services"]
-)
-
-
-@service_router.post("", response_model=ServiceResponse, status_code=201)
-async def create_service(
-    workspace_id: str,
-    service_data: ServiceCreate,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Create a new service in the workspace.
-
-    Only workspace owners can create services.
-    Free tier limit: 5 services per workspace.
-    """
-    try:
-        return await service_service.create_service(
-            workspace_id=workspace_id,
-            service_data=service_data,
-            user_id=current_user.id,
-            db=db,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to create service: {str(e)}"
-        )
-
-
-@service_router.get("", response_model=ServiceListResponse)
-async def list_services(
-    workspace_id: str,
-    search: Optional[str] = Query(None, description="Filter by service name (case-insensitive)"),
-    team_id: Optional[str] = Query(None, description="Filter by team ID"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """List all services in the workspace with optional search, filter, and pagination."""
-    try:
-        return await service_service.list_services(
-            workspace_id=workspace_id,
-            user_id=current_user.id,
-            db=db,
-            search=search,
-            team_id=team_id,
-            offset=offset,
-            limit=limit,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to list services: {str(e)}"
-        )
-
-
-@service_router.get("/count", response_model=ServiceCountResponse)
-async def get_service_count(
-    workspace_id: str,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get service count and limit information for the workspace."""
-    try:
-        membership_query = select(Membership).where(
-            Membership.workspace_id == workspace_id,
-            Membership.user_id == current_user.id,
-        )
-        result = await db.execute(membership_query)
-        if not result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=403, detail="You are not a member of this workspace"
-            )
-
-        return await service_service.get_service_count(
-            workspace_id=workspace_id,
-            db=db,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to get service count: {str(e)}"
-        )
-
-
-@service_router.get("/{service_id}", response_model=ServiceResponse)
-async def get_service(
-    workspace_id: str,
-    service_id: str,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a single service by ID."""
-    try:
-        return await service_service.get_service(
-            workspace_id=workspace_id,
-            service_id=service_id,
-            user_id=current_user.id,
-            db=db,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to get service: {str(e)}")
-
-
-@service_router.patch("/{service_id}", response_model=ServiceResponse)
-async def update_service(
-    workspace_id: str,
-    service_id: str,
-    service_data: ServiceUpdate,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update an existing service. Only workspace owners can update."""
-    try:
-        return await service_service.update_service(
-            workspace_id=workspace_id,
-            service_id=service_id,
-            service_data=service_data,
-            user_id=current_user.id,
-            db=db,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to update service: {str(e)}"
-        )
-
-
-@service_router.delete("/{service_id}", status_code=204)
-async def delete_service(
-    workspace_id: str,
-    service_id: str,
-    current_user: User = Depends(auth_service.get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a service. Only workspace owners can delete."""
-    try:
-        await service_service.delete_service(
-            workspace_id=workspace_id,
-            service_id=service_id,
-            user_id=current_user.id,
-            db=db,
-        )
-        return None
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to delete service: {str(e)}"
-        )
 
 
 # ============================================================================
@@ -334,7 +163,8 @@ async def subscribe_to_pro(
         db, workspace_id
     )
     if subscription and subscription.plan:
-        plan = await subscription_service.get_plan_by_id(db, subscription.plan_id)
+        # Use already-loaded plan from subscription (no extra query needed)
+        plan = subscription.plan
         if plan and plan.plan_type == PlanType.PRO:
             raise HTTPException(
                 status_code=400, detail="Workspace is already on the Pro plan"
@@ -406,31 +236,45 @@ async def create_billing_portal_session(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@workspace_billing_router.put(
-    "/subscription/services",
-    response_model=SubscriptionResponse,
+@workspace_billing_router.post(
+    "/subscription/services/checkout",
+    response_model=CheckoutSessionResponse,
 )
-async def update_service_count(
+async def create_service_update_checkout(
     workspace_id: str,
     request: UpdateServiceCountRequest,
     current_user: User = Depends(auth_service.get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update the service count for billing purposes."""
+    """
+    Create Stripe Checkout session for updating service count.
+
+    This will:
+    1. Calculate credit for unused days on current subscription
+    2. Create checkout session with discounted price
+    3. On success, old subscription is canceled and new one created
+    """
     await get_workspace_with_owner_check(
         workspace_id, current_user, db, require_owner=True
     )
 
     try:
-        subscription = await subscription_service.update_service_count(
+        # Get success/cancel URLs using web app URL from settings
+        from app.core.config import settings as app_settings
+        current_url = app_settings.WEB_APP_URL
+        success_url = f"{current_url}/settings/billing?success=true&service_update=true"
+        cancel_url = f"{current_url}/settings/billing?canceled=true"
+
+        checkout_url = await subscription_service.create_service_update_checkout(
             db=db,
             workspace_id=workspace_id,
             new_service_count=request.service_count,
+            success_url=success_url,
+            cancel_url=cancel_url,
         )
-        return SubscriptionResponse.model_validate(subscription)
+        return CheckoutSessionResponse(checkout_url=checkout_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @workspace_billing_router.get("/invoices", response_model=InvoicesListResponse)
 async def list_invoices(
@@ -522,3 +366,124 @@ async def sync_subscription(
         )
 
     return SubscriptionResponse.model_validate(updated)
+
+
+# ============================================================================
+# Service Downgrade Endpoints
+# ============================================================================
+
+
+@workspace_billing_router.post("/services/downgrade")
+async def schedule_service_downgrade(
+    workspace_id: str,
+    request: UpdateServiceCountRequest,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Schedule service downgrade - takes effect at next billing cycle.
+    No immediate charge, no refund.
+    """
+    await get_workspace_with_owner_check(
+        workspace_id, current_user, db, require_owner=True
+    )
+
+    subscription = await subscription_service.get_workspace_subscription(
+        db, workspace_id
+    )
+    if not subscription:
+        raise HTTPException(
+            status_code=404, detail="No subscription found for this workspace"
+        )
+
+    # Check if it's actually a downgrade
+    current_service_count = subscription.billable_service_count + 5
+    if request.service_count >= current_service_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"New service count must be less than current ({current_service_count}). Use service update endpoint for increases."
+        )
+
+    # Perform downgrade
+    result = await downgrade_services(db, workspace_id, request.service_count, subscription)
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("message", "Failed to schedule downgrade")
+        )
+
+    return result
+
+
+@workspace_billing_router.delete("/services/downgrade")
+async def cancel_service_downgrade(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cancel a scheduled service downgrade.
+    Reverts to the current service count.
+    """
+    await get_workspace_with_owner_check(
+        workspace_id, current_user, db, require_owner=True
+    )
+
+    subscription = await subscription_service.get_workspace_subscription(
+        db, workspace_id
+    )
+    if not subscription:
+        raise HTTPException(
+            status_code=404, detail="No subscription found for this workspace"
+        )
+
+    # Cancel downgrade
+    result = await cancel_pending_downgrade(db, subscription)
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("message", "Failed to cancel downgrade")
+        )
+
+    return result
+
+
+@workspace_billing_router.get("/services/pending")
+async def get_pending_service_changes(
+    workspace_id: str,
+    current_user: User = Depends(auth_service.get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get any pending service count changes.
+    """
+    await get_workspace_with_owner_check(
+        workspace_id, current_user, db, require_owner=False
+    )
+
+    subscription = await subscription_service.get_workspace_subscription(
+        db, workspace_id
+    )
+    if not subscription:
+        raise HTTPException(
+            status_code=404, detail="No subscription found for this workspace"
+        )
+
+    # Get pending changes
+    pending = await get_pending_changes(subscription)
+
+    if not pending:
+        return {
+            "has_pending_changes": False,
+            "current_service_count": subscription.billable_service_count + 5,
+        }
+
+    return {
+        "has_pending_changes": True,
+        "current_service_count": pending["current_service_count"],
+        "new_service_count": pending["new_service_count"],
+        "takes_effect": pending["takes_effect"].isoformat(),
+        "type": pending["type"],
+    }

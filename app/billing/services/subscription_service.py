@@ -178,6 +178,127 @@ class SubscriptionService:
 
         return checkout_session.url
 
+    async def create_service_update_checkout(
+        self,
+        db: AsyncSession,
+        workspace_id: str,
+        new_service_count: int,
+        success_url: str,
+        cancel_url: str,
+    ) -> str:
+        """
+        Create Stripe Checkout session for updating service count.
+
+        This shows the user:
+        - New monthly cost
+        - Credit for unused days
+        - Final amount to pay today
+
+        Args:
+            db: Database session
+            workspace_id: Workspace ID
+            new_service_count: New total number of services
+            success_url: URL to redirect on success
+            cancel_url: URL to redirect on cancel
+
+        Returns:
+            Checkout session URL
+        """
+        subscription = await self.get_workspace_subscription(db, workspace_id)
+        if not subscription:
+            raise ValueError(f"No subscription found for workspace {workspace_id}")
+
+        plan = await self.get_plan_by_id(db, subscription.plan_id)
+        if not plan:
+            raise ValueError(f"Plan {subscription.plan_id} not found")
+
+        if not subscription.stripe_subscription_id:
+            raise ValueError("No Stripe subscription found")
+
+        if not settings.STRIPE_PRO_PLAN_PRICE_ID or not settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID:
+            raise ValueError("Stripe price IDs not configured")
+
+        # Calculate new billable count
+        new_billable_count = max(0, new_service_count - plan.base_service_count)
+
+        # Calculate old and new monthly costs
+        old_billable_count = subscription.billable_service_count
+        old_monthly_cost_cents = (
+            plan.base_price_cents +
+            (old_billable_count * plan.additional_service_price_cents)
+        )
+        new_monthly_cost_cents = (
+            plan.base_price_cents +
+            (new_billable_count * plan.additional_service_price_cents)
+        )
+
+        # Calculate credit for unused days
+        old_stripe_sub = stripe.Subscription.retrieve(subscription.stripe_subscription_id)
+        now = datetime.now(timezone.utc)
+        period_end = datetime.fromtimestamp(old_stripe_sub.current_period_end, tz=timezone.utc)
+        period_start = datetime.fromtimestamp(old_stripe_sub.current_period_start, tz=timezone.utc)
+
+        days_total = max(1, (period_end - period_start).days)
+        days_remaining = max(0, (period_end - now).days)
+        credit_cents = int((days_remaining / days_total) * old_monthly_cost_cents)
+
+        logger.info(
+            f"Service update checkout for workspace {workspace_id}: "
+            f"Old: ${old_monthly_cost_cents/100:.2f}/mo, "
+            f"New: ${new_monthly_cost_cents/100:.2f}/mo, "
+            f"Credit: ${credit_cents/100:.2f} ({days_remaining}/{days_total} days)"
+        )
+
+        # Create coupon for the credit amount (one-time discount)
+        coupon_id = f"credit_{workspace_id}_{uuid.uuid4().hex[:8]}"
+        stripe.Coupon.create(
+            id=coupon_id,
+            amount_off=credit_cents,
+            currency="usd",
+            duration="once",
+            name=f"Credit for {days_remaining} unused days",
+        )
+
+        # Create checkout session for new subscription
+        customer_id = subscription.stripe_customer_id
+        if not customer_id:
+            raise ValueError("No Stripe customer ID found")
+
+        # Build line items
+        line_items = [{"price": settings.STRIPE_PRO_PLAN_PRICE_ID, "quantity": 1}]
+        if new_billable_count > 0:
+            line_items.append({
+                "price": settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID,
+                "quantity": new_billable_count
+            })
+
+        checkout_session = stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="subscription",
+            line_items=line_items,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            discounts=[{"coupon": coupon_id}],
+            metadata={
+                "workspace_id": workspace_id,
+                "plan_id": plan.id,
+                "old_subscription_id": subscription.stripe_subscription_id,
+                "service_count_update": "true",
+                "new_service_count": str(new_service_count),
+            },
+            subscription_data={
+                "metadata": {
+                    "workspace_id": workspace_id,
+                    "plan_id": plan.id,
+                    "service_count_update": "true",
+                    "new_service_count": str(new_service_count),
+                },
+            },
+        )
+
+        logger.info(f"Created service update checkout session {checkout_session.id}")
+        return checkout_session.url
+
     async def update_service_count(
         self,
         db: AsyncSession,
@@ -185,7 +306,13 @@ class SubscriptionService:
         new_service_count: int,
     ) -> Subscription:
         """
-        Update the billable service count (triggers proration in Stripe).
+        Update the billable service count (resets billing cycle with credit).
+
+        This implements billing cycle reset approach:
+        - Cancels current subscription
+        - Calculates credit for unused days
+        - Creates new subscription starting today
+        - New billing cycle anchor = today's date
 
         Args:
             db: Database session
@@ -203,28 +330,50 @@ class SubscriptionService:
         if not plan:
             raise ValueError(f"Plan {subscription.plan_id} not found")
 
-        # Calculate billable services (above base count)
-        billable_count = max(0, new_service_count - plan.base_service_count)
+        # Calculate new billable services (above base count)
+        new_billable_count = max(0, new_service_count - plan.base_service_count)
 
         # Update Stripe if there's an active subscription
         if (
             subscription.stripe_subscription_id
             and subscription.status == SubscriptionStatus.ACTIVE
+            and settings.STRIPE_PRO_PLAN_PRICE_ID
             and settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID
         ):
-            await stripe_service.update_subscription(
+            # Calculate old monthly cost for credit calculation
+            old_billable_count = subscription.billable_service_count
+            old_monthly_cost_cents = (
+                plan.base_price_cents +
+                (old_billable_count * plan.additional_service_price_cents)
+            )
+
+            # Reset subscription with new billing cycle
+            new_stripe_sub = await stripe_service.reset_subscription_with_new_billing_cycle(
                 subscription_id=subscription.stripe_subscription_id,
-                quantity=billable_count,
+                base_price_id=settings.STRIPE_PRO_PLAN_PRICE_ID,
+                additional_service_price_id=settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID,
+                additional_service_quantity=new_billable_count,
+                old_monthly_amount_cents=old_monthly_cost_cents,
+            )
+
+            # Update subscription with new Stripe subscription ID
+            subscription.stripe_subscription_id = new_stripe_sub.id
+            subscription.current_period_start = datetime.fromtimestamp(
+                new_stripe_sub.current_period_start, tz=timezone.utc
+            )
+            subscription.current_period_end = datetime.fromtimestamp(
+                new_stripe_sub.current_period_end, tz=timezone.utc
             )
 
         # Update local record
-        subscription.billable_service_count = billable_count
+        subscription.billable_service_count = new_billable_count
         await db.commit()
         await db.refresh(subscription)
 
         logger.info(
-            f"Updated service count for workspace {workspace_id}: "
-            f"{new_service_count} total, {billable_count} billable"
+            f"Reset subscription for workspace {workspace_id}: "
+            f"{new_service_count} total services, {new_billable_count} billable. "
+            f"New billing cycle starts today."
         )
         return subscription
 
@@ -342,13 +491,23 @@ class SubscriptionService:
         # Update with Stripe subscription details
         # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
         subscription.stripe_subscription_id = stripe_subscription.id
-        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
-        subscription.current_period_start = datetime.fromtimestamp(
-            stripe_subscription.current_period_start, tz=timezone.utc
-        )
-        subscription.current_period_end = datetime.fromtimestamp(
-            stripe_subscription.current_period_end, tz=timezone.utc
-        )
+
+        # Don't downgrade from ACTIVE to INCOMPLETE (race condition with checkout.completed)
+        new_status = SubscriptionStatus(stripe_subscription.status.upper())
+        if subscription.status == SubscriptionStatus.ACTIVE and new_status == SubscriptionStatus.INCOMPLETE:
+            logger.info(f"Keeping subscription {subscription.id} as ACTIVE (not downgrading to INCOMPLETE in subscription.created)")
+        else:
+            subscription.status = new_status
+
+        # Handle current_period_start and current_period_end (may be None)
+        if hasattr(stripe_subscription, 'current_period_start') and stripe_subscription.current_period_start:
+            subscription.current_period_start = datetime.fromtimestamp(
+                stripe_subscription.current_period_start, tz=timezone.utc
+            )
+        if hasattr(stripe_subscription, 'current_period_end') and stripe_subscription.current_period_end:
+            subscription.current_period_end = datetime.fromtimestamp(
+                stripe_subscription.current_period_end, tz=timezone.utc
+            )
 
         # Update plan if specified in metadata
         plan_id = stripe_subscription.metadata.get("plan_id")
@@ -382,19 +541,58 @@ class SubscriptionService:
             return
 
         # Update status and period
-        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
-        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
-        subscription.current_period_start = datetime.fromtimestamp(
-            stripe_subscription.current_period_start, tz=timezone.utc
-        )
-        subscription.current_period_end = datetime.fromtimestamp(
-            stripe_subscription.current_period_end, tz=timezone.utc
-        )
+        # Don't downgrade from ACTIVE to INCOMPLETE (race condition with checkout.completed)
+        new_status = SubscriptionStatus(stripe_subscription.status.upper())
+        if subscription.status == SubscriptionStatus.ACTIVE and new_status == SubscriptionStatus.INCOMPLETE:
+            logger.info(f"Keeping subscription {subscription.id} as ACTIVE (not downgrading to INCOMPLETE)")
+        else:
+            logger.debug(f"Updating subscription status from {subscription.status} to {new_status}")
+            subscription.status = new_status
+
+        # Handle current_period_start and current_period_end (may be None)
+        if hasattr(stripe_subscription, 'current_period_start') and stripe_subscription.current_period_start:
+            subscription.current_period_start = datetime.fromtimestamp(
+                stripe_subscription.current_period_start, tz=timezone.utc
+            )
+        if hasattr(stripe_subscription, 'current_period_end') and stripe_subscription.current_period_end:
+            subscription.current_period_end = datetime.fromtimestamp(
+                stripe_subscription.current_period_end, tz=timezone.utc
+            )
 
         if stripe_subscription.canceled_at:
             subscription.canceled_at = datetime.fromtimestamp(
                 stripe_subscription.canceled_at, tz=timezone.utc
             )
+
+        # Sync billable service count from Stripe subscription items
+        # This is CRITICAL for applying pending downgrades when schedule executes
+        items = stripe_subscription.get('items', {}).get('data', [])
+        if items:
+            additional_service_count = 0
+            for item in items:
+                # Check if this item is for additional services
+                if (settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID and
+                    item.get('price', {}).get('id') == settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID):
+                    additional_service_count = item.get('quantity', 0)
+                    break
+
+            # Update billable service count if it changed
+            if subscription.billable_service_count != additional_service_count:
+                logger.info(
+                    f"Syncing billable_service_count from Stripe: "
+                    f"{subscription.billable_service_count} -> {additional_service_count}"
+                )
+                subscription.billable_service_count = additional_service_count
+
+                # If there was a pending downgrade and it matches the new count, clear pending fields
+                if (subscription.pending_billable_service_count is not None and
+                    subscription.pending_billable_service_count == additional_service_count):
+                    logger.info(
+                        f"Pending downgrade applied! Clearing pending fields for subscription {subscription.id}"
+                    )
+                    subscription.pending_billable_service_count = None
+                    subscription.pending_change_date = None
+                    subscription.subscription_schedule_id = None
 
         await db.commit()
         logger.info(f"Handled subscription updated for subscription {subscription.id}")
@@ -441,7 +639,8 @@ class SubscriptionService:
         invoice: stripe.Invoice,
     ) -> None:
         """Handle invoice.payment_succeeded webhook event."""
-        if not invoice.subscription:
+        # Check if invoice has subscription attribute (not all invoices do)
+        if not hasattr(invoice, 'subscription') or not invoice.subscription:
             return  # Not a subscription invoice
 
         result = await db.execute(
@@ -543,14 +742,58 @@ class SubscriptionService:
         # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
         subscription.stripe_subscription_id = stripe_subscription.id
         subscription.stripe_customer_id = stripe_subscription.customer
-        subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
-        subscription.current_period_start = datetime.fromtimestamp(
-            stripe_subscription.current_period_start, tz=timezone.utc
-        )
-        subscription.current_period_end = datetime.fromtimestamp(
-            stripe_subscription.current_period_end, tz=timezone.utc
-        )
+
+        # If checkout was paid, set subscription to ACTIVE immediately
+        # (don't wait for delayed customer.subscription.updated webhook)
+        logger.info(f"Checkout payment_status: {checkout_session.payment_status}, status: {checkout_session.status}")
+        if checkout_session.payment_status == "paid":
+            subscription.status = SubscriptionStatus.ACTIVE
+            logger.info("Checkout paid - setting subscription to ACTIVE immediately")
+        else:
+            subscription.status = SubscriptionStatus(stripe_subscription.status.upper())
+            logger.info(f"Checkout not paid yet - subscription status: {subscription.status}")
+
+        # Handle current_period_start and current_period_end (may be None)
+        if hasattr(stripe_subscription, 'current_period_start') and stripe_subscription.current_period_start:
+            subscription.current_period_start = datetime.fromtimestamp(
+                stripe_subscription.current_period_start, tz=timezone.utc
+            )
+        if hasattr(stripe_subscription, 'current_period_end') and stripe_subscription.current_period_end:
+            subscription.current_period_end = datetime.fromtimestamp(
+                stripe_subscription.current_period_end, tz=timezone.utc
+            )
+
         subscription.plan_id = plan_id
+
+        # Check if this is a service count update (not initial Pro subscription)
+        is_service_update = checkout_session.metadata.get("service_count_update") == "true"
+        old_subscription_id = checkout_session.metadata.get("old_subscription_id")
+
+        logger.info(
+            f"Checkout metadata check - is_service_update: {is_service_update}, "
+            f"old_subscription_id: {old_subscription_id}, "
+            f"metadata: {checkout_session.metadata}"
+        )
+
+        if is_service_update and old_subscription_id:
+            # This is a service count update - cancel the old subscription
+            logger.info(f"Service count update detected - canceling old subscription {old_subscription_id}")
+            try:
+                stripe.Subscription.delete(old_subscription_id)
+                logger.info(f"Successfully canceled old subscription {old_subscription_id}")
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to cancel old subscription {old_subscription_id}: {e}")
+                # Continue anyway - new subscription is already created
+
+            # Calculate billable service count from new service count
+            new_service_count = int(checkout_session.metadata.get("new_service_count", "0"))
+            plan = await self.get_plan_by_id(db, plan_id)
+            if plan:
+                subscription.billable_service_count = max(0, new_service_count - plan.base_service_count)
+                logger.info(
+                    f"Updated billable service count to {subscription.billable_service_count} "
+                    f"(total: {new_service_count}, base: {plan.base_service_count})"
+                )
 
         await db.commit()
         logger.info(
@@ -573,6 +816,8 @@ class SubscriptionService:
         Returns:
             Updated Subscription or None
         """
+        from app.core.config import settings
+
         stripe_sub = await stripe_service.get_subscription(stripe_subscription_id)
         if not stripe_sub:
             return None
@@ -587,19 +832,40 @@ class SubscriptionService:
         if not subscription:
             return None
 
-        # Stripe sends lowercase status ("active"), convert to UPPERCASE for our enum
         subscription.status = SubscriptionStatus(stripe_sub.status.upper())
-        subscription.current_period_start = datetime.fromtimestamp(
-            stripe_sub.current_period_start, tz=timezone.utc
-        )
-        subscription.current_period_end = datetime.fromtimestamp(
-            stripe_sub.current_period_end, tz=timezone.utc
-        )
+
+        # Handle current_period_start and current_period_end (may be None)
+        if hasattr(stripe_sub, 'current_period_start') and stripe_sub.current_period_start:
+            subscription.current_period_start = datetime.fromtimestamp(
+                stripe_sub.current_period_start, tz=timezone.utc
+            )
+        if hasattr(stripe_sub, 'current_period_end') and stripe_sub.current_period_end:
+            subscription.current_period_end = datetime.fromtimestamp(
+                stripe_sub.current_period_end, tz=timezone.utc
+            )
 
         if stripe_sub.canceled_at:
             subscription.canceled_at = datetime.fromtimestamp(
                 stripe_sub.canceled_at, tz=timezone.utc
             )
+
+        # Sync billable service count from Stripe subscription items
+        if hasattr(stripe_sub, 'items') and stripe_sub.items:
+            additional_service_count = 0
+            for item in stripe_sub.items.data:
+                # Check if this item is for additional services
+                if (settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID and
+                    item.price.id == settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID):
+                    additional_service_count = item.quantity
+                    break
+
+            # Update billable service count if it changed
+            if subscription.billable_service_count != additional_service_count:
+                logger.info(
+                    f"Syncing billable_service_count from Stripe: "
+                    f"{subscription.billable_service_count} -> {additional_service_count}"
+                )
+                subscription.billable_service_count = additional_service_count
 
         await db.commit()
         await db.refresh(subscription)

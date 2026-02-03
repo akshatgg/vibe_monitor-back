@@ -226,10 +226,10 @@ class UsageResponse(BaseModel):
     plan_type: str  # "free" or "pro"
     is_paid: bool
 
-    # Service usage
+    # Service usage (both Free and Pro have base limits: 5 services)
     service_count: int
-    service_limit: Optional[int] = None  # None means unlimited (Pro)
-    services_remaining: Optional[int] = None  # None if unlimited
+    service_limit: int  # Free: hard limit, Pro: base count (can exceed with $5/each additional)
+    services_remaining: int
     can_add_service: bool
 
     # RCA session usage

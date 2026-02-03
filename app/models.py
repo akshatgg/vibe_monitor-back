@@ -1389,6 +1389,7 @@ class Subscription(Base):
     # Stripe identifiers
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
+    subscription_schedule_id = Column(String(255), nullable=True)  # For scheduled changes
 
     # Subscription state
     status = Column(
@@ -1403,7 +1404,15 @@ class Subscription(Base):
     # Service tracking for billing
     billable_service_count = Column(
         Integer, default=0, nullable=False
-    )  # Services above base
+    )  # Services above base (currently active)
+
+    # Pending downgrade tracking - takes effect next billing cycle
+    pending_billable_service_count = Column(
+        Integer, nullable=True
+    )  # What it will be next billing cycle
+    pending_change_date = Column(
+        DateTime(timezone=True), nullable=True
+    )  # When it takes effect
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
