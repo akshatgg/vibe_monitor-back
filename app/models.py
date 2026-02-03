@@ -189,6 +189,19 @@ class InvestigationStatus(enum.Enum):
     COMPLETED = "COMPLETED"
 
 
+# ========== Code Parser Enums ==========
+
+
+class ParsingStatus(enum.Enum):
+    """Status of repository parsing."""
+
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
 # User and Workspace Models
 class User(Base):
     __tablename__ = "users"
@@ -2064,4 +2077,122 @@ class ReviewSLI(Base):
         Index("idx_review_slis_review", "review_id"),
         Index("idx_review_slis_name", "sli_name"),
         Index("idx_review_slis_category", "sli_category"),
+    )
+
+
+# ========== Code Parser Models ==========
+
+
+class ParsedRepository(Base):
+    """
+    Parsed repository information for code analysis.
+
+    Stores metadata about a parsed repository at a specific commit.
+    Used by the health review system to analyze codebase structure
+    and detect logging/metrics gaps.
+
+    Note: No FK to services - repositories can be shared across services.
+    Link via (workspace_id, repo_full_name) when needed.
+    """
+
+    __tablename__ = "parsed_repositories"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
+    default_branch = Column(String(255), nullable=True)  # e.g., "main"
+    commit_sha = Column(String(40), nullable=False)  # Git commit SHA
+
+    # Parsing status
+    status = Column(
+        Enum(ParsingStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ParsingStatus.PENDING,
+    )
+    error_message = Column(Text, nullable=True)  # Error details if status=FAILED
+
+    # Parsing statistics
+    total_files = Column(Integer, default=0, nullable=False)
+    parsed_files = Column(Integer, default=0, nullable=False)
+    skipped_files = Column(Integer, default=0, nullable=False)
+    total_functions = Column(Integer, default=0, nullable=False)
+    total_classes = Column(Integer, default=0, nullable=False)
+    total_imports = Column(Integer, default=0, nullable=False)
+
+    # Language breakdown and errors
+    languages = Column(JSON, nullable=True)  # {"python": 50, "javascript": 30, ...}
+    parse_errors = Column(JSON, nullable=True)  # [{file, error}, ...]
+
+    # Timing
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship(
+        "Workspace", backref=backref("parsed_repositories", cascade="all, delete-orphan")
+    )
+    files = relationship(
+        "ParsedFile", back_populates="repository", cascade="all, delete-orphan"
+    )
+
+    # Indexes and constraints
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "repo_full_name", "commit_sha",
+            name="uq_parsed_repo_workspace_repo_commit"
+        ),
+        Index("idx_parsed_repositories_workspace", "workspace_id"),
+        Index("idx_parsed_repositories_repo_name", "repo_full_name"),
+        Index("idx_parsed_repositories_status", "status"),
+        Index("idx_parsed_repositories_commit", "commit_sha"),
+    )
+
+
+class ParsedFile(Base):
+    """
+    Parsed file information from a repository.
+
+    Stores extracted code structure (functions, classes, imports)
+    for each file in a parsed repository.
+    """
+
+    __tablename__ = "parsed_files"
+
+    id = Column(String, primary_key=True)  # UUID
+    repository_id = Column(
+        String, ForeignKey("parsed_repositories.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # File metadata
+    file_path = Column(String(500), nullable=False)  # Relative path in repo
+    language = Column(String(50), nullable=False)  # e.g., "python", "javascript"
+    size_bytes = Column(Integer, nullable=True)
+    line_count = Column(Integer, nullable=True)
+
+    # Extracted code structure
+    functions = Column(JSON, nullable=True)  # [{name, line_start, line_end, params}, ...]
+    classes = Column(JSON, nullable=True)  # [{name, line_start, line_end, methods}, ...]
+    imports = Column(JSON, nullable=True)  # [{module, alias}, ...]
+
+    # Parsing result
+    is_parsed = Column(Boolean, default=True, nullable=False)
+    parse_error = Column(Text, nullable=True)  # Error if parsing failed
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    repository = relationship("ParsedRepository", back_populates="files")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_parsed_files_repository", "repository_id"),
+        Index("idx_parsed_files_language", "language"),
+        Index("idx_parsed_files_path", "file_path"),
     )
