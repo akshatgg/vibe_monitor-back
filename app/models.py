@@ -130,6 +130,78 @@ class LLMConfigStatus(enum.Enum):
     UNCONFIGURED = "UNCONFIGURED"
 
 
+# ========== Service Health Review Enums ==========
+
+
+class ReviewStatus(enum.Enum):
+    """Status of a service health review"""
+
+    QUEUED = "QUEUED"
+    GENERATING = "GENERATING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class ReviewTriggeredBy(enum.Enum):
+    """Source that triggered the review generation"""
+
+    SCHEDULER = "SCHEDULER"  # Automated weekly cron
+    MANUAL = "MANUAL"  # User clicked "Generate Review" button
+    API = "API"  # External system called POST /reviews
+
+
+class GapPriority(enum.Enum):
+    """Priority level for logging/metrics gaps"""
+
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class ScoreTrend(enum.Enum):
+    """Trend direction for SLI scores compared to previous week"""
+
+    UP = "UP"
+    DOWN = "DOWN"
+    STABLE = "STABLE"
+
+
+class PRStatus(enum.Enum):
+    """Status of PR creation for gaps"""
+
+    NOT_CREATED = "NOT_CREATED"
+    PENDING = "PENDING"
+    CREATED = "CREATED"
+    MERGED = "MERGED"
+    CLOSED = "CLOSED"
+
+
+class InvestigationStatus(enum.Enum):
+    """
+    Status of error investigation.
+
+    NOTE: This is for the "Investigate" button feature which is deferred to post-MVP.
+    The field exists for future use but won't be actively used in MVP.
+    """
+
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+
+
+# ========== Code Parser Enums ==========
+
+
+class ParsingStatus(enum.Enum):
+    """Status of repository parsing."""
+
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
 # User and Workspace Models
 class User(Base):
     __tablename__ = "users"
@@ -1583,4 +1655,544 @@ class WorkspaceApiKey(Base):
     __table_args__ = (
         Index("ix_workspace_api_keys_workspace_id", "workspace_id"),
         Index("ix_workspace_api_keys_key_hash", "key_hash"),
+    )
+
+
+# ========== Service Health Review Models ==========
+
+
+class ServiceReview(Base):
+    """
+    Weekly health review for a service.
+
+    Tracks the full lifecycle of automated health assessments including
+    error analysis, logging/metrics gap detection, and SLI scoring.
+
+    Status lifecycle: QUEUED -> GENERATING -> COMPLETED / FAILED
+    """
+
+    __tablename__ = "service_reviews"
+
+    id = Column(String, primary_key=True)  # UUID
+    service_id = Column(
+        String, ForeignKey("services.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Review time range
+    review_week_start = Column(DateTime(timezone=True), nullable=False)
+    review_week_end = Column(DateTime(timezone=True), nullable=False)
+
+    # Status and trigger
+    status = Column(
+        Enum(ReviewStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ReviewStatus.QUEUED,
+    )
+    triggered_by = Column(
+        Enum(ReviewTriggeredBy, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ReviewTriggeredBy.MANUAL,
+    )
+
+    # Health scores
+    overall_health_score = Column(Integer, nullable=True)  # 0-100, set after generation
+    summary = Column(Text, nullable=True)  # LLM-generated summary
+    recommendations = Column(Text, nullable=True)  # LLM-generated recommendations
+
+    # Codebase context
+    analyzed_commit_sha = Column(String(40), nullable=True)  # Git commit that was analyzed
+    codebase_changed = Column(
+        Boolean, nullable=True
+    )  # Whether code changed since last review
+
+    # Generation metadata
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    generation_duration_seconds = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)  # Error details if status=FAILED
+
+    # Analysis volume (for debugging/insights)
+    error_count_analyzed = Column(Integer, nullable=True)
+    log_volume_analyzed = Column(Integer, nullable=True)
+    metric_count_analyzed = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    service = relationship("Service", backref=backref("reviews", cascade="all, delete-orphan"))
+    workspace = relationship(
+        "Workspace", backref=backref("service_reviews", cascade="all, delete-orphan")
+    )
+    errors = relationship(
+        "ReviewError", back_populates="review", cascade="all, delete-orphan"
+    )
+    logging_gaps = relationship(
+        "ReviewLoggingGap", back_populates="review", cascade="all, delete-orphan"
+    )
+    metrics_gaps = relationship(
+        "ReviewMetricsGap", back_populates="review", cascade="all, delete-orphan"
+    )
+    slis = relationship(
+        "ReviewSLI", back_populates="review", cascade="all, delete-orphan"
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_service_reviews_service", "service_id"),
+        Index("idx_service_reviews_workspace", "workspace_id"),
+        Index("idx_service_reviews_status", "status"),
+        Index("idx_service_reviews_week_start", "review_week_start"),
+        Index("idx_service_reviews_created_at", "created_at"),
+        Index(
+            "idx_service_reviews_service_week",
+            "service_id",
+            "review_week_start",
+            unique=True,
+        ),
+    )
+
+
+class ReviewSchedule(Base):
+    """
+    Scheduling configuration for automated weekly reviews.
+
+    Each service has exactly one schedule (1:1 relationship).
+    The scheduler endpoint checks next_scheduled_at to determine
+    which reviews to generate.
+    """
+
+    __tablename__ = "review_schedules"
+
+    id = Column(String, primary_key=True)  # UUID
+    service_id = Column(
+        String,
+        ForeignKey("services.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # One schedule per service
+    )
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Schedule configuration
+    enabled = Column(Boolean, default=True, nullable=False)
+    frequency = Column(String(50), default="weekly", nullable=False)  # Currently only "weekly"
+    generation_day_of_week = Column(Integer, default=0, nullable=False)  # 0=Monday, 6=Sunday
+    generation_hour_utc = Column(Integer, default=6, nullable=False)  # Hour in UTC (0-23)
+    timezone = Column(
+        String(50), default="UTC", nullable=False
+    )  # User's timezone for week boundary calculation
+
+    # Last run state
+    last_review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="SET NULL"), nullable=True
+    )
+    last_review_generated_at = Column(DateTime(timezone=True), nullable=True)
+    last_review_status = Column(String(50), nullable=True)
+
+    # Next run
+    next_scheduled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Error tracking
+    consecutive_failures = Column(Integer, default=0, nullable=False)
+    last_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    service = relationship(
+        "Service", backref=backref("review_schedule", uselist=False, cascade="all, delete-orphan")
+    )
+    workspace = relationship(
+        "Workspace", backref=backref("review_schedules", cascade="all, delete-orphan")
+    )
+    last_review = relationship("ServiceReview", foreign_keys=[last_review_id])
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_review_schedules_service", "service_id"),
+        Index("idx_review_schedules_workspace", "workspace_id"),
+        Index("idx_review_schedules_enabled", "enabled"),
+        Index("idx_review_schedules_next_scheduled", "next_scheduled_at"),
+        Index(
+            "idx_review_schedules_enabled_next",
+            "enabled",
+            "next_scheduled_at",
+        ),
+    )
+
+
+class ReviewError(Base):
+    """
+    Top errors detected during the review period.
+
+    Errors are fingerprinted and aggregated by type/message.
+    Limited to top 2-3 errors ranked by occurrence count.
+    """
+
+    __tablename__ = "review_errors"
+
+    id = Column(String, primary_key=True)  # UUID
+    review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Error identification
+    error_type = Column(String(255), nullable=False)  # e.g., "TimeoutError", "NullPointerException"
+    error_message_sample = Column(Text, nullable=True)  # Representative error message
+    error_fingerprint = Column(String(64), nullable=True)  # Hash for deduplication
+
+    # Occurrence data
+    occurrence_count = Column(Integer, nullable=False)
+    first_seen_at = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Context
+    affected_endpoints = Column(JSON, nullable=True)  # List of affected API endpoints
+    stack_trace_sample = Column(Text, nullable=True)  # Representative stack trace
+
+    # Investigation (deferred to post-MVP)
+    investigation_status = Column(
+        Enum(InvestigationStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=InvestigationStatus.PENDING,
+    )
+    investigation_job_id = Column(
+        String, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )  # Link to RCA job if investigation started
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    review = relationship("ServiceReview", back_populates="errors")
+    investigation_job = relationship("Job", backref="investigated_errors")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_review_errors_review", "review_id"),
+        Index("idx_review_errors_fingerprint", "error_fingerprint"),
+        Index("idx_review_errors_occurrence", "occurrence_count"),
+    )
+
+
+class ReviewLoggingGap(Base):
+    """
+    Missing logging identified by LLM analysis.
+
+    Compares codebase structure with actual log output to detect
+    areas where logging instrumentation is missing.
+    Supports acknowledgment and future PR creation.
+    """
+
+    __tablename__ = "review_logging_gaps"
+
+    id = Column(String, primary_key=True)  # UUID
+    review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Gap details
+    gap_description = Column(Text, nullable=False)
+    gap_category = Column(
+        String(100), nullable=True
+    )  # e.g., "error_handling", "business_logic", "security"
+    priority = Column(
+        Enum(GapPriority, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=GapPriority.MEDIUM,
+    )
+
+    # Code context
+    affected_files = Column(JSON, nullable=True)  # List of file paths
+    affected_functions = Column(JSON, nullable=True)  # List of function names
+    suggested_log_locations = Column(
+        JSON, nullable=True
+    )  # [{file, line, description}]
+    suggested_log_statement = Column(Text, nullable=True)  # Example log statement
+    rationale = Column(Text, nullable=True)  # Why this gap matters
+
+    # PR lifecycle (deferred to post-MVP)
+    pr_status = Column(
+        Enum(PRStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=PRStatus.NOT_CREATED,
+    )
+    pr_url = Column(String(500), nullable=True)
+    pr_created_at = Column(DateTime(timezone=True), nullable=True)
+    pr_branch_name = Column(String(255), nullable=True)
+
+    # Human acknowledgment
+    acknowledged = Column(Boolean, default=False, nullable=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_user_id = Column(
+        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    review = relationship("ServiceReview", back_populates="logging_gaps")
+    acknowledged_by = relationship("User", backref="acknowledged_logging_gaps")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_review_logging_gaps_review", "review_id"),
+        Index("idx_review_logging_gaps_priority", "priority"),
+        Index("idx_review_logging_gaps_acknowledged", "acknowledged"),
+    )
+
+
+class ReviewMetricsGap(Base):
+    """
+    Missing metrics instrumentation detected by LLM analysis.
+
+    Identifies areas where metrics collection should be added
+    for better observability. Symmetric design with logging gaps.
+    """
+
+    __tablename__ = "review_metrics_gaps"
+
+    id = Column(String, primary_key=True)  # UUID
+    review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Gap details
+    gap_description = Column(Text, nullable=False)
+    gap_category = Column(
+        String(100), nullable=True
+    )  # e.g., "performance", "business", "infrastructure"
+    metric_type = Column(
+        String(50), nullable=True
+    )  # e.g., "counter", "histogram", "gauge"
+    priority = Column(
+        Enum(GapPriority, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=GapPriority.MEDIUM,
+    )
+
+    # Implementation guidance
+    affected_components = Column(JSON, nullable=True)  # List of components/files
+    suggested_metric_names = Column(JSON, nullable=True)  # List of metric names
+    implementation_guide = Column(Text, nullable=True)  # How to implement
+    example_code = Column(Text, nullable=True)  # Code snippet example
+    integration_provider = Column(
+        String(50), nullable=True
+    )  # e.g., "datadog", "newrelic", "prometheus"
+    dashboard_link = Column(String(500), nullable=True)  # Link to relevant dashboard
+
+    # PR lifecycle (deferred to post-MVP)
+    pr_status = Column(
+        Enum(PRStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=PRStatus.NOT_CREATED,
+    )
+    pr_url = Column(String(500), nullable=True)
+    pr_created_at = Column(DateTime(timezone=True), nullable=True)
+    pr_branch_name = Column(String(255), nullable=True)
+
+    # Human acknowledgment
+    acknowledged = Column(Boolean, default=False, nullable=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_user_id = Column(
+        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    review = relationship("ServiceReview", back_populates="metrics_gaps")
+    acknowledged_by = relationship("User", backref="acknowledged_metrics_gaps")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_review_metrics_gaps_review", "review_id"),
+        Index("idx_review_metrics_gaps_priority", "priority"),
+        Index("idx_review_metrics_gaps_acknowledged", "acknowledged"),
+    )
+
+
+class ReviewSLI(Base):
+    """
+    Service Level Indicator calculated for a review.
+
+    Each row represents one SLI (e.g., availability, latency, error_rate, throughput).
+    Includes comparison with previous week for trend calculation.
+    """
+
+    __tablename__ = "review_slis"
+
+    id = Column(String, primary_key=True)  # UUID
+    review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # SLI identification
+    sli_name = Column(String(100), nullable=False)  # e.g., "availability", "latency_p99"
+    sli_category = Column(
+        String(50), nullable=False
+    )  # e.g., "reliability", "performance"
+
+    # Scores
+    score = Column(Integer, nullable=False)  # 0-100 normalized score
+    previous_week_score = Column(Integer, nullable=True)  # For trend comparison
+    score_trend = Column(
+        Enum(ScoreTrend, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )
+
+    # Raw values
+    target_value = Column(String(50), nullable=True)  # Target (e.g., "99.9", "200ms")
+    actual_value = Column(String(50), nullable=True)  # Actual measured value
+    measurement_unit = Column(String(50), nullable=True)  # e.g., "percent", "ms", "req/s"
+
+    # Data source
+    data_source = Column(String(50), nullable=True)  # e.g., "newrelic", "datadog"
+    query_used = Column(Text, nullable=True)  # Query used to fetch the metric
+
+    # Analysis
+    analysis = Column(Text, nullable=True)  # LLM-generated analysis
+    contributing_factors = Column(JSON, nullable=True)  # Factors affecting the score
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    review = relationship("ServiceReview", back_populates="slis")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_review_slis_review", "review_id"),
+        Index("idx_review_slis_name", "sli_name"),
+        Index("idx_review_slis_category", "sli_category"),
+    )
+
+
+# ========== Code Parser Models ==========
+
+
+class ParsedRepository(Base):
+    """
+    Parsed repository information for code analysis.
+
+    Stores metadata about a parsed repository at a specific commit.
+    Used by the health review system to analyze codebase structure
+    and detect logging/metrics gaps.
+
+    Note: No FK to services - repositories can be shared across services.
+    Link via (workspace_id, repo_full_name) when needed.
+    """
+
+    __tablename__ = "parsed_repositories"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
+    default_branch = Column(String(255), nullable=True)  # e.g., "main"
+    commit_sha = Column(String(40), nullable=False)  # Git commit SHA
+
+    # Parsing status
+    status = Column(
+        Enum(ParsingStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ParsingStatus.PENDING,
+    )
+    error_message = Column(Text, nullable=True)  # Error details if status=FAILED
+
+    # Parsing statistics
+    total_files = Column(Integer, default=0, nullable=False)
+    parsed_files = Column(Integer, default=0, nullable=False)
+    skipped_files = Column(Integer, default=0, nullable=False)
+    total_functions = Column(Integer, default=0, nullable=False)
+    total_classes = Column(Integer, default=0, nullable=False)
+    total_imports = Column(Integer, default=0, nullable=False)
+
+    # Language breakdown and errors
+    languages = Column(JSON, nullable=True)  # {"python": 50, "javascript": 30, ...}
+    parse_errors = Column(JSON, nullable=True)  # [{file, error}, ...]
+
+    # Timing
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship(
+        "Workspace", backref=backref("parsed_repositories", cascade="all, delete-orphan")
+    )
+    files = relationship(
+        "ParsedFile", back_populates="repository", cascade="all, delete-orphan"
+    )
+
+    # Indexes and constraints
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "repo_full_name", "commit_sha",
+            name="uq_parsed_repo_workspace_repo_commit"
+        ),
+        Index("idx_parsed_repositories_workspace", "workspace_id"),
+        Index("idx_parsed_repositories_repo_name", "repo_full_name"),
+        Index("idx_parsed_repositories_status", "status"),
+        Index("idx_parsed_repositories_commit", "commit_sha"),
+    )
+
+
+class ParsedFile(Base):
+    """
+    Parsed file information from a repository.
+
+    Stores extracted code structure (functions, classes, imports)
+    for each file in a parsed repository.
+    """
+
+    __tablename__ = "parsed_files"
+
+    id = Column(String, primary_key=True)  # UUID
+    repository_id = Column(
+        String, ForeignKey("parsed_repositories.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # File metadata
+    file_path = Column(String(500), nullable=False)  # Relative path in repo
+    language = Column(String(50), nullable=False)  # e.g., "python", "javascript"
+    size_bytes = Column(Integer, nullable=True)
+    line_count = Column(Integer, nullable=True)
+
+    # Extracted code structure
+    functions = Column(JSON, nullable=True)  # [{name, line_start, line_end, params}, ...]
+    classes = Column(JSON, nullable=True)  # [{name, line_start, line_end, methods}, ...]
+    imports = Column(JSON, nullable=True)  # [{module, alias}, ...]
+
+    # Parsing result
+    is_parsed = Column(Boolean, default=True, nullable=False)
+    parse_error = Column(Text, nullable=True)  # Error if parsing failed
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    repository = relationship("ParsedRepository", back_populates="files")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_parsed_files_repository", "repository_id"),
+        Index("idx_parsed_files_language", "language"),
+        Index("idx_parsed_files_path", "file_path"),
     )
