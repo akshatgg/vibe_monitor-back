@@ -80,7 +80,7 @@ class TestLimitServiceCheckCanAddService:
         can_add, details = await limit_service.check_can_add_service(mock_db, "ws-123")
 
         assert can_add is True
-        assert details["limit"] is None  # Unlimited
+        assert details["limit"] == 10  # Shows base count (not enforced, can exceed with $5/each)
         assert details["current_count"] == 50
         assert details["plan_name"] == "Pro"
         assert details["is_paid"] is True
@@ -421,11 +421,11 @@ class TestLimitServiceGetUsageStats:
     async def test_pro_plan_usage_stats(
         self, limit_service, mock_db, mock_pro_plan, mock_subscription
     ):
-        """Pro plan usage stats should show unlimited services."""
+        """Pro plan usage stats should show base service count for reference."""
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_pro_plan)
         )
-        limit_service.get_service_count = AsyncMock(return_value=15)
+        limit_service.get_service_count = AsyncMock(return_value=8)  # Under base (not paying extra yet)
         limit_service.get_rca_sessions_today = AsyncMock(return_value=25)
 
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")
@@ -433,10 +433,10 @@ class TestLimitServiceGetUsageStats:
         assert stats["plan_name"] == "Pro"
         assert stats["plan_type"] == "PRO"
         assert stats["is_paid"] is True
-        assert stats["service_count"] == 15
-        assert stats["service_limit"] is None  # Unlimited for Pro
-        assert stats["services_remaining"] is None  # Unlimited
-        assert stats["can_add_service"] is True
+        assert stats["service_count"] == 8
+        assert stats["service_limit"] == 10  # Base count included in Pro plan
+        assert stats["services_remaining"] == 2  # 10 - 8 = 2 (services before paying $5/each)
+        assert stats["can_add_service"] is True  # Can always add (unlimited with payment)
         assert stats["rca_sessions_today"] == 25
         assert stats["rca_session_limit_daily"] == 100
         assert stats["rca_sessions_remaining"] == 75

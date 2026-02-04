@@ -126,6 +126,15 @@ def mock_stripe_schedule():
     )
 
 
+@pytest.fixture
+def mock_stripe_settings():
+    """Mock Stripe settings with test price IDs."""
+    with patch("app.billing.services.service_downgrade.settings") as mock_settings:
+        mock_settings.STRIPE_PRO_PLAN_PRICE_ID = "price_pro_plan"
+        mock_settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID = "price_additional_services"
+        yield mock_settings
+
+
 # ============================================================================
 # TEST DOWNGRADE_SERVICES
 # ============================================================================
@@ -135,7 +144,8 @@ class TestDowngradeServices:
     """Test suite for downgrade_services function."""
 
     async def test_downgrade_success_no_existing_schedule(
-        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule
+        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule,
+        mock_stripe_settings
     ):
         """Test successful downgrade when no schedule exists."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -179,7 +189,7 @@ class TestDowngradeServices:
 
     async def test_downgrade_success_with_existing_schedule(
         self, mock_db_session, subscription_with_pending_downgrade,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test downgrade when a schedule already exists (updates it)."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -208,7 +218,8 @@ class TestDowngradeServices:
             mock_stripe.create_subscription_schedule.assert_not_called()
 
     async def test_downgrade_to_base_plan(
-        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule
+        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule,
+        mock_stripe_settings
     ):
         """Test downgrade to base plan (5 services only, 0 billable)."""
         mock_stripe_schedule.phases[1].items = [
@@ -270,7 +281,8 @@ class TestDowngradeServices:
             assert "error" in result
 
     async def test_downgrade_stripe_error(
-        self, mock_db_session, base_subscription, mock_stripe_subscription
+        self, mock_db_session, base_subscription, mock_stripe_subscription,
+        mock_stripe_settings
     ):
         """Test downgrade handles Stripe API errors gracefully."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -292,7 +304,7 @@ class TestDowngradeServices:
 
     async def test_downgrade_update_fails_fallback_to_create(
         self, mock_db_session, subscription_with_pending_downgrade,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test that if updating existing schedule fails, it cancels and creates new one."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -322,7 +334,7 @@ class TestDowngradeServices:
 
     async def test_downgrade_stale_schedule_id_in_db(
         self, mock_db_session, subscription_with_pending_downgrade,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test that if DB has stale schedule ID, it gets updated from Stripe."""
         subscription_with_pending_downgrade.subscription_schedule_id = "sub_sched_old999"
@@ -348,7 +360,7 @@ class TestDowngradeServices:
 
     async def test_downgrade_multiple_changes_same_period(
         self, mock_db_session, subscription_with_pending_downgrade,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test multiple downgrades in same billing period - last one wins."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -600,21 +612,34 @@ class TestWebhookHandling:
         self, mock_db_session, subscription_with_pending_downgrade
     ):
         """Test that webhook correctly applies pending downgrade when schedule executes."""
+        now = datetime.now(timezone.utc)
+        period_end = now + timedelta(days=27)
+
         # Mock Stripe subscription after schedule applied (new service count)
-        stripe_subscription = {
-            "id": "sub_stripe123",
-            "status": "active",
-            "items": {
-                "data": [
-                    {"price": {"id": "price_pro_plan"}, "quantity": 1},
-                    {"price": {"id": "price_additional_services"}, "quantity": 10},  # New count!
-                ]
-            },
-        }
+        items_data = [
+            {"price": {"id": "price_pro_plan"}, "quantity": 1},
+            {"price": {"id": "price_additional_services"}, "quantity": 10},  # New count!
+        ]
+        stripe_subscription = Mock(
+            id="sub_stripe123",
+            status="active",
+            current_period_start=int(now.timestamp()),
+            current_period_end=int(period_end.timestamp()),
+            canceled_at=None,
+            items=Mock(data=items_data),
+        )
+        stripe_subscription.get = Mock(side_effect=lambda key, default=None:
+            {'items': {'data': items_data}}.get(key, default)
+        )
 
         with patch("app.billing.services.subscription_service.settings") as mock_settings:
             mock_settings.STRIPE_PRO_PLAN_PRICE_ID = "price_pro_plan"
             mock_settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID = "price_additional_services"
+
+            # Mock database query to return the subscription
+            mock_result = Mock()
+            mock_result.scalar_one_or_none = Mock(return_value=subscription_with_pending_downgrade)
+            mock_db_session.execute = AsyncMock(return_value=mock_result)
 
             # Execute webhook handler
             await subscription_service.handle_subscription_updated(
@@ -634,17 +659,25 @@ class TestWebhookHandling:
         self, mock_db_session, base_subscription
     ):
         """Test webhook syncs service count from Stripe when it changes."""
+        now = datetime.now(timezone.utc)
+        period_end = now + timedelta(days=27)
+
         # Stripe has different count than DB
-        stripe_subscription = {
-            "id": "sub_stripe123",
-            "status": "active",
-            "items": {
-                "data": [
-                    {"price": {"id": "price_pro_plan"}, "quantity": 1},
-                    {"price": {"id": "price_additional_services"}, "quantity": 25},  # Different!
-                ]
-            },
-        }
+        items_data = [
+            {"price": {"id": "price_pro_plan"}, "quantity": 1},
+            {"price": {"id": "price_additional_services"}, "quantity": 25},  # Different!
+        ]
+        stripe_subscription = Mock(
+            id="sub_stripe123",
+            status="active",
+            current_period_start=int(now.timestamp()),
+            current_period_end=int(period_end.timestamp()),
+            canceled_at=None,
+            items=Mock(data=items_data),
+        )
+        stripe_subscription.get = Mock(side_effect=lambda key, default=None:
+            {'items': {'data': items_data}}.get(key, default)
+        )
 
         # DB has 40, Stripe has 25
         assert base_subscription.billable_service_count == 40
@@ -652,6 +685,11 @@ class TestWebhookHandling:
         with patch("app.billing.services.subscription_service.settings") as mock_settings:
             mock_settings.STRIPE_PRO_PLAN_PRICE_ID = "price_pro_plan"
             mock_settings.STRIPE_ADDITIONAL_SERVICE_PRICE_ID = "price_additional_services"
+
+            # Mock database query to return the subscription
+            mock_result = Mock()
+            mock_result.scalar_one_or_none = Mock(return_value=base_subscription)
+            mock_db_session.execute = AsyncMock(return_value=mock_result)
 
             await subscription_service.handle_subscription_updated(
                 db=mock_db_session,
@@ -672,7 +710,7 @@ class TestDowngradeIntegration:
 
     async def test_complete_downgrade_flow(
         self, mock_db_session, base_subscription,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test complete flow: schedule downgrade -> verify pending -> cancel -> verify cleared."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -709,7 +747,7 @@ class TestDowngradeIntegration:
 
     async def test_multiple_downgrades_then_cancel(
         self, mock_db_session, subscription_with_pending_downgrade,
-        mock_stripe_subscription, mock_stripe_schedule
+        mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test changing mind multiple times, then canceling."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:

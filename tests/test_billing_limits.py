@@ -183,7 +183,7 @@ class TestLimitServiceCheckCanAddService:
         )
 
         assert can_add is True
-        assert details["limit"] is None  # Unlimited
+        assert details["limit"] == 5  # Base count (can exceed with $5/each additional)
         assert details["is_paid"] is True
 
     @pytest.mark.asyncio
@@ -477,7 +477,7 @@ class TestLimitServiceGetUsageStats:
         plan_result.scalar_one_or_none.return_value = sample_pro_plan
 
         service_count_result = MagicMock()
-        service_count_result.scalar.return_value = 25
+        service_count_result.scalar.return_value = 3  # Under base limit
 
         rca_count_result = MagicMock()
         rca_count_result.scalar.return_value = 50
@@ -495,9 +495,9 @@ class TestLimitServiceGetUsageStats:
 
         assert stats["plan_name"] == "Pro"
         assert stats["is_paid"] is True
-        assert stats["service_limit"] is None  # Unlimited
-        assert stats["services_remaining"] is None
-        assert stats["can_add_service"] is True
+        assert stats["service_limit"] == 5  # Base count included in Pro
+        assert stats["services_remaining"] == 2  # 5 - 3 = 2 (before paying $5/each)
+        assert stats["can_add_service"] is True  # Can always add more
         assert stats["rca_session_limit_daily"] == 100
         assert stats["rca_sessions_remaining"] == 50
 
@@ -524,20 +524,20 @@ class TestUsageResponseSchema:
         assert response.can_add_service is True
 
     def test_usage_response_unlimited_services(self):
-        """UsageResponse should handle unlimited services (Pro)."""
+        """UsageResponse should handle Pro plan services."""
         response = UsageResponse(
             plan_name="Pro",
             plan_type="pro",
             is_paid=True,
             service_count=50,
-            service_limit=None,  # Unlimited
-            services_remaining=None,
+            service_limit=5,  # Pro base count (can exceed with $5/each additional)
+            services_remaining=0,  # max(0, 5-50) = 0 (paying for 45 additional services)
             can_add_service=True,
             rca_sessions_today=50,
             rca_session_limit_daily=100,
             rca_sessions_remaining=50,
             can_start_rca=True,
         )
-        assert response.service_limit is None
-        assert response.services_remaining is None
+        assert response.service_limit == 5
+        assert response.services_remaining == 0
         assert response.is_paid is True

@@ -312,9 +312,9 @@ class TestUsageResponse:
             plan_type="pro",
             is_paid=True,
             service_count=15,
-            service_limit=None,  # Unlimited for Pro
-            services_remaining=None,
-            can_add_service=True,
+            service_limit=10,  # Pro base count (can exceed with $5/each additional)
+            services_remaining=0,  # max(0, 10-15) = 0 (over base, paying for 5 additional)
+            can_add_service=True,  # Pro can always add more services
             rca_sessions_today=25,
             rca_session_limit_daily=100,
             rca_sessions_remaining=75,
@@ -322,8 +322,8 @@ class TestUsageResponse:
             subscription_status="active",
             current_period_end=now,
         )
-        assert data.service_limit is None
-        assert data.services_remaining is None
+        assert data.service_limit == 10
+        assert data.services_remaining == 0
         assert data.can_add_service is True
 
     def test_free_tier_limits(self):
