@@ -8,7 +8,6 @@ That direction is no longer desired. This is now a documented no-op.
 The final normalization migration (u1p2p3e4r5) handles all enum casing.
 """
 
-from alembic import op
 
 revision = "f1x3num5"
 down_revision = "2623c4d56e6e"

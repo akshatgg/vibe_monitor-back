@@ -84,9 +84,27 @@ class LLMConfigService:
         Create or update the LLM configuration for a workspace.
 
         API keys are encrypted before storage.
+
+        IMPORTANT: If provider is 'vibemonitor', this DELETES the config
+        instead of saving it, to ensure rate limits are properly applied.
         """
+        # Special case: Switching to VibeMonitor means DELETE config (reset to default)
+        if config_data.provider == "vibemonitor":
+            logger.info(
+                f"Switching workspace {workspace_id} to VibeMonitor - "
+                f"DELETING custom LLM config to restore rate limits"
+            )
+            await LLMConfigService.delete_config(workspace_id, db)
+            # Return default VibeMonitor config
+            return LLMConfigResponse(
+                provider="vibemonitor",
+                model_name=settings.GROQ_LLM_MODEL,
+                status="active",
+                has_custom_key=False,
+            )
+
         # Validate model_name for non-vibemonitor providers
-        if config_data.provider != "vibemonitor" and not config_data.model_name:
+        if not config_data.model_name:
             raise HTTPException(
                 status_code=400,
                 detail=f"model_name is required for provider '{config_data.provider}'"

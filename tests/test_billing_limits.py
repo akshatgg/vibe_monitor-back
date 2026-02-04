@@ -5,7 +5,7 @@ Tests LimitService, usage endpoints, and 402 error responses.
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 
 from fastapi import HTTPException
@@ -447,21 +447,24 @@ class TestLimitServiceGetUsageStats:
             rca_count_result,
         ]
 
-        stats = await limit_service.get_usage_stats(
-            mock_db, sample_subscription.workspace_id
-        )
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
 
-        assert stats["plan_name"] == "Free"
-        assert stats["plan_type"] == "FREE"
-        assert stats["is_paid"] is False
-        assert stats["service_count"] == 3
-        assert stats["service_limit"] == 5
-        assert stats["services_remaining"] == 2
-        assert stats["can_add_service"] is True
-        assert stats["rca_sessions_today"] == 7
-        assert stats["rca_session_limit_daily"] == 10
-        assert stats["rca_sessions_remaining"] == 3
-        assert stats["can_start_rca"] is True
+            stats = await limit_service.get_usage_stats(
+                mock_db, sample_subscription.workspace_id
+            )
+
+            assert stats["plan_name"] == "Free"
+            assert stats["plan_type"] == "FREE"
+            assert stats["is_paid"] is False
+            assert stats["service_count"] == 3
+            assert stats["service_limit"] == 5
+            assert stats["services_remaining"] == 2
+            assert stats["can_add_service"] is True
+            assert stats["rca_sessions_today"] == 7
+            assert stats["rca_session_limit_daily"] == 10
+            assert stats["rca_sessions_remaining"] == 3
+            assert stats["can_start_rca"] is True
 
     @pytest.mark.asyncio
     async def test_pro_plan_unlimited_services(
@@ -489,17 +492,20 @@ class TestLimitServiceGetUsageStats:
             rca_count_result,
         ]
 
-        stats = await limit_service.get_usage_stats(
-            mock_db, sample_subscription.workspace_id
-        )
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
 
-        assert stats["plan_name"] == "Pro"
-        assert stats["is_paid"] is True
-        assert stats["service_limit"] == 5  # Base count included in Pro
-        assert stats["services_remaining"] == 2  # 5 - 3 = 2 (before paying $5/each)
-        assert stats["can_add_service"] is True  # Can always add more
-        assert stats["rca_session_limit_daily"] == 100
-        assert stats["rca_sessions_remaining"] == 50
+            stats = await limit_service.get_usage_stats(
+                mock_db, sample_subscription.workspace_id
+            )
+
+            assert stats["plan_name"] == "Pro"
+            assert stats["is_paid"] is True
+            assert stats["service_limit"] == 5  # Base count included in Pro
+            assert stats["services_remaining"] == 2  # 5 - 3 = 2 (before paying $5/each)
+            assert stats["can_add_service"] is True  # Can always add more
+            assert stats["rca_session_limit_daily"] == 100
+            assert stats["rca_sessions_remaining"] == 50
 
 
 class TestUsageResponseSchema:

@@ -17,7 +17,7 @@ from app.workspace.client_workspace_services.schemas import (
     FREE_TIER_SERVICE_LIMIT,
 )
 from app.workspace.client_workspace_services.service_service import ServiceService
-from app.models import Service, Workspace, Membership, Role
+from app.models import Workspace, Membership, Role
 
 
 @pytest.fixture

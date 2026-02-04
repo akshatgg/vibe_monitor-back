@@ -4,6 +4,7 @@ Limit enforcement service for billing.
 Enforces plan-based limits for services and RCA sessions.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -11,7 +12,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Job, JobStatus, Plan, PlanType, Service, Subscription
+from app.models import Plan, PlanType, Service, Subscription
+from app.utils.rate_limiter import is_byollm_workspace
+
+logger = logging.getLogger(__name__)
 
 # Default limits for Free plan (fallback if no subscription exists)
 DEFAULT_FREE_SERVICE_LIMIT = 5
@@ -67,19 +71,20 @@ class LimitService:
         """
         Get count of RCA sessions started today for a workspace.
 
-        Counts jobs created today for this workspace.
+        For VibeMonitor users: Uses RateLimitTracking table (only counts rate-limited requests)
+        This ensures we don't count requests made with custom LLM providers.
         """
-        today_start = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        from app.models import RateLimitTracking
+        from app.utils.rate_limiter import ResourceType
+
+        today = datetime.now(timezone.utc).date().isoformat()
 
         result = await db.execute(
-            select(func.count())
-            .select_from(Job)
+            select(RateLimitTracking.count)
             .where(
-                Job.vm_workspace_id == workspace_id,
-                Job.created_at >= today_start,
-                Job.status != JobStatus.FAILED,  # Don't count failed jobs
+                RateLimitTracking.workspace_id == workspace_id,
+                RateLimitTracking.resource_type == ResourceType.RCA_REQUEST.value,
+                RateLimitTracking.window_key == today,
             )
         )
         return result.scalar() or 0
@@ -227,7 +232,41 @@ class LimitService:
         """
         subscription, plan = await self.get_workspace_plan(db, workspace_id)
         service_count = await self.get_service_count(db, workspace_id)
-        rca_sessions_today = await self.get_rca_sessions_today(db, workspace_id)
+
+        # Check if workspace uses BYOLLM (Bring Your Own LLM)
+        try:
+            is_byollm = await is_byollm_workspace(workspace_id, db)
+        except Exception as e:
+            # If BYOLLM check fails, default to not BYOLLM (apply rate limits)
+            logger.error(
+                f"Error checking BYOLLM status for workspace {workspace_id}: {e}",
+                exc_info=True
+            )
+            is_byollm = False
+
+        # For BYOLLM users, RCA limits don't apply - don't count sessions
+        if is_byollm:
+            # Don't count jobs for BYOLLM users - they're unlimited
+            rca_sessions_today = 0  # Not tracked for BYOLLM
+            rca_daily_limit = -1  # -1 indicates unlimited
+            rca_remaining = -1  # Unlimited remaining
+            logger.info(
+                f"BYOLLM workspace {workspace_id} - not counting RCA sessions "
+                f"(unlimited with custom LLM)"
+            )
+        else:
+            # Count actual Job records for rate-limited workspaces
+            rca_sessions_today = await self.get_rca_sessions_today(db, workspace_id)
+            # Plan details
+            if plan:
+                rca_daily_limit = plan.rca_session_limit_daily
+            else:
+                rca_daily_limit = DEFAULT_FREE_RCA_DAILY_LIMIT
+            rca_remaining = max(0, rca_daily_limit - rca_sessions_today)
+            logger.debug(
+                f"VibeMonitor workspace {workspace_id} - RCA sessions: "
+                f"{rca_sessions_today}/{rca_daily_limit}"
+            )
 
         # Plan details
         if plan:
@@ -236,32 +275,30 @@ class LimitService:
             is_paid = plan.plan_type == PlanType.PRO
             # Both Free and Pro have base service limits (Free: 5, Pro: 5 base + $5/each additional)
             service_limit = plan.base_service_count
-            rca_daily_limit = plan.rca_session_limit_daily
         else:
             plan_name = "Free"
             plan_type = PlanType.FREE
             is_paid = False
             service_limit = DEFAULT_FREE_SERVICE_LIMIT
-            rca_daily_limit = DEFAULT_FREE_RCA_DAILY_LIMIT
 
         # Calculate remaining
         services_remaining = max(0, service_limit - service_count)
-        rca_remaining = max(0, rca_daily_limit - rca_sessions_today)
 
         return {
             "plan_name": plan_name,
             "plan_type": plan_type.value,
             "is_paid": is_paid,
+            "is_byollm": is_byollm,  # Add BYOLLM status
             # Service usage
             "service_count": service_count,
             "service_limit": service_limit,
             "services_remaining": services_remaining,
             "can_add_service": service_count < service_limit,
-            # RCA usage
+            # RCA usage (unlimited if BYOLLM)
             "rca_sessions_today": rca_sessions_today,
-            "rca_session_limit_daily": rca_daily_limit,
-            "rca_sessions_remaining": rca_remaining,
-            "can_start_rca": rca_sessions_today < rca_daily_limit,
+            "rca_session_limit_daily": rca_daily_limit,  # -1 for BYOLLM (unlimited)
+            "rca_sessions_remaining": rca_remaining,  # -1 for BYOLLM
+            "can_start_rca": is_byollm or rca_sessions_today < rca_daily_limit,
             # Subscription info
             "subscription_status": (
                 subscription.status.value if subscription else None

@@ -123,8 +123,8 @@ async def check_rate_limit(
                 await session.commit()
 
                 logger.info(
-                    f"Rate limit: First {resource_type.value} request for workspace {workspace_id} today. "
-                    f"Count: {increment}/{limit}"
+                    f"🔢 RATE LIMIT TRACKING - First {resource_type.value} for workspace {workspace_id} today. "
+                    f"Count: {increment}/{limit} - RateLimitTracking table INCREMENTED"
                 )
                 return (True, increment, limit)
 
@@ -157,8 +157,8 @@ async def check_rate_limit(
         await session.commit()
 
         logger.info(
-            f"Rate limit: {resource_type.value} request allowed for workspace {workspace_id}. "
-            f"Count: {tracking.count}/{limit} (+{increment})"
+            f"🔢 RATE LIMIT TRACKING - {resource_type.value} request allowed for workspace {workspace_id}. "
+            f"Count: {tracking.count}/{limit} (+{increment}) - RateLimitTracking table INCREMENTED"
         )
 
         return (True, tracking.count, limit)
@@ -251,9 +251,15 @@ async def is_byollm_workspace(workspace_id: str, session: AsyncSession) -> bool:
 
         # If no config exists or provider is vibemonitor, not BYOLLM
         if provider is None:
+            logger.debug(f"No LLM config found for workspace {workspace_id} - using VibeMonitor (rate limits apply)")
             return False
 
-        return provider != LLMProvider.VIBEMONITOR
+        is_byollm = provider != LLMProvider.VIBEMONITOR
+        logger.info(
+            f"Workspace {workspace_id} LLM check: provider={provider.value}, "
+            f"is_byollm={is_byollm}, rate_limits={'BYPASSED' if is_byollm else 'APPLY'}"
+        )
+        return is_byollm
 
     except Exception as e:
         logger.error(f"Error checking BYOLLM status for workspace {workspace_id}: {e}")
@@ -309,7 +315,9 @@ async def check_rate_limit_with_byollm_bypass(
     # Check if workspace uses BYOLLM (bring your own LLM)
     if await is_byollm_workspace(workspace_id, session):
         logger.info(
-            f"BYOLLM workspace {workspace_id} - bypassing rate limit for {resource_type.value}"
+            f"⚡ BYOLLM DETECTED - Workspace {workspace_id} using custom LLM - "
+            f"BYPASSING rate limit for {resource_type.value} - "
+            f"RateLimitTracking table will NOT be incremented"
         )
         # Return unlimited indicator: allowed=True, count=0, limit=-1 (unlimited)
         return (True, 0, -1)
