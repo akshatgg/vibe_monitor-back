@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Membership, Role, Service, Workspace
+from app.models import Membership, Role, Service, Team, Workspace
 from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
 
 from .schemas import (
@@ -426,6 +426,21 @@ class ServiceService:
 
         # Update team assignment if provided (None means unassign)
         if hasattr(service_data, 'team_id'):
+            # If service is already assigned to a different team, block reassignment
+            if service_data.team_id is not None and service.team_id is not None:
+                if service.team_id != service_data.team_id:
+                    # Get the current team name for error message
+                    current_team_query = select(Team).where(Team.id == service.team_id)
+                    current_team_result = await db.execute(current_team_query)
+                    current_team = current_team_result.scalar_one_or_none()
+
+                    team_name = current_team.name if current_team else "another team"
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Service '{service.name}' is already assigned to team '{team_name}'. "
+                               f"Please unassign it from '{team_name}' first before assigning to a different team."
+                    )
+
             service.team_id = service_data.team_id
 
         # Update enabled status if provided
