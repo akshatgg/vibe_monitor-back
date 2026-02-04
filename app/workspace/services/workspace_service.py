@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ChatFile, ChatSession, ChatTurn, GitHubIntegration, Membership, PlanType, Role, User, Workspace
+from app.models import ChatFile, ChatSession, ChatTurn, GitHubIntegration, Membership, PlanType, Role, SlackInstallation, User, Workspace
 from app.core.otel_metrics import WORKSPACE_METRICS
 from app.billing.services.subscription_service import SubscriptionService
 
@@ -368,8 +368,8 @@ class WorkspaceService:
     ) -> bool:
         """Delete a workspace if user is the owner.
 
-        This also revokes any GitHub App installations associated with the workspace
-        to ensure clean removal of external integrations.
+        This also revokes any GitHub App and Slack bot installations associated with
+        the workspace to ensure clean removal of external integrations.
         """
 
         # Verify user is the owner of the workspace
@@ -395,6 +395,9 @@ class WorkspaceService:
 
         # Revoke GitHub App installations before deleting workspace
         await self._revoke_github_installations(workspace_id, db)
+
+        # Revoke Slack bot installations before deleting workspace
+        await self._revoke_slack_installations(workspace_id, db)
 
         # Delete S3 files before cascade delete removes DB records
         await self._delete_workspace_files(workspace_id, db)
@@ -442,6 +445,73 @@ class WorkspaceService:
                     f"Failed to revoke GitHub App installation {integration.installation_id} "
                     f"for workspace {workspace_id}: {e}. Continuing with workspace deletion."
                 )
+
+    async def _revoke_slack_installations(
+        self, workspace_id: str, db: AsyncSession
+    ) -> None:
+        """Revoke Slack bot installations for a workspace.
+
+        This ensures the Slack bot is uninstalled from the user's Slack workspace
+        when the workspace is deleted, preventing orphaned installations.
+        """
+        import httpx
+        from app.core.config import settings
+        from app.utils.token_processor import token_processor
+
+        # Find all Slack installations for this workspace
+        slack_query = select(SlackInstallation).where(
+            SlackInstallation.workspace_id == workspace_id
+        )
+        result = await db.execute(slack_query)
+        slack_installations = result.scalars().all()
+
+        for installation in slack_installations:
+            try:
+                # Decrypt the access token
+                access_token = token_processor.decrypt(installation.access_token)
+
+                # Call Slack API to revoke the token (uninstall the bot)
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{settings.SLACK_API_BASE_URL}/auth.revoke",
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        timeout=10.0,
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    if data.get("ok"):
+                        logger.info(
+                            f"Revoked Slack bot installation for team {installation.team_id} "
+                            f"({installation.team_name}) in workspace {workspace_id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Slack API returned error when revoking token for team {installation.team_id}: "
+                            f"{data.get('error')}. Continuing with workspace deletion."
+                        )
+
+            except Exception as e:
+                # Log but don't fail - the installation might already be revoked
+                # or the user might have manually removed it
+                logger.warning(
+                    f"Failed to revoke Slack bot installation for team {installation.team_id} "
+                    f"in workspace {workspace_id}: {e}. Continuing with workspace deletion."
+                )
+
+            # Delete the SlackInstallation record from database (regardless of API success)
+            try:
+                await db.delete(installation)
+                logger.info(f"Deleted SlackInstallation record for team {installation.team_id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete SlackInstallation record: {e}")
+
+        # Commit the deletions
+        if slack_installations:
+            await db.flush()
 
     async def _delete_workspace_files(
         self, workspace_id: str, db: AsyncSession

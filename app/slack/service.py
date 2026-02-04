@@ -845,7 +845,7 @@ class SlackEventService:
                         )
                         raise HTTPException(
                             status_code=409,
-                            detail="This Slack workspace is already connected to another VibeMonitor workspace. "
+                            detail="This Slack bot is already connected to another VibeMonitor workspace. "
                             "Please disconnect it from the existing workspace first before connecting to a new one."
                         )
 

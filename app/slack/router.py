@@ -558,7 +558,7 @@ async def slack_oauth_callback(
             )
         )
 
-        redirect_url = f"{settings.WEB_APP_URL}/setup"
+        redirect_url = f"{settings.WEB_APP_URL}/integrations"
         return RedirectResponse(url=redirect_url, status_code=302)
 
     except httpx.TimeoutException:
