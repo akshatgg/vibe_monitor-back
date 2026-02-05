@@ -23,6 +23,7 @@ from app.middleware import HTTPMetricsMiddleware, RequestIDMiddleware
 from app.services.s3.client import s3_client
 from app.services.sqs.client import sqs_client
 from app.worker import RCAOrchestratorWorker
+from app.workers.health_review_worker import HealthReviewWorker, health_review_sqs_client
 
 # Load environment variables
 load_dotenv()
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting VM API application...")
 
     worker = RCAOrchestratorWorker()
+    health_review_worker = HealthReviewWorker()
     metrics_updater_task = None
 
     try:
@@ -129,6 +131,10 @@ async def lifespan(app: FastAPI):
         await worker.start()
         logger.info("SQS worker started")
 
+        # Start Health Review worker
+        await health_review_worker.start()
+        logger.info("Health Review worker started")
+
         logger.info("All services started successfully")
         yield
 
@@ -157,9 +163,16 @@ async def lifespan(app: FastAPI):
             await worker.stop()
             logger.info("SQS worker stopped")
 
-            # Close SQS client
+            # Stop Health Review worker
+            await health_review_worker.stop()
+            logger.info("Health Review worker stopped")
+
+            # Close SQS clients
             await sqs_client.close()
             logger.info("SQS client closed")
+
+            await health_review_sqs_client.close()
+            logger.info("Health Review SQS client closed")
 
             # Close S3 client
             await s3_client.close()

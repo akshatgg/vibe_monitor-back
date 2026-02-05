@@ -18,7 +18,7 @@ import time
 from app.core.otel_metrics import GITHUB_METRICS
 
 from ...core.config import settings
-from ...models import GitHubIntegration, Membership
+from ...models import GitHubIntegration, Integration, Membership
 from ...utils.retry_decorator import retry_external_api
 from ...utils.token_processor import token_processor
 from ..oauth.service import GitHubAppService
@@ -26,10 +26,49 @@ from ..oauth.service import GitHubAppService
 logger = logging.getLogger(__name__)
 
 
+async def mark_github_integration_unhealthy(
+    workspace_id: str, db: AsyncSession, error_message: str
+) -> None:
+    """
+    Mark GitHub integration as unhealthy due to auth error.
+
+    This is called when we encounter authentication errors (401/403)
+    or token refresh failures, indicating the integration credentials
+    are no longer valid.
+
+    Args:
+        workspace_id: Workspace ID
+        db: Database session
+        error_message: Error message to store
+    """
+    try:
+        result = await db.execute(
+            select(Integration).where(
+                Integration.workspace_id == workspace_id,
+                Integration.provider == "github",
+            )
+        )
+        integration = result.scalar_one_or_none()
+
+        if integration:
+            integration.health_status = "failed"
+            integration.status = "error"
+            integration.last_error = error_message
+            integration.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            logger.warning(
+                f"Marked GitHub integration as unhealthy for workspace {workspace_id}: {error_message}"
+            )
+    except Exception as e:
+        logger.error(f"Failed to mark GitHub integration as unhealthy: {e}")
+
+
 github_app_service = GitHubAppService()
 
 
-async def refresh_token_if_needed(integration, db: AsyncSession) -> None:
+async def refresh_token_if_needed(
+    integration: GitHubIntegration, db: AsyncSession, workspace_id: str = None
+) -> None:
     """
     Refresh GitHub access token if expired or missing.
 
@@ -41,26 +80,51 @@ async def refresh_token_if_needed(integration, db: AsyncSession) -> None:
     - Token doesn't exist (access_token is None)
     - Token is expired (token_expires_at <= now)
 
+    If token refresh fails with auth error (401/403), marks the integration
+    as unhealthy.
+
     Args:
         integration: GitHubIntegration object with token information
         db: Database session for committing changes
+        workspace_id: Optional workspace ID for health status updates
 
     Returns:
         None. Updates the integration object in-place.
+
+    Raises:
+        HTTPException: If token refresh fails
     """
     if not integration.access_token or (
         integration.token_expires_at
         and integration.token_expires_at <= datetime.now(timezone.utc)
     ):
-        token_data = await github_app_service.get_installation_access_token(
-            integration.installation_id
-        )
+        try:
+            token_data = await github_app_service.get_installation_access_token(
+                integration.installation_id
+            )
 
-        integration.access_token = token_processor.encrypt(token_data["token"])
-        integration.token_expires_at = date_parser.isoparse(token_data["expires_at"])
+            integration.access_token = token_processor.encrypt(token_data["token"])
+            integration.token_expires_at = date_parser.isoparse(token_data["expires_at"])
 
-        await db.commit()
-        await db.refresh(integration)
+            await db.commit()
+            await db.refresh(integration)
+        except httpx.HTTPStatusError as e:
+            # Check for auth errors (401/403)
+            if e.response.status_code in (401, 403):
+                error_msg = f"GitHub token refresh failed: {e.response.status_code} - Token invalid or revoked"
+                logger.error(error_msg)
+                # Mark integration as unhealthy
+                ws_id = workspace_id or integration.workspace_id
+                if ws_id:
+                    await mark_github_integration_unhealthy(ws_id, db, error_msg)
+                raise HTTPException(
+                    status_code=403,
+                    detail="GitHub integration credentials are invalid. Please reconnect your GitHub account.",
+                )
+            raise
+        except Exception as e:
+            logger.error(f"Failed to refresh GitHub token: {e}")
+            raise
 
 
 async def get_github_integration_with_token(
@@ -103,7 +167,7 @@ async def get_github_integration_with_token(
         )
 
     # Refresh token if needed
-    await refresh_token_if_needed(integration, db)
+    await refresh_token_if_needed(integration, db, workspace_id)
 
     # Decrypt and return access token
     access_token = None
@@ -118,7 +182,11 @@ async def get_github_integration_with_token(
 
 
 async def execute_github_graphql(
-    query: str, variables: Dict[str, Any], access_token: str
+    query: str,
+    variables: Dict[str, Any],
+    access_token: str,
+    workspace_id: str = None,
+    db: AsyncSession = None,
 ) -> Dict[str, Any]:
     """
     Execute a GitHub GraphQL query.
@@ -126,10 +194,15 @@ async def execute_github_graphql(
     This helper function handles the HTTP request to GitHub's GraphQL API,
     error checking, and response parsing.
 
+    If workspace_id and db are provided, auth errors (401/403) will mark
+    the GitHub integration as unhealthy.
+
     Args:
         query: GraphQL query string
         variables: Query variables dictionary
         access_token: GitHub access token
+        workspace_id: Optional workspace ID for health status updates
+        db: Optional database session for health status updates
 
     Returns:
         Parsed JSON response data
@@ -139,51 +212,66 @@ async def execute_github_graphql(
     """
     start_time = time.time()
 
-    async with httpx.AsyncClient() as client:
-        async for attempt in retry_external_api("GitHub"):
-            with attempt:
-                response = await client.post(
-                    settings.GITHUB_GRAPHQL_URL,
-                    json={"query": query, "variables": variables},
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                    timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
-                )
-                response.raise_for_status()
+    try:
+        async with httpx.AsyncClient() as client:
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.post(
+                        settings.GITHUB_GRAPHQL_URL,
+                        json={"query": query, "variables": variables},
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Accept": "application/vnd.github.v3+json",
+                        },
+                        timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
+                    )
+                    response.raise_for_status()
 
-                duration = time.time() - start_time
+                    duration = time.time() - start_time
 
-                if GITHUB_METRICS:
-                    GITHUB_METRICS["github_api_calls_total"].add(1, {
-                        "api_type": "graphql",
-                        "status": str(response.status_code)
-                    })
+                    if GITHUB_METRICS:
+                        GITHUB_METRICS["github_api_calls_total"].add(1, {
+                            "api_type": "graphql",
+                            "status": str(response.status_code)
+                        })
 
-                    GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
-                        "api_type": "graphql"
-                    })
+                        GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
+                            "api_type": "graphql"
+                        })
 
-                    rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
-                    if rate_limit_remaining:
-                        GITHUB_METRICS["github_api_rate_limit_remaining"].add(
-                            int(rate_limit_remaining),
-                            {"api_type": "graphql"}
+                        rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
+                        if rate_limit_remaining:
+                            GITHUB_METRICS["github_api_rate_limit_remaining"].add(
+                                int(rate_limit_remaining),
+                                {"api_type": "graphql"}
+                            )
+
+                    data = response.json()
+
+                    if "errors" in data:
+                        raise HTTPException(
+                            status_code=500, detail=f"GraphQL errors: {data['errors']}"
                         )
 
-                data = response.json()
-
-                if "errors" in data:
-                    raise HTTPException(
-                        status_code=500, detail=f"GraphQL errors: {data['errors']}"
-                    )
-
-                return data
+                    return data
+    except httpx.HTTPStatusError as e:
+        # Check for auth errors (401/403) and mark integration as unhealthy
+        if e.response.status_code in (401, 403) and workspace_id and db:
+            error_msg = f"GitHub API auth error: {e.response.status_code}"
+            await mark_github_integration_unhealthy(workspace_id, db, error_msg)
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
 
 
 async def execute_github_rest_api(
-    endpoint: str, access_token: str, method: str = "GET", params: Dict[str, Any] = None
+    endpoint: str,
+    access_token: str,
+    method: str = "GET",
+    params: Dict[str, Any] = None,
+    workspace_id: str = None,
+    db: AsyncSession = None,
 ) -> Dict[str, Any]:
     """
     Execute a GitHub REST API request.
@@ -191,11 +279,16 @@ async def execute_github_rest_api(
     This helper function handles the HTTP request to GitHub's REST API,
     error checking, and response parsing.
 
+    If workspace_id and db are provided, auth errors (401/403) will mark
+    the GitHub integration as unhealthy.
+
     Args:
         endpoint: API endpoint (e.g., "/search/code")
         access_token: GitHub access token
         method: HTTP method (default: GET)
         params: Query parameters dictionary
+        workspace_id: Optional workspace ID for health status updates
+        db: Optional database session for health status updates
 
     Returns:
         Parsed JSON response data
@@ -203,47 +296,57 @@ async def execute_github_rest_api(
     Raises:
         HTTPException: If request fails
     """
-    
+
     start_time = time.time()
     url = f"{settings.GITHUB_API_BASE_URL}{endpoint}"
 
-    async with httpx.AsyncClient() as client:
-        async for attempt in retry_external_api("GitHub"):
-            with attempt:
-                response = await client.request(
-                    method,
-                    url,
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Accept": "application/vnd.github.v3.text-match+json",
-                    },
-                    timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
-                )
-                response.raise_for_status()
+    try:
+        async with httpx.AsyncClient() as client:
+            async for attempt in retry_external_api("GitHub"):
+                with attempt:
+                    response = await client.request(
+                        method,
+                        url,
+                        params=params,
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Accept": "application/vnd.github.v3.text-match+json",
+                        },
+                        timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS,
+                    )
+                    response.raise_for_status()
 
-                # Calculate duration
-                duration = time.time() - start_time
+                    # Calculate duration
+                    duration = time.time() - start_time
 
-                if GITHUB_METRICS:
-                    GITHUB_METRICS["github_api_calls_total"].add(1, {
-                        "api_type": "rest",
-                        "status": str(response.status_code)
-                    })
+                    if GITHUB_METRICS:
+                        GITHUB_METRICS["github_api_calls_total"].add(1, {
+                            "api_type": "rest",
+                            "status": str(response.status_code)
+                        })
 
-                    GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
-                        "api_type": "rest",
-                    })
+                        GITHUB_METRICS["github_api_duration_seconds"].record(duration, {
+                            "api_type": "rest",
+                        })
 
-                    # Extract rate limit from headers
-                    rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
-                    if rate_limit_remaining:
-                        GITHUB_METRICS["github_api_rate_limit_remaining"].add(
-                            int(rate_limit_remaining),
-                            {"api_type": "rest"}
-                        )
+                        # Extract rate limit from headers
+                        rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
+                        if rate_limit_remaining:
+                            GITHUB_METRICS["github_api_rate_limit_remaining"].add(
+                                int(rate_limit_remaining),
+                                {"api_type": "rest"}
+                            )
 
-                return response.json()
+                    return response.json()
+    except httpx.HTTPStatusError as e:
+        # Check for auth errors (401/403) and mark integration as unhealthy
+        if e.response.status_code in (401, 403) and workspace_id and db:
+            error_msg = f"GitHub API auth error: {e.response.status_code}"
+            await mark_github_integration_unhealthy(workspace_id, db, error_msg)
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"GitHub API error: {e.response.status_code}",
+        )
 
 
 def get_owner_or_default(owner: str, integration) -> str:

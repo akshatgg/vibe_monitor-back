@@ -30,13 +30,48 @@ awslocal sqs create-queue \
 
 if [ $? -eq 0 ]; then
     echo "✅ SQS queue '$QUEUE_NAME' created successfully"
-
-    # List queues to confirm
-    echo "📄 Available queues:"
-    awslocal sqs list-queues
 else
     echo "❌ Failed to create SQS queue '$QUEUE_NAME'"
 fi
+
+# Create health review DLQ first (needed for redrive policy)
+HEALTH_DLQ_NAME="health-review-dlq"
+echo "📋 Creating SQS dead letter queue: $HEALTH_DLQ_NAME"
+
+awslocal sqs create-queue \
+    --queue-name $HEALTH_DLQ_NAME \
+    --attributes VisibilityTimeoutSeconds=600,MessageRetentionPeriod=1209600
+
+if [ $? -eq 0 ]; then
+    echo "✅ SQS queue '$HEALTH_DLQ_NAME' created successfully"
+else
+    echo "❌ Failed to create SQS queue '$HEALTH_DLQ_NAME'"
+fi
+
+# Get DLQ ARN for redrive policy
+HEALTH_DLQ_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/$HEALTH_DLQ_NAME" \
+    --attribute-names QueueArn \
+    --query 'Attributes.QueueArn' \
+    --output text)
+
+# Create health review queue with redrive policy to DLQ
+HEALTH_QUEUE_NAME="health-review-queue"
+echo "📋 Creating SQS queue: $HEALTH_QUEUE_NAME (with DLQ redrive after 3 failures)"
+
+awslocal sqs create-queue \
+    --queue-name $HEALTH_QUEUE_NAME \
+    --attributes "{\"VisibilityTimeoutSeconds\":\"600\",\"MessageRetentionPeriod\":\"1209600\",\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$HEALTH_DLQ_ARN\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"}"
+
+if [ $? -eq 0 ]; then
+    echo "✅ SQS queue '$HEALTH_QUEUE_NAME' created successfully with DLQ"
+else
+    echo "❌ Failed to create SQS queue '$HEALTH_QUEUE_NAME'"
+fi
+
+# List queues to confirm
+echo "📄 Available queues:"
+awslocal sqs list-queues
 
 # Create S3 bucket for chat file uploads
 BUCKET_NAME="vibe-monitor-chat-files-local"

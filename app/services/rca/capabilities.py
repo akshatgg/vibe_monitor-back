@@ -10,10 +10,7 @@ from typing import Dict, List, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.integrations.service import (
-    check_integration_health,
-    get_workspace_integrations,
-)
+from app.integrations.service import get_workspace_integrations
 from app.models import Integration
 
 logger = logging.getLogger(__name__)
@@ -151,38 +148,24 @@ class IntegrationCapabilityResolver:
         integrations = await get_workspace_integrations(workspace_id, db)
 
         # Filter by health status if requested
+        # We use stored health_status from DB instead of making API calls
+        # health_status is updated:
+        # 1. On first install (OAuth callback runs health check)
+        # 2. When GitHub API calls fail with auth errors (401/403)
         if self.only_healthy:
             healthy_integrations = []
             for integration in integrations:
                 if integration.health_status == "healthy":
-                    # Fast path: already healthy, use directly
                     healthy_integrations.append(integration)
-                elif (
-                    integration.health_status is None
-                    or integration.health_status == "failed"
-                ):
-                    # Run health check for NULL (not yet checked) or failed (might have recovered)
-                    logger.info(
-                        f"Running health check for {integration.provider} integration "
-                        f"(current status: {integration.health_status})"
+                    logger.debug(
+                        f"{integration.provider} integration is healthy, including in capabilities"
                     )
-                    try:
-                        updated_integration = await check_integration_health(
-                            integration.id, db
-                        )
-                        if updated_integration.health_status == "healthy":
-                            logger.info(
-                                f"{integration.provider} integration is now healthy, including in capabilities"
-                            )
-                            healthy_integrations.append(updated_integration)
-                        else:
-                            logger.warning(
-                                f"{integration.provider} integration health check failed, skipping"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Error running health check for {integration.provider}: {e}"
-                        )
+                else:
+                    # health_status is None (not yet checked) or "failed"
+                    logger.warning(
+                        f"{integration.provider} integration not healthy "
+                        f"(status: {integration.health_status}), skipping"
+                    )
             integrations = healthy_integrations
 
         # Map integrations by provider

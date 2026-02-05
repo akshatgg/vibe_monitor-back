@@ -14,6 +14,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
 from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
 from app.engagement.service import engagement_service
+from app.health_review_system.scheduler.service import health_review_scheduler
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
 from app.models import Job, JobSource, JobStatus, TurnStatus
@@ -318,17 +319,26 @@ class RCAOrchestratorWorker(BaseWorker):
         """
         super().__init__("rca_orchestrator")
         self.scheduler_task = None
+        self.health_review_scheduler_task = None
         self._last_report_date = None  # Track last report date to avoid duplicates
         logger.info("RCA Orchestrator Worker initialized with AI agent")
 
     async def start(self):
-        """Start both the SQS worker and the engagement scheduler."""
+        """Start the SQS worker, engagement scheduler, and health review scheduler."""
         await super().start()
         self.scheduler_task = asyncio.create_task(self._run_engagement_scheduler())
         logger.info("Engagement scheduler started (6 AM IST daily)")
 
+        if settings.HEALTH_REVIEW_SCHEDULER_ENABLED:
+            self.health_review_scheduler_task = asyncio.create_task(
+                self._run_health_review_scheduler()
+            )
+            logger.info(
+                f"Health review scheduler started (checking every {settings.HEALTH_REVIEW_CHECK_INTERVAL_MINUTES} minutes)"
+            )
+
     async def stop(self):
-        """Stop both the SQS worker and the engagement scheduler."""
+        """Stop the SQS worker, engagement scheduler, and health review scheduler."""
         if self.scheduler_task:
             self.scheduler_task.cancel()
             try:
@@ -336,6 +346,15 @@ class RCAOrchestratorWorker(BaseWorker):
             except asyncio.CancelledError:
                 pass
             logger.info("Engagement scheduler stopped")
+
+        if self.health_review_scheduler_task:
+            self.health_review_scheduler_task.cancel()
+            try:
+                await self.health_review_scheduler_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Health review scheduler stopped")
+
         await super().stop()
 
     async def _run_engagement_scheduler(self):
@@ -393,6 +412,38 @@ class RCAOrchestratorWorker(BaseWorker):
 
         except Exception as e:
             logger.exception(f"Error sending engagement report: {e}")
+
+    async def _run_health_review_scheduler(self):
+        """
+        Background task that checks for due health reviews and triggers them.
+
+        Runs at the configured interval (default: every 60 minutes).
+        Reviews are scheduled via ReviewSchedule model with next_scheduled_at field.
+        """
+        check_interval_seconds = settings.HEALTH_REVIEW_CHECK_INTERVAL_MINUTES * 60
+
+        while self.running:
+            try:
+                logger.info("Health review scheduler: Starting check cycle...")
+                results = await health_review_scheduler.check_and_trigger_reviews()
+
+                if results["triggered"] > 0 or results["failed"] > 0:
+                    logger.info(
+                        f"Health review scheduler cycle complete: "
+                        f"{results['triggered']} triggered, "
+                        f"{results['skipped']} skipped, "
+                        f"{results['failed']} failed"
+                    )
+
+                # Sleep until next check
+                await asyncio.sleep(check_interval_seconds)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.exception(f"Error in health review scheduler: {e}")
+                # On error, wait before retrying
+                await asyncio.sleep(check_interval_seconds)
 
     async def process_message(self, message_body: dict):
         """

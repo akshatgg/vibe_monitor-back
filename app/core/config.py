@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     # AWS SQS
     AWS_REGION: Optional[str] = None
     SQS_QUEUE_URL: Optional[str] = None
+    HEALTH_REVIEW_QUEUE_URL: Optional[str] = None
     AWS_ENDPOINT_URL: Optional[str] = None
 
     # Redis (ElastiCache replication group with TLS)
@@ -240,6 +241,15 @@ class Settings(BaseSettings):
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 
+    # Health Review LLM Analyzer Settings
+    USE_MOCK_LLM_ANALYZER: bool = (
+        True  # Use mock analyzer for testing (set False for real LLM)
+    )
+    HEALTH_REVIEW_LLM_TEMPERATURE: float = (
+        0.2  # Low temperature for consistent analysis
+    )
+    HEALTH_REVIEW_LLM_MAX_TOKENS: int = 4096  # Max tokens for analysis responses
+
     # SSE Staleness Detection Settings
     MAX_JOB_PROCESSING_MINUTES: int = (
         15  # Maximum time a job can be in PROCESSING state before considered stale
@@ -317,6 +327,14 @@ class Settings(BaseSettings):
     )
     ENGAGEMENT_SLACK_TIMEOUT: float = (
         10.0  # Timeout for Slack webhook requests in seconds
+    )
+
+    # Health Review Scheduler Settings
+    HEALTH_REVIEW_SCHEDULER_ENABLED: bool = (
+        True  # Enable/disable automated health review scheduling
+    )
+    HEALTH_REVIEW_CHECK_INTERVAL_MINUTES: int = (
+        60  # How often to check for due reviews (default: hourly)
     )
 
     # Logging Configuration

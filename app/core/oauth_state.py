@@ -19,7 +19,6 @@ class OAuthStateManager:
     def store_state(self, state: str, ttl_seconds: int = 300) -> None:
         """
         Store OAuth state with expiration.
-
         Args:
             state: The state value to store
             ttl_seconds: Time to live in seconds (default: 300 = 5 minutes)

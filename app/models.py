@@ -2193,6 +2193,10 @@ class ParsedFile(Base):
     is_parsed = Column(Boolean, default=True, nullable=False)
     parse_error = Column(Text, nullable=True)  # Error if parsing failed
 
+    # File content storage (for LLM access without GitHub API calls)
+    content = Column(Text, nullable=True)  # Full file content
+    content_hash = Column(String(64), nullable=True)  # SHA-256 hash for deduplication
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -2204,4 +2208,6 @@ class ParsedFile(Base):
         Index("idx_parsed_files_repository", "repository_id"),
         Index("idx_parsed_files_language", "language"),
         Index("idx_parsed_files_path", "file_path"),
+        Index("idx_parsed_files_content_hash", "content_hash"),
+        Index("idx_parsed_files_repo_path", "repository_id", "file_path"),
     )

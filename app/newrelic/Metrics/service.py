@@ -253,13 +253,26 @@ class NewRelicMetricsService:
             # Parse results into time series data points
             data_points = []
             for result in query_response.results:
+                raw_value = result.get("value")
+
+                # Handle percentile results which return a dict like {'95': 0.0, '50': 0.0}
+                if isinstance(raw_value, dict):
+                    # Use the highest percentile available (e.g., p99 > p95 > p90 > p50)
+                    for pct in ["99", "95", "90", "50"]:
+                        if pct in raw_value:
+                            raw_value = raw_value[pct]
+                            break
+                    else:
+                        # Fall back to first value in the dict
+                        raw_value = next(iter(raw_value.values()), None) if raw_value else None
+
                 # Handle both timeseries and non-timeseries results
                 if "beginTimeSeconds" in result:
                     # Timeseries result
                     data_points.append(
                         TimeSeriesDataPoint(
                             timestamp=result.get("beginTimeSeconds", 0),
-                            value=result.get("value"),  # Allow None
+                            value=raw_value,
                         )
                     )
                 else:
@@ -267,7 +280,7 @@ class NewRelicMetricsService:
                     data_points.append(
                         TimeSeriesDataPoint(
                             timestamp=request.endTime,
-                            value=result.get("value"),  # Allow None
+                            value=raw_value,
                         )
                     )
 

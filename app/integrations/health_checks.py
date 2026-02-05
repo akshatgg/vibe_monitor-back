@@ -59,15 +59,26 @@ async def check_github_health(integration: GitHubIntegration) -> Tuple[str, str 
         logger.debug(f"Decrypting GitHub token: integration_id={integration.id}")
         decrypted_token = token_processor.decrypt(integration.access_token)
 
-        # Test GitHub API access with installation token
-        url = "https://api.github.com/user"
+        # Determine the right endpoint based on token type
+        # Installation tokens (GitHub App) can't use /user endpoint - use /installation/repositories
+        # OAuth user tokens can use /user endpoint
+        if integration.installation_id:
+            # GitHub App installation token - use installation repositories endpoint
+            url = "https://api.github.com/installation/repositories?per_page=1"
+        else:
+            # OAuth user token - use user endpoint
+            url = "https://api.github.com/user"
+
         headers = {
             "Authorization": f"Bearer {decrypted_token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-        logger.debug(f"Testing GitHub API access: integration_id={integration.id}")
+        logger.debug(
+            f"Testing GitHub API access: integration_id={integration.id}, "
+            f"is_installation={bool(integration.installation_id)}"
+        )
         async with httpx.AsyncClient(timeout=10.0) as client:
             async for attempt in retry_external_api("GitHub"):
                 with attempt:

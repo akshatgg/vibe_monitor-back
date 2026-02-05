@@ -1,5 +1,7 @@
+import asyncio
+import base64
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -720,8 +722,6 @@ async def download_file_by_path(
 
     # Always decode content from base64 to UTF-8
     if data.get("content"):
-        import base64
-
         try:
             # Remove newlines and decode base64
             content_base64 = data.get("content", "").replace("\n", "")
@@ -817,6 +817,174 @@ async def search_code(
         "incomplete_results": data.get("incomplete_results", False),
         "items": filtered_items,
     }
+
+
+async def get_repository_tree_recursive(
+    workspace_id: str,
+    name: str,
+    owner: Optional[str],
+    branch: str,
+    user_id: str,
+    db: AsyncSession,
+) -> List[Dict[str, Any]]:
+    """
+    Recursively get all files in a repository using GitHub GraphQL API.
+
+    This function fetches the complete file tree of a repository, returning
+    all file paths with their types and sizes. Used by code parser to index
+    repository contents.
+
+    Args:
+        workspace_id: Workspace ID
+        name: Repository name
+        owner: Repository owner (optional, defaults to integration username)
+        branch: Branch name to fetch tree from
+        user_id: User ID
+        db: Database session
+
+    Returns:
+        List of file entries: [{"path": "src/main.py", "type": "blob", "size": 1234}, ...]
+    """
+    # Verify user has access to this workspace
+    await verify_workspace_access(user_id, workspace_id, db)
+
+    # Get integration and access token
+    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+
+    # Use GitHub integration username as default owner if not provided
+    owner = get_owner_or_default(owner, integration)
+
+    # Use REST API to get tree recursively (more efficient for full tree)
+    # GET /repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1
+    endpoint = f"/repos/{owner}/{name}/git/trees/{branch}"
+    params = {"recursive": "1"}
+
+    try:
+        data = await execute_github_rest_api(
+            endpoint=endpoint,
+            access_token=access_token,
+            method="GET",
+            params=params,
+        )
+
+        if not data.get("tree"):
+            logger.warning(f"No tree data returned for {owner}/{name} branch {branch}")
+            return []
+
+        # Filter and format the tree entries
+        files = []
+        for entry in data.get("tree", []):
+            # Only include blobs (files), not trees (directories)
+            if entry.get("type") == "blob":
+                files.append({
+                    "path": entry.get("path"),
+                    "type": entry.get("type"),
+                    "size": entry.get("size", 0),
+                    "sha": entry.get("sha"),
+                })
+
+        logger.info(f"Retrieved {len(files)} files from {owner}/{name} branch {branch}")
+        return files
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get repository tree for {owner}/{name}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get repository tree: {str(e)}"
+        )
+
+
+async def fetch_files_batch(
+    workspace_id: str,
+    name: str,
+    owner: Optional[str],
+    file_paths: List[str],
+    branch: str,
+    user_id: str,
+    db: AsyncSession,
+    concurrency: int = 10,
+) -> List[Dict[str, Any]]:
+    """
+    Batch fetch multiple file contents with concurrency control.
+
+    This function fetches the contents of multiple files in parallel, with
+    configurable concurrency to avoid rate limiting. Used by code parser
+    to efficiently fetch repository files for indexing.
+
+    Args:
+        workspace_id: Workspace ID
+        name: Repository name
+        owner: Repository owner (optional, defaults to integration username)
+        file_paths: List of file paths to fetch
+        branch: Branch name
+        user_id: User ID
+        db: Database session
+        concurrency: Maximum concurrent requests (default: 10)
+
+    Returns:
+        List of file data: [{"path": "...", "content": "...", "size": ..., "error": ...}, ...]
+    """
+    # Verify user has access to this workspace
+    await verify_workspace_access(user_id, workspace_id, db)
+
+    # Get integration and access token
+    integration, access_token = await get_github_integration_with_token(workspace_id, db)
+
+    # Use GitHub integration username as default owner if not provided
+    owner = get_owner_or_default(owner, integration)
+
+    semaphore = asyncio.Semaphore(concurrency)
+    results = []
+
+    async def fetch_single_file(file_path: str) -> Dict[str, Any]:
+        """Fetch a single file with semaphore control."""
+        async with semaphore:
+            try:
+                result = await read_repository_file(
+                    workspace_id=workspace_id,
+                    name=name,
+                    file_path=file_path,
+                    owner=owner,
+                    branch=branch,
+                    user_id=user_id,
+                    db=db,
+                )
+                return {
+                    "path": file_path,
+                    "content": result.get("content"),
+                    "size": result.get("byte_size", 0),
+                    "success": True,
+                    "error": None,
+                }
+            except HTTPException as e:
+                logger.warning(f"Failed to fetch file {file_path}: {e.detail}")
+                return {
+                    "path": file_path,
+                    "content": None,
+                    "size": 0,
+                    "success": False,
+                    "error": str(e.detail),
+                }
+            except Exception as e:
+                logger.warning(f"Failed to fetch file {file_path}: {str(e)}")
+                return {
+                    "path": file_path,
+                    "content": None,
+                    "size": 0,
+                    "success": False,
+                    "error": str(e),
+                }
+
+    # Fetch all files in parallel with concurrency limit
+    tasks = [fetch_single_file(path) for path in file_paths]
+    results = await asyncio.gather(*tasks)
+
+    successful = sum(1 for r in results if r.get("success"))
+    logger.info(f"Batch fetched {successful}/{len(file_paths)} files from {owner}/{name}")
+
+    return results
 
 
 # ==================== FASTAPI ROUTER WRAPPER FUNCTIONS ====================

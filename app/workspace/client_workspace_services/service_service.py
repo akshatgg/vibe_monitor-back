@@ -5,6 +5,7 @@ Handles CRUD operations for billable services within workspaces.
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from fastapi import HTTPException
@@ -13,7 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Membership, Role, Service, Team, Workspace
+from app.models import (
+    Membership,
+    ReviewSchedule,
+    ReviewStatus,
+    ReviewTriggeredBy,
+    Role,
+    Service,
+    ServiceReview,
+    Workspace,
+)
 from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
 
 from .schemas import (
@@ -26,6 +36,7 @@ from .schemas import (
 )
 from .limit_service import limit_service
 from app.billing.services.subscription_service import SubscriptionService
+from app.workers.health_review_worker import publish_health_review_job
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +249,36 @@ class ServiceService:
         )
 
         db.add(new_service)
+
+        # Create ReviewSchedule for automated weekly health reviews
+        # Default: Monday at 6:00 UTC, enabled by default
+        schedule_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        # Calculate first scheduled run (next Monday at 6:00 UTC)
+        days_until_monday = (7 - now.weekday()) % 7 or 7
+        next_monday = now.date() + timedelta(days=days_until_monday)
+        first_scheduled_at = datetime(
+            next_monday.year,
+            next_monday.month,
+            next_monday.day,
+            6,  # 6:00 UTC
+            0,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        review_schedule = ReviewSchedule(
+            id=schedule_id,
+            service_id=service_id,
+            workspace_id=workspace_id,
+            enabled=True,  # Automated reviews enabled by default
+            frequency="weekly",
+            generation_day_of_week=0,  # Monday
+            generation_hour_utc=6,  # 6:00 UTC
+            next_scheduled_at=first_scheduled_at,
+        )
+        db.add(review_schedule)
+
         await db.commit()
         await db.refresh(new_service)
 
@@ -264,6 +305,35 @@ class ServiceService:
         except Exception as e:
             # Log but don't fail the service creation if billing update fails
             logger.error(f"Failed to update billing after service creation: {e}")
+
+        # Auto-trigger initial health review for new service
+        try:
+            review_id = str(uuid.uuid4())
+            week_end = now
+            week_start = now - timedelta(days=7)
+
+            initial_review = ServiceReview(
+                id=review_id,
+                service_id=service_id,
+                workspace_id=workspace_id,
+                status=ReviewStatus.QUEUED,
+                triggered_by=ReviewTriggeredBy.API,
+                review_week_start=week_start,
+                review_week_end=week_end,
+            )
+            db.add(initial_review)
+            await db.commit()
+
+            # Publish job to SQS for async processing
+            await publish_health_review_job(
+                review_id=review_id,
+                workspace_id=workspace_id,
+                service_id=service_id,
+            )
+            logger.info(f"Auto-triggered initial health review {review_id} for new service {service_id}")
+        except Exception as e:
+            # Log but don't fail service creation if review trigger fails
+            logger.error(f"Failed to auto-trigger health review for new service: {e}")
 
         return ServiceResponse.model_validate(new_service)
 

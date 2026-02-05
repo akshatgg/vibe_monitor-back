@@ -40,6 +40,7 @@
         {"name": "LOG_LEVEL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/log-level"},
         {"name": "AWS_REGION", "valueFrom": "/vm-api-ENV_PLACEHOLDER/aws-region"},
         {"name": "SQS_QUEUE_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/sqs-queue-url"},
+        {"name": "HEALTH_REVIEW_QUEUE_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/health-review-queue-url"},
         {"name": "WEB_APP_URL", "valueFrom": "/vm-api-ENV_PLACEHOLDER/web-app-url"},
         {"name": "CRYPTOGRAPHY_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/cryptography-secret"},
         {"name": "SLACK_SIGNING_SECRET", "valueFrom": "/vm-api-ENV_PLACEHOLDER/slack-signing-secret"},
