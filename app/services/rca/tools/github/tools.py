@@ -3,6 +3,7 @@ LangChain tools for RCA agent to interact with GitHub repositories.
 """
 
 import logging
+import json
 from typing import List, Optional
 
 from langchain.tools import tool
@@ -18,6 +19,11 @@ from app.github.tools.router import (
     list_repositories_graphql,
     read_repository_file,
     search_code,
+)
+from app.github.tools.service import (
+    get_default_branch,
+    get_github_integration_with_token,
+    get_owner_or_default,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,28 +122,101 @@ def _format_file_content_response(response: dict) -> str:
     """Format file content response for LLM consumption."""
     try:
         if not response.get("success"):
-            return "Failed to read file."
-
-        content = response.get("content", "")
-        file_path = response.get("file_path", "unknown")
-        byte_size = response.get("byte_size", 0)
-
-        if not content:
-            return f"File '{file_path}' is empty."
-
-        # Truncate very large files
-        max_chars = 10000
-        if len(content) > max_chars:
-            content = (
-                content[:max_chars]
-                + f"\n\n... (truncated, total size: {byte_size} bytes)"
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Failed to read file",
+                }
             )
 
-        return f"File: {file_path}\nSize: {byte_size} bytes\n\n```\n{content}\n```"
+        content = response.get("content", "") or ""
+        file_path = response.get("file_path") or response.get("path") or "unknown"
+        byte_size = response.get("byte_size")
+        if byte_size is None:
+            byte_size = response.get("size")
+        if byte_size is None:
+            try:
+                byte_size = len(content.encode("utf-8"))
+            except Exception:
+                byte_size = 0
+
+        sha = response.get("sha")
+        encoding = response.get("encoding")
+        decoded = response.get("content_decoded")
+
+        language = _detect_language(file_path)
+        parsed = None
+        if content and language:
+            try:
+                from app.services.rca.tools.code_parser.tools import parse_code
+
+                parsed = parse_code(code=content, language=language)
+            except Exception:
+                parsed = None
+
+        excerpt_max_chars = 1800
+        excerpt = content[:excerpt_max_chars] if content else ""
+        if content and len(content) > excerpt_max_chars:
+            excerpt = excerpt + "\n... (truncated excerpt)"
+
+        interesting_lines = _extract_interesting_lines(content)
+
+        return json.dumps(
+            {
+                "success": True,
+                "file_path": file_path,
+                "size_bytes": int(byte_size or 0),
+                "sha": sha,
+                "encoding": encoding,
+                "content_decoded": decoded,
+                "language": language,
+                "excerpt": excerpt,
+                "interesting_lines": interesting_lines,
+                "parsed": parsed,
+            },
+            indent=2,
+        )
 
     except Exception as e:
         logger.error(f"Error formatting file content: {e}")
-        return f"Error parsing file content: {str(e)}"
+        return json.dumps(
+            {"success": False, "error": f"Error parsing file content: {str(e)}"}
+        )
+
+
+def _detect_language(file_path: str) -> Optional[str]:
+    path = (file_path or "").lower()
+    if path.endswith(".py"):
+        return "python"
+    if path.endswith(".js"):
+        return "javascript"
+    if path.endswith(".ts"):
+        return "typescript"
+    if path.endswith(".tsx"):
+        return "typescript"
+    if path.endswith(".jsx"):
+        return "javascript"
+    if path.endswith(".go"):
+        return "go"
+    if path.endswith(".java"):
+        return "java"
+    if path.endswith(".rb"):
+        return "ruby"
+    if path.endswith(".php"):
+        return "php"
+    return None
+
+
+def _extract_interesting_lines(content: str) -> list[dict]:
+    if not content:
+        return []
+
+    try:
+        from app.services.rca.tools.code_parser.tools import find_interesting_lines
+
+        return find_interesting_lines(content)
+    except Exception:
+        return []
 
 
 def _format_code_search_response(response: dict) -> str:
@@ -313,7 +392,7 @@ async def read_repository_file_tool(
     repo_name: str,
     file_path: str,
     owner: Optional[str] = None,
-    branch: str = "HEAD",
+    commit_sha: Optional[str] = None,
 ) -> str:
     """
     Read a specific file from a GitHub repository.
@@ -321,30 +400,72 @@ async def read_repository_file_tool(
     Use this tool to examine configuration files, code, manifests, logs, or documentation.
     Essential for investigating deployment configurations, environment settings, or recent code changes.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate. Example:
+    - If service is "marketplace-service" and mapping shows {"marketplace-service": "marketplace"}
+    - Use repo_name="marketplace", NOT repo_name="marketplace-service"
+
+    **CRITICAL: For Environment-Specific Investigations:**
+    When investigating code deployed in a specific environment, ALWAYS use the deployed commit_sha
+    from the environment context. This ensures you're reading the ACTUAL deployed code, not HEAD.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name (e.g., "my-api-service")
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         file_path: Path to the file (e.g., "docker-compose.yml", "src/config.py")
         owner: Repository owner (defaults to workspace's GitHub username)
-        branch: Branch name (default: "HEAD" for current branch)
+        commit_sha: Commit SHA or branch name to read from (default: HEAD). Use deployed commit SHA for environment investigations.
 
     Returns:
         File content with syntax highlighting
 
-    Example:
-        read_repository_file_tool(repo_name="api-service", file_path="Dockerfile", branch="main")
+    Examples:
+        # Read from HEAD (latest code)
+        read_repository_file_tool(repo_name="marketplace", file_path="app.py")
+
+        # Read from deployed commit (for environment-specific investigation)
+        read_repository_file_tool(repo_name="marketplace", file_path="app.py", commit_sha="ab2f9b1c")
     """
     try:
         async with AsyncSessionLocal() as db:
+            # Use commit_sha if provided, otherwise default to HEAD
+            ref = commit_sha if commit_sha else "HEAD"
+
             response = await read_repository_file(
                 workspace_id=workspace_id,
                 name=repo_name,
                 file_path=file_path,
                 owner=owner,
-                branch=branch,
+                branch=ref,  # 'branch' parameter accepts commit SHA too
                 user_id="rca-agent",
                 db=db,
             )
+
+            content = response.get("content")
+            byte_size = response.get("byte_size")
+            if (content is None or content == "") and int(byte_size or 0) > 0:
+                integration, _ = await get_github_integration_with_token(
+                    workspace_id, db
+                )
+                resolved_owner = get_owner_or_default(owner, integration)
+                fallback_ref = ref
+                if not fallback_ref or str(fallback_ref).upper() == "HEAD":
+                    fallback_ref = await get_default_branch(
+                        workspace_id, repo_name, resolved_owner, db
+                    )
+
+                response = await download_file_by_path(
+                    workspace_id=workspace_id,
+                    repo=repo_name,
+                    file_path=file_path,
+                    owner=owner,
+                    ref=str(fallback_ref),
+                    user_id="rca-agent",
+                    db=db,
+                )
+                response["note"] = (
+                    "GraphQL blob text unavailable; used Contents API fallback"
+                )
 
         return _format_file_content_response(response)
 
@@ -368,10 +489,16 @@ async def search_code_tool(
     or error messages across your codebase. Critical for understanding how features are implemented
     or where specific logic resides.
 
+    ⚠️ CRITICAL: repo is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
+    **LIMITATION:** GitHub's code search API only searches the default branch (HEAD), not specific commits.
+    If you need to read specific files from a deployed commit, use read_repository_file_tool with commit_sha instead.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
         search_query: Code search query (e.g., "timeout", "database", "api_key")
-        repo: Specific repository name (optional, searches all repos if not provided)
+        repo: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         owner: Repository owner (defaults to workspace's GitHub username)
         per_page: Results per page (default: 30, max: 100)
         page: Page number for pagination (default: 1)
@@ -380,7 +507,7 @@ async def search_code_tool(
         Formatted list of code matches with file paths and snippets
 
     Example:
-        search_code_tool(search_query="connection timeout", repo="api-service")
+        search_code_tool(search_query="connection timeout", repo="marketplace")
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -408,25 +535,41 @@ async def get_repository_commits_tool(
     owner: Optional[str] = None,
     first: int = 30,
     after: Optional[str] = None,
+    commit_sha: Optional[str] = None,
 ) -> str:
     """
-    Get recent commit history for a repository.
+    Get commit history for a repository.
 
     Use this tool to investigate recent changes, identify when issues were introduced,
     or understand deployment history. Essential for correlating incidents with code changes.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
+    **WHEN ASKING ABOUT DEPLOYED CODE:**
+    If the user asks about code that's deployed in an environment (e.g., "commits on deployed code",
+    "what changed in test environment"), you MUST:
+    1. Check the deployed commit SHA from the environment context
+    2. Use the commit_sha parameter to fetch commits UP TO that deployment
+    3. This ensures you show only commits that are actually deployed, not future commits
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         owner: Repository owner (defaults to workspace's GitHub username)
         first: Number of commits to fetch (default: 30)
         after: Cursor for pagination (optional)
+        commit_sha: Optional commit SHA to start from (use for deployed code queries)
 
     Returns:
         Formatted list of commits with messages, authors, dates, and change statistics
 
-    Example:
-        get_repository_commits_tool(repo_name="api-service", first=20)
+    Examples:
+        # Get latest commits from HEAD
+        get_repository_commits_tool(repo_name="marketplace", first=20)
+
+        # Get commits up to a deployed commit (for environment-specific queries)
+        get_repository_commits_tool(repo_name="marketplace", first=5, commit_sha="ab2f9b1c")
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -438,6 +581,7 @@ async def get_repository_commits_tool(
                 after=after,
                 user_id="rca-agent",
                 db=db,
+                commit_sha=commit_sha,
             )
 
         return _format_commits_response(response)
@@ -461,9 +605,12 @@ async def list_pull_requests_tool(
     Use this tool to identify recent deployments, ongoing development work,
     or investigate which PRs might have introduced issues.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         owner: Repository owner (defaults to workspace's GitHub username)
         states: PR states to filter by - ["OPEN", "CLOSED", "MERGED"] (default: all states)
         first: Number of PRs to fetch (default: 20)
@@ -473,7 +620,7 @@ async def list_pull_requests_tool(
         Formatted list of pull requests with status, authors, and branch info
 
     Example:
-        list_pull_requests_tool(repo_name="api-service", states=["MERGED"], first=10)
+        list_pull_requests_tool(repo_name="marketplace", states=["MERGED"], first=10)
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -508,27 +655,50 @@ async def download_file_tool(
     Alternative to read_repository_file_tool that uses REST API instead of GraphQL.
     Useful for fetching binary files or when GraphQL access is limited.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate. Example:
+    - If service is "marketplace-service" and mapping shows {"marketplace-service": "marketplace"}
+    - Use repo_name="marketplace", NOT repo_name="marketplace-service"
+
+    **CRITICAL: For Environment-Specific Investigations:**
+    When investigating code deployed in a specific environment, ALWAYS use the deployed commit SHA
+    from the environment context in the ref parameter. This ensures you're reading the ACTUAL deployed code, not HEAD.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         file_path: Path to the file in the repository
         owner: Repository owner (defaults to workspace's GitHub username)
-        ref: Branch, tag, or commit ref (defaults to default branch)
+        ref: Branch, tag, or commit SHA (defaults to default branch). Use deployed commit SHA for environment investigations.
 
     Returns:
         File content (automatically decoded from base64 to UTF-8)
 
-    Example:
-        download_file_tool(repo_name="api-service", file_path="config/app.yaml")
+    Examples:
+        # Download from HEAD (latest code)
+        download_file_tool(repo_name="marketplace", file_path="app.py")
+
+        # Download from deployed commit (for environment-specific investigation)
+        download_file_tool(repo_name="marketplace", file_path="app.py", ref="ab2f9b1c")
     """
     try:
         async with AsyncSessionLocal() as db:
+            resolved_ref = ref
+            if not resolved_ref or str(resolved_ref).upper() == "HEAD":
+                integration, _ = await get_github_integration_with_token(
+                    workspace_id, db
+                )
+                resolved_owner = get_owner_or_default(owner, integration)
+                resolved_ref = await get_default_branch(
+                    workspace_id, repo_name, resolved_owner, db
+                )
+
             response = await download_file_by_path(
                 workspace_id=workspace_id,
                 repo=repo_name,
                 file_path=file_path,
                 owner=owner,
-                ref=ref,
+                ref=str(resolved_ref),
                 user_id="rca-agent",
                 db=db,
             )
@@ -653,21 +823,35 @@ async def get_repository_tree_tool(
     or understand the codebase organization. The expression parameter lets you
     navigate directories and view file contents.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
+    **CRITICAL: For Environment-Specific Investigations:**
+    When investigating code deployed in a specific environment, use the deployed commit SHA
+    in the expression instead of "HEAD:" or branch names. This ensures you're exploring the
+    ACTUAL deployed code structure.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         expression: Git expression to query (default: "HEAD:")
             - "HEAD:" - Root directory of default branch
             - "main:" - Root directory of main branch
+            - "abc123:" - Root directory of specific commit (for deployed code)
             - "HEAD:src/" - Contents of src directory
+            - "ab2f9b1c:src/" - Contents of src directory from deployed commit
             - "HEAD:src/config.py" - Specific file content
         owner: Repository owner (defaults to workspace's GitHub username)
 
     Returns:
         Directory listing or file content depending on expression
 
-    Example:
-        get_repository_tree_tool(repo_name="api-service", expression="HEAD:src/")
+    Examples:
+        # Explore HEAD
+        get_repository_tree_tool(repo_name="marketplace", expression="HEAD:src/")
+
+        # Explore deployed commit (for environment-specific investigation)
+        get_repository_tree_tool(repo_name="marketplace", expression="ab2f9b1c:src/")
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -701,9 +885,12 @@ async def get_branch_recent_commits_tool(
     particularly useful for comparing feature branches or release branches
     to understand what changes are about to be deployed.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         ref: Branch reference (default: "refs/heads/main")
             - "refs/heads/main" - Main branch
             - "refs/heads/develop" - Develop branch
@@ -715,7 +902,7 @@ async def get_branch_recent_commits_tool(
         Formatted list of recent commits from the specified branch
 
     Example:
-        get_branch_recent_commits_tool(repo_name="api-service", ref="refs/heads/develop", first=10)
+        get_branch_recent_commits_tool(repo_name="marketplace", ref="refs/heads/develop", first=10)
     """
     try:
         async with AsyncSessionLocal() as db:
@@ -750,9 +937,12 @@ async def get_repository_metadata_tool(
     frameworks) or to identify repositories by their topics/tags. Helpful for
     understanding the tech stack when investigating issues.
 
+    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
+    Use the SERVICE→REPOSITORY mapping to translate.
+
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: Repository name
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
         owner: Repository owner (defaults to workspace's GitHub username)
         first: Number of languages to fetch (default: 12)
 
@@ -760,7 +950,7 @@ async def get_repository_metadata_tool(
         Repository languages with percentages and topics/tags
 
     Example:
-        get_repository_metadata_tool(repo_name="api-service")
+        get_repository_metadata_tool(repo_name="marketplace")
     """
     try:
         async with AsyncSessionLocal() as db:

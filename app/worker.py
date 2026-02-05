@@ -29,6 +29,7 @@ from app.services.sqs.client import sqs_client
 from app.slack.service import slack_event_service
 from app.utils.data_masker import PIIMapper, redact_query_for_log
 from app.workers.base_worker import BaseWorker
+from app.services.rca.langfuse_handler import get_langfuse_callback
 
 logger = logging.getLogger(__name__)
 
@@ -818,6 +819,18 @@ class RCAOrchestratorWorker(BaseWorker):
                     callbacks = [metrics_callback]
                     if progress_callback:
                         callbacks.append(progress_callback)
+                    try:
+                        langfuse_session = requested_context.get("turn_id") or thread_ts
+                        langfuse_callback = get_langfuse_callback(
+                            session_id=langfuse_session,
+                            user_id=workspace_id,
+                            metadata={"job_id": job_id, "source": job.source.value},
+                            tags=["rca", f"workspace:{workspace_id}"],
+                        )
+                        if langfuse_callback:
+                            callbacks.append(langfuse_callback)
+                    except Exception:
+                        pass
 
                     result = await selected_agent.analyze_with_retry(
                         user_query=query,

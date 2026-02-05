@@ -13,20 +13,131 @@ logger = logging.getLogger(__name__)
 # Global meter instance (initialized in main.py)
 _meter: Optional[Meter] = None
 
-# Metrics dictionaries (initialized after meter is set)
-AGENT_METRICS: Dict[str, Any] = {}
-LLM_METRICS: Dict[str, Any] = {}
-TOOL_METRICS: Dict[str, Any] = {}
-AUTH_METRICS: Dict[str, Any] = {}
-SECURITY_METRICS: Dict[str, Any] = {}
-DB_METRICS: Dict[str, Any] = {}
-SQS_METRICS: Dict[str, Any] = {}
-SLACK_METRICS: Dict[str, Any] = {}
-GITHUB_METRICS: Dict[str, Any] = {}
-STRIPE_METRICS: Dict[str, Any] = {}
-HTTP_METRICS: Dict[str, Any] = {}
-WORKSPACE_METRICS: Dict[str, Any] = {}
-JOB_METRICS: Dict[str, Any] = {}
+
+# ==================== NO-OP METRICS (for when OpenTelemetry is disabled) ====================
+class NoOpMetric:
+    """No-op metric that does nothing when OpenTelemetry is disabled"""
+
+    def add(self, amount: int | float, attributes: dict[str, Any] | None = None):
+        """No-op add for counters"""
+        pass
+
+    def record(self, amount: int | float, attributes: dict[str, Any] | None = None):
+        """No-op record for histograms"""
+        pass
+
+
+def _create_noop_metrics() -> Dict[str, NoOpMetric]:
+    """Create no-op metrics for when OpenTelemetry is disabled"""
+    noop = NoOpMetric()
+    return {
+        # Job metrics
+        "jobs_created_total": noop,
+        "jobs_succeeded_total": noop,
+        "jobs_failed_total": noop,
+        # Agent metrics
+        "rca_agent_invocations_total": noop,
+        "rca_agent_duration_seconds": noop,
+        "rca_agent_retries_total": noop,
+        # LLM metrics
+        "rca_llm_provider_usage_total": noop,
+        "rca_context_size_bytes": noop,
+        "rca_estimated_input_tokens": noop,
+        # Tool metrics
+        "rca_tool_executions_total": noop,
+        "rca_tool_execution_duration_seconds": noop,
+        "rca_tool_execution_errors_total": noop,
+        # Auth metrics
+        "auth_failures_total": noop,
+        "jwt_tokens_expired_total": noop,
+        # Security metrics
+        "llm_guard_blocked_messages_total": noop,
+        "security_events_created_total": noop,
+        "rate_limit_exceeded_total": noop,
+        # DB metrics
+        "db_connections_active": noop,
+        "db_transactions_total": noop,
+        "db_transaction_duration_seconds": noop,
+        "db_connection_pool_size": noop,
+        "db_rollbacks_total": noop,
+        # SQS metrics
+        "sqs_messages_sent": noop,
+        "sqs_messages_received": noop,
+        "sqs_message_parse_errors_total": noop,
+        # Slack metrics
+        "slack_messages_sent": noop,
+        # GitHub metrics
+        "github_api_calls_total": noop,
+        "github_api_duration_seconds": noop,
+        "github_api_rate_limit_remaining": noop,
+        "github_token_refreshes_total": noop,
+        # Stripe metrics
+        "stripe_api_calls_total": noop,
+        "stripe_payment_failures_total": noop,
+        "stripe_subscriptions_active": noop,
+        # HTTP metrics
+        "http_requests_total": noop,
+        "http_request_duration_seconds": noop,
+        "http_response_size_bytes": noop,
+        # Workspace metrics
+        "active_workspaces": noop,
+        "workspace_created_total": noop,
+    }
+
+
+# Metrics dictionaries (initialized with no-op metrics, replaced with real metrics if OTEL enabled)
+_noop_metrics = _create_noop_metrics()
+AGENT_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("rca_agent")
+}
+LLM_METRICS: Dict[str, Any] = {
+    k: v
+    for k, v in _noop_metrics.items()
+    if k.startswith("rca_llm")
+    or k.startswith("rca_context")
+    or k.startswith("rca_estimated")
+}
+TOOL_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("rca_tool")
+}
+AUTH_METRICS: Dict[str, Any] = {
+    k: v
+    for k, v in _noop_metrics.items()
+    if k.startswith("auth") or k.startswith("jwt")
+}
+SECURITY_METRICS: Dict[str, Any] = {
+    k: v
+    for k, v in _noop_metrics.items()
+    if k.startswith("llm_guard")
+    or k.startswith("security")
+    or k.startswith("rate_limit")
+}
+DB_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("db")
+}
+SQS_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("sqs")
+}
+SLACK_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("slack")
+}
+GITHUB_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("github")
+}
+STRIPE_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("stripe")
+}
+HTTP_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("http")
+}
+WORKSPACE_METRICS: Dict[str, Any] = {
+    k: v
+    for k, v in _noop_metrics.items()
+    if k.startswith("active_workspaces") or k.startswith("workspace")
+}
+JOB_METRICS: Dict[str, Any] = {
+    k: v for k, v in _noop_metrics.items() if k.startswith("jobs")
+}
 
 
 def init_meter(meter: Meter):

@@ -359,11 +359,23 @@ async def get_repository_commits(
     after: Optional[str],
     user_id: str,
     db: AsyncSession,
+    commit_sha: Optional[str] = None,
 ):
     """
-    Get all commit history for a repository using GitHub GraphQL API
+    Get commit history for a repository using GitHub GraphQL API
 
-    This function fetches all commits from the repository's default branch.
+    This function fetches commits from the repository's default branch,
+    or from a specific commit if commit_sha is provided.
+
+    Args:
+        workspace_id: Workspace ID
+        name: Repository name
+        owner: Repository owner
+        first: Number of commits to fetch
+        after: Pagination cursor
+        user_id: User ID making the request
+        db: Database session
+        commit_sha: Optional commit SHA to start from (instead of HEAD)
     """
     # Verify user has access to this workspace
     await verify_workspace_access(user_id, workspace_id, db)
@@ -376,65 +388,128 @@ async def get_repository_commits(
     # Use GitHub integration username as default owner if not provided
     owner = get_owner_or_default(owner, integration)
 
-    # GraphQL query for all repository commits
-    query = """
-    query RepoHistory(
-      $owner: String!
-      $name: String!
-      $first: Int = 50
-      $after: String
-    ) {
-      repository(owner: $owner, name: $name) {
-        defaultBranchRef {
-          name
-          target {
-            ... on Commit {
-              history(first: $first, after: $after) {
-                pageInfo {
-                  hasNextPage
-                  endCursor
-                }
-                nodes {
-                  oid
-                  messageHeadline
-                  committedDate
-                  url
-                  author {
-                    name
-                    email
-                    user {
-                      login
-                    }
+    # GraphQL query - supports fetching from specific commit or default branch
+    if commit_sha:
+        # Query from specific commit SHA
+        query = """
+        query RepoHistory(
+          $owner: String!
+          $name: String!
+          $first: Int = 50
+          $after: String
+          $commitOid: GitObjectID!
+        ) {
+          repository(owner: $owner, name: $name) {
+            object(oid: $commitOid) {
+              ... on Commit {
+                history(first: $first, after: $after) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
                   }
-                  additions
-                  deletions
-                  changedFiles
+                  nodes {
+                    oid
+                    messageHeadline
+                    committedDate
+                    url
+                    author {
+                      name
+                      email
+                      user {
+                        login
+                      }
+                    }
+                    additions
+                    deletions
+                    changedFiles
+                  }
                 }
               }
             }
           }
         }
-      }
-    }
-    """
-
-    variables = {"owner": owner, "name": name, "first": first, "after": after}
+        """
+        variables = {
+            "owner": owner,
+            "name": name,
+            "first": first,
+            "after": after,
+            "commitOid": commit_sha,
+        }
+    else:
+        # Query from default branch HEAD
+        query = """
+        query RepoHistory(
+          $owner: String!
+          $name: String!
+          $first: Int = 50
+          $after: String
+        ) {
+          repository(owner: $owner, name: $name) {
+            defaultBranchRef {
+              name
+              target {
+                ... on Commit {
+                  history(first: $first, after: $after) {
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
+                    nodes {
+                      oid
+                      messageHeadline
+                      committedDate
+                      url
+                      author {
+                        name
+                        email
+                        user {
+                          login
+                        }
+                      }
+                      additions
+                      deletions
+                      changedFiles
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        variables = {"owner": owner, "name": name, "first": first, "after": after}
 
     # Execute GraphQL query
     data = await execute_github_graphql(query, variables, access_token)
 
     repository_data = data.get("data", {}).get("repository", {})
-    default_branch_ref = repository_data.get("defaultBranchRef")
 
-    if not default_branch_ref:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No default branch found for repository {owner}/{name}",
-        )
+    # Parse response based on query type
+    if commit_sha:
+        # Response from specific commit query
+        commit_obj = repository_data.get("object")
+        if not commit_obj:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Commit {commit_sha} not found in repository {owner}/{name}",
+            )
 
-    branch_name = default_branch_ref.get("name")
-    target_data = default_branch_ref.get("target", {})
-    history_data = target_data.get("history", {})
+        history_data = commit_obj.get("history", {})
+        branch_name = f"from-commit-{commit_sha[:7]}"  # Synthetic branch name
+    else:
+        # Response from default branch query
+        default_branch_ref = repository_data.get("defaultBranchRef")
+
+        if not default_branch_ref:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No default branch found for repository {owner}/{name}",
+            )
+
+        branch_name = default_branch_ref.get("name")
+        target_data = default_branch_ref.get("target", {})
+        history_data = target_data.get("history", {})
 
     return {
         "success": True,

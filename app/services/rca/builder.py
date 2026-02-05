@@ -34,6 +34,25 @@ class ToolRegistry:
             return self._tools_cache
 
         # Import tools (lazy to avoid circular imports at module load)
+        from app.services.rca.tools.cloudwatch.tools import (
+            execute_cloudwatch_insights_query_tool,
+            filter_cloudwatch_log_events_tool,
+            get_cloudwatch_metric_statistics_tool,
+            list_cloudwatch_log_groups_tool,
+            list_cloudwatch_metrics_tool,
+            list_cloudwatch_namespaces_tool,
+            search_cloudwatch_logs_tool,
+        )
+        from app.services.rca.tools.code_parser.tools import parse_code_tool
+        from app.services.rca.tools.datadog.tools import (
+            list_datadog_log_services_tool,
+            list_datadog_logs_tool,
+            list_datadog_tags_tool,
+            query_datadog_metrics_tool,
+            query_datadog_timeseries_tool,
+            search_datadog_events_tool,
+            search_datadog_logs_tool,
+        )
         from app.services.rca.tools.github.tools import (
             download_file_tool,
             get_branch_recent_commits_tool,
@@ -54,6 +73,13 @@ class ToolRegistry:
             get_datasources_tool,
             get_label_values_tool,
             get_labels_tool,
+        )
+        from app.services.rca.tools.newrelic.tools import (
+            get_newrelic_infra_metrics_tool,
+            get_newrelic_time_series_tool,
+            query_newrelic_logs_tool,
+            query_newrelic_metrics_tool,
+            search_newrelic_logs_tool,
         )
 
         # Map capabilities to tools
@@ -79,6 +105,7 @@ class ToolRegistry:
             Capability.CODE_READ: [
                 read_repository_file_tool,
                 download_file_tool,
+                parse_code_tool,
             ],
             Capability.REPOSITORY_INFO: [
                 get_repository_commits_tool,
@@ -86,6 +113,37 @@ class ToolRegistry:
                 get_repository_tree_tool,
                 get_branch_recent_commits_tool,
                 get_repository_metadata_tool,
+            ],
+            Capability.AWS_LOGS: [
+                list_cloudwatch_log_groups_tool,
+                filter_cloudwatch_log_events_tool,
+                search_cloudwatch_logs_tool,
+                execute_cloudwatch_insights_query_tool,
+            ],
+            Capability.AWS_METRICS: [
+                list_cloudwatch_metrics_tool,
+                get_cloudwatch_metric_statistics_tool,
+                list_cloudwatch_namespaces_tool,
+            ],
+            Capability.DATADOG_LOGS: [
+                search_datadog_logs_tool,
+                list_datadog_logs_tool,
+                list_datadog_log_services_tool,
+                list_datadog_tags_tool,
+                search_datadog_events_tool,
+            ],
+            Capability.DATADOG_METRICS: [
+                query_datadog_metrics_tool,
+                query_datadog_timeseries_tool,
+            ],
+            Capability.NEWRELIC_LOGS: [
+                query_newrelic_logs_tool,
+                search_newrelic_logs_tool,
+            ],
+            Capability.NEWRELIC_METRICS: [
+                query_newrelic_metrics_tool,
+                get_newrelic_time_series_tool,
+                get_newrelic_infra_metrics_tool,
             ],
         }
 
@@ -162,6 +220,26 @@ class AgentExecutorBuilder:
         self._context = context
         return self
 
+    def with_capabilities(self, capabilities: set) -> "AgentExecutorBuilder":
+        """
+        Override capabilities on the execution context.
+
+        Args:
+            capabilities: Set of Capability enums to use
+
+        Returns:
+            Self for chaining
+
+        Raises:
+            ValueError: If context not set
+        """
+        if self._context is None:
+            raise ValueError(
+                "Execution context must be set before overriding capabilities"
+            )
+        self._context.capabilities = capabilities
+        return self
+
     def with_callbacks(self, callbacks: List) -> "AgentExecutorBuilder":
         """
         Set callbacks for agent execution.
@@ -226,7 +304,6 @@ class AgentExecutorBuilder:
         tools_with_workspace = self._bind_workspace_to_tools(
             available_tools, workspace_id
         )
-
         # Create agent
         agent = create_tool_calling_agent(
             llm=self.llm,
@@ -243,6 +320,7 @@ class AgentExecutorBuilder:
             max_execution_time=self._max_execution_time,
             handle_parsing_errors=True,
             return_intermediate_steps=True,
+            callbacks=self._callbacks,
         )
 
         return executor
@@ -263,6 +341,14 @@ class AgentExecutorBuilder:
         bound_tools = []
 
         for tool in tools:
+            if tool.args_schema is None:
+                bound_tools.append(tool)
+                continue
+
+            if "workspace_id" not in tool.args_schema.model_fields:
+                bound_tools.append(tool)
+                continue
+
             # Create schema without workspace_id (it's pre-bound)
             modified_schema = self._create_schema_without_workspace_id(tool.args_schema)
 

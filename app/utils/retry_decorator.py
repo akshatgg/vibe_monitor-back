@@ -50,7 +50,7 @@ def _is_retryable_http_error(exception: BaseException) -> bool:
     Returns:
         True if error should be retried, False otherwise
     """
-    # Network-level errors (always retry)
+    # Network-level errors
     if isinstance(
         exception,
         (

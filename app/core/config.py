@@ -241,6 +241,31 @@ class Settings(BaseSettings):
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 
+    # RCA Agent Truncation Limits (token budget controls)
+    RCA_THREAD_HISTORY_MAX_LENGTH: int = (
+        1000  # Max chars for thread history in intent classification
+    )
+    RCA_MAX_REPOS_IN_PROMPT: int = 10  # Max repos to include in prompt context
+    RCA_EVIDENCE_SUMMARY_MAX_LENGTH: int = (
+        3000  # Max chars for evidence summary in hypothesis prompt
+    )
+    RCA_ENV_CONTEXT_MAX_LENGTH: int = (
+        1500  # Max chars for environment context in evidence prompt
+    )
+    RCA_HYPOTHESES_MAX_LENGTH: int = 4000  # Max chars for hypotheses text in prompts
+    RCA_EVIDENCE_BOARD_MAX_LENGTH: int = 8000  # Max chars for evidence board notes
+    RCA_VALIDATION_EVIDENCE_MAX_LENGTH: int = (
+        6000  # Max chars for evidence board in validation
+    )
+    RCA_SYNTHESIS_HYPOTHESIS_MAX_LENGTH: int = (
+        2000  # Max chars for best hypothesis in synthesis
+    )
+    RCA_SYNTHESIS_VALIDATED_MAX_LENGTH: int = (
+        2500  # Max chars for validated hypotheses in synthesis
+    )
+    RCA_SYNTHESIS_EVIDENCE_MAX_LENGTH: int = (
+        8000  # Max chars for evidence board in synthesis
+    )
     # Health Review LLM Analyzer Settings
     USE_MOCK_LLM_ANALYZER: bool = (
         True  # Use mock analyzer for testing (set False for real LLM)
