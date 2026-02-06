@@ -88,7 +88,7 @@ class HealthReviewScheduler:
 
         stmt = (
             select(ReviewSchedule)
-            .where(ReviewSchedule.enabled == True)
+            .where(ReviewSchedule.enabled)
             .where(ReviewSchedule.next_scheduled_at <= now)
         )
 

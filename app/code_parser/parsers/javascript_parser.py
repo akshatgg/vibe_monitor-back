@@ -149,7 +149,6 @@ class JavaScriptParser(BaseLanguageParser):
     def _extract_classes(self, content: str) -> List[ClassInfo]:
         """Extract class definitions from JavaScript code."""
         classes = []
-        lines = content.split("\n")
 
         for match in self.CLASS_PATTERN.finditer(content):
             name = match.group("name")

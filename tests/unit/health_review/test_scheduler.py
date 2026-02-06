@@ -128,7 +128,7 @@ class TestHealthReviewScheduler:
                 with patch.object(
                     scheduler, "_check_existing_review", return_value=None
                 ):
-                    results = await scheduler.check_and_trigger_reviews()
+                    await scheduler.check_and_trigger_reviews()
 
         # Note: Full integration would verify triggered count
         # This unit test verifies the flow doesn't error

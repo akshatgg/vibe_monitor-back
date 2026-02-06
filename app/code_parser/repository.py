@@ -346,8 +346,8 @@ class ParsedFileRepository:
             if not file.functions:
                 continue
 
-            for func in file.functions:
-                func_name = func.get("name", "")
+            for function_info in file.functions:
+                func_name = function_info.get("name", "")
                 if exact_match:
                     matches = func_name == function_name
                 else:
@@ -357,7 +357,7 @@ class ParsedFileRepository:
                     results.append({
                         "file_path": file.file_path,
                         "language": file.language,
-                        "function": func,
+                        "function": function_info,
                     })
 
         return results

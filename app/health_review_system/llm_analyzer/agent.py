@@ -180,7 +180,7 @@ class HealthAnalysisAgent:
                     f"Error: You tried to call a tool that does not exist. "
                     f"Only use these tools: {valid_tools}"
                 )
-                logger.warning(f"[Agent] Recovering from hallucinated tool call, nudging LLM")
+                logger.warning("[Agent] Recovering from hallucinated tool call, nudging LLM")
                 return {
                     "messages": [AIMessage(content=recovery_msg)],
                     "iteration": iteration + 1,
@@ -221,7 +221,7 @@ class HealthAnalysisAgent:
                 logger.debug(f"[ShouldContinue] Continuing: tool calls pending: {tool_names}")
                 return "continue"
             else:
-                logger.debug(f"[ShouldContinue] Ending: no tool calls in last AIMessage")
+                logger.debug("[ShouldContinue] Ending: no tool calls in last AIMessage")
         else:
             logger.debug(f"[ShouldContinue] Ending: last message is {type(last_message).__name__}, not AIMessage")
 

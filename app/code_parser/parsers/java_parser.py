@@ -148,7 +148,6 @@ class JavaParser(BaseLanguageParser):
             decorators = self._extract_annotations(annotations_str)
 
             # Check if async (Java doesn't have built-in async, but check for common patterns)
-            modifiers = match.group("modifiers") or ""
             is_async = "CompletableFuture" in (match.group("return_type") or "")
 
             # Get return type

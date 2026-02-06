@@ -22,6 +22,7 @@ from app.models import (
     Role,
     Service,
     ServiceReview,
+    Team,
     Workspace,
 )
 from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
@@ -297,7 +298,7 @@ class ServiceService:
             await self.subscription_service.update_service_count(
                 db=db,
                 workspace_id=workspace_id,
-                service_count=total_services,
+                new_service_count=total_services,
             )
             logger.info(
                 f"Updated billing for workspace {workspace_id}: {total_services} services"
@@ -578,7 +579,7 @@ class ServiceService:
             await self.subscription_service.update_service_count(
                 db=db,
                 workspace_id=workspace_id,
-                service_count=total_services,
+                new_service_count=total_services,
             )
             logger.info(
                 f"Updated billing for workspace {workspace_id}: {total_services} services after deletion"

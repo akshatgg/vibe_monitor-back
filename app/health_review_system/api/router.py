@@ -309,11 +309,7 @@ async def get_review(
     service = await db.get(Service, review.service_id)
 
     # Get counts
-    errors_count = await db.scalar(
-        select(func.count())
-        .select_from(ReviewError)
-        .where(ReviewError.review_id == review_id)
-    )
+
     logging_gaps_count = await db.scalar(
         select(func.count())
         .select_from(ReviewLoggingGap)
