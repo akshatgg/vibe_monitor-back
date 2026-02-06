@@ -3,7 +3,6 @@ Integration tests for email service endpoints.
 
 Tests the email API endpoints:
 - POST /api/v1/email/nudge-email - Send welcome email (requires auth)
-- POST /api/v1/email/send-slack-nudge-emails - Send Slack nudge emails (requires scheduler token)
 - POST /api/v1/email/contact-form - Submit contact form (public)
 - POST /api/v1/email/send-user-help-emails - Send help emails (requires scheduler token)
 - POST /api/v1/email/send-usage-feedback-emails - Send feedback emails (requires scheduler token)
@@ -311,65 +310,6 @@ async def test_contact_form_service_error(client):
 
 
 
-
-
-@pytest.mark.asyncio
-async def test_send_slack_nudge_emails_with_scheduler_token(client, test_db):
-    """Test sending Slack nudge emails with valid scheduler token."""
-    # Create test user who signed up 6 days ago (eligible)
-    six_days_ago = datetime.now(timezone.utc) - timedelta(days=6)
-    user = await create_test_user(test_db, created_at=six_days_ago)
-    workspace = await create_test_workspace(test_db)
-    await create_test_membership(test_db, user, workspace)
-    # No Slack installation = user is eligible
-
-    with patch("app.email_service.router.verify_scheduler_token") as mock_verify:
-        mock_verify.return_value = True
-
-        with patch("app.email_service.router.email_service") as mock_email:
-            mock_email.send_slack_integration_email = AsyncMock(return_value=None)
-
-            response = await client.post(
-                f"{API_PREFIX}/send-slack-nudge-emails",
-                headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
-                },
-            )
-
-            # If scheduler token is required and configured
-            if response.status_code == 200:
-                data = response.json()
-                assert data["success"] is True
-                assert "sent" in data
-
-
-@pytest.mark.asyncio
-async def test_send_slack_nudge_emails_skips_users_with_slack(client, test_db):
-    """Test that users who already have Slack integration are skipped."""
-    six_days_ago = datetime.now(timezone.utc) - timedelta(days=6)
-    user = await create_test_user(test_db, created_at=six_days_ago)
-    workspace = await create_test_workspace(test_db)
-    await create_test_membership(test_db, user, workspace)
-    # User has Slack integration
-    await create_test_slack_installation(test_db, workspace)
-
-    with patch("app.email_service.router.verify_scheduler_token") as mock_verify:
-        mock_verify.return_value = True
-
-        with patch("app.email_service.router.email_service") as mock_email:
-            mock_email.send_slack_integration_email = AsyncMock(return_value=None)
-
-            response = await client.post(
-                f"{API_PREFIX}/send-slack-nudge-emails",
-                headers={
-                    "X-Scheduler-Token": settings.SCHEDULER_SECRET_TOKEN or "test-token"
-                },
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # User should be skipped (has Slack)
-                assert data["total_eligible"] == 0
 
 
 # =============================================================================

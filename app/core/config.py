@@ -354,14 +354,6 @@ class Settings(BaseSettings):
         10.0  # Timeout for Slack webhook requests in seconds
     )
 
-    # Health Review Scheduler Settings
-    HEALTH_REVIEW_SCHEDULER_ENABLED: bool = (
-        True  # Enable/disable automated health review scheduling
-    )
-    HEALTH_REVIEW_CHECK_INTERVAL_MINUTES: int = (
-        60  # How often to check for due reviews (default: hourly)
-    )
-
     # Logging Configuration
     LOGGING_FRAME_DEPTH: int = (
         6  # Frame depth for finding logging call origin in stack trace

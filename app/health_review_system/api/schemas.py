@@ -80,6 +80,8 @@ class LoggingGapResponse(BaseModel):
     rationale: Optional[str] = None
     pr_status: str
     acknowledged: bool
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by_user_id: Optional[UUID] = None
 
 
 class MetricsGapResponse(BaseModel):
@@ -96,6 +98,8 @@ class MetricsGapResponse(BaseModel):
     example_code: Optional[str] = None
     pr_status: str
     acknowledged: bool
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by_user_id: Optional[UUID] = None
 
 
 class SLIResponse(BaseModel):

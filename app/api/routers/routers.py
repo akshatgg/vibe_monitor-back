@@ -46,6 +46,9 @@ from app.workspace.client_workspace_teams.router import router as teams_router
 # Health Review System
 from app.health_review_system.api.router import router as health_review_router
 
+# Engagement
+from app.engagement.router import router as engagement_router
+
 # Create main API router
 api_router = APIRouter()
 
@@ -101,6 +104,9 @@ api_router.include_router(llm_router, tags=["llm-config"])
 
 # Health Review System
 api_router.include_router(health_review_router, tags=["health-reviews"])
+
+# Engagement (scheduler-triggered)
+api_router.include_router(engagement_router, tags=["engagement"])
 
 
 # CloudWatch/NewRelic/Datadog routers only in local (for testing via Postman/Swagger)

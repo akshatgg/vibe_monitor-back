@@ -49,6 +49,8 @@ from app.models import (
     User,
 )
 from app.workers.health_review_worker import publish_health_review_job
+from app.email_service.service import verify_scheduler_token
+from app.health_review_system.scheduler.service import health_review_scheduler
 
 logger = logging.getLogger(__name__)
 auth_service = AuthService()
@@ -388,6 +390,8 @@ async def get_review(
                 rationale=gap.rationale,
                 pr_status=gap.pr_status.value,
                 acknowledged=gap.acknowledged,
+                acknowledged_at=gap.acknowledged_at,
+                acknowledged_by_user_id=gap.acknowledged_by_user_id,
             )
             for gap in logging_gaps
         ]
@@ -411,6 +415,8 @@ async def get_review(
                 example_code=gap.example_code,
                 pr_status=gap.pr_status.value,
                 acknowledged=gap.acknowledged,
+                acknowledged_at=gap.acknowledged_at,
+                acknowledged_by_user_id=gap.acknowledged_by_user_id,
             )
             for gap in metrics_gaps
         ]
@@ -464,6 +470,8 @@ async def get_logging_gaps(
             rationale=gap.rationale,
             pr_status=gap.pr_status.value,
             acknowledged=gap.acknowledged,
+            acknowledged_at=gap.acknowledged_at,
+            acknowledged_by_user_id=gap.acknowledged_by_user_id,
         )
         for gap in gaps
     ]
@@ -496,9 +504,161 @@ async def get_metrics_gaps(
             example_code=gap.example_code,
             pr_status=gap.pr_status.value,
             acknowledged=gap.acknowledged,
+            acknowledged_at=gap.acknowledged_at,
+            acknowledged_by_user_id=gap.acknowledged_by_user_id,
         )
         for gap in gaps
     ]
+
+
+# ========== Acknowledge Gap Endpoints ==========
+
+
+@router.post(
+    "/reviews/{review_id}/logging-gaps/{gap_id}/acknowledge",
+    response_model=LoggingGapResponse,
+)
+async def acknowledge_logging_gap(
+    review_id: str,
+    gap_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Acknowledge a logging gap.
+
+    Marks the gap as acknowledged by the current user with timestamp.
+
+    Args:
+        review_id: The review ID
+        gap_id: The logging gap ID
+
+    Returns:
+        Updated LoggingGapResponse
+    """
+    # Verify review exists
+    review = await db.get(ServiceReview, review_id)
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Review {review_id} not found",
+        )
+
+    # Fetch the gap
+    gap = await db.get(ReviewLoggingGap, gap_id)
+    if not gap:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Logging gap {gap_id} not found",
+        )
+
+    # Verify gap belongs to this review
+    if str(gap.review_id) != review_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Logging gap {gap_id} does not belong to review {review_id}",
+        )
+
+    # Update acknowledgment fields
+    gap.acknowledged = True
+    gap.acknowledged_at = datetime.now(timezone.utc)
+    gap.acknowledged_by_user_id = current_user.id
+
+    await db.commit()
+    await db.refresh(gap)
+
+    logger.info(
+        f"Logging gap {gap_id} acknowledged by user {current_user.id} for review {review_id}"
+    )
+
+    return LoggingGapResponse(
+        id=gap.id,
+        gap_description=gap.gap_description,
+        gap_category=gap.gap_category,
+        priority=gap.priority.value,
+        affected_files=gap.affected_files,
+        affected_functions=gap.affected_functions,
+        suggested_log_statement=gap.suggested_log_statement,
+        rationale=gap.rationale,
+        pr_status=gap.pr_status.value,
+        acknowledged=gap.acknowledged,
+        acknowledged_at=gap.acknowledged_at,
+        acknowledged_by_user_id=gap.acknowledged_by_user_id,
+    )
+
+
+@router.post(
+    "/reviews/{review_id}/metrics-gaps/{gap_id}/acknowledge",
+    response_model=MetricsGapResponse,
+)
+async def acknowledge_metrics_gap(
+    review_id: str,
+    gap_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """
+    Acknowledge a metrics gap.
+
+    Marks the gap as acknowledged by the current user with timestamp.
+
+    Args:
+        review_id: The review ID
+        gap_id: The metrics gap ID
+
+    Returns:
+        Updated MetricsGapResponse
+    """
+    # Verify review exists
+    review = await db.get(ServiceReview, review_id)
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Review {review_id} not found",
+        )
+
+    # Fetch the gap
+    gap = await db.get(ReviewMetricsGap, gap_id)
+    if not gap:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Metrics gap {gap_id} not found",
+        )
+
+    # Verify gap belongs to this review
+    if str(gap.review_id) != review_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Metrics gap {gap_id} does not belong to review {review_id}",
+        )
+
+    # Update acknowledgment fields
+    gap.acknowledged = True
+    gap.acknowledged_at = datetime.now(timezone.utc)
+    gap.acknowledged_by_user_id = current_user.id
+
+    await db.commit()
+    await db.refresh(gap)
+
+    logger.info(
+        f"Metrics gap {gap_id} acknowledged by user {current_user.id} for review {review_id}"
+    )
+
+    return MetricsGapResponse(
+        id=gap.id,
+        gap_description=gap.gap_description,
+        gap_category=gap.gap_category,
+        metric_type=gap.metric_type,
+        priority=gap.priority.value,
+        affected_components=gap.affected_components,
+        suggested_metric_names=gap.suggested_metric_names,
+        implementation_guide=gap.implementation_guide,
+        example_code=gap.example_code,
+        pr_status=gap.pr_status.value,
+        acknowledged=gap.acknowledged,
+        acknowledged_at=gap.acknowledged_at,
+        acknowledged_by_user_id=gap.acknowledged_by_user_id,
+    )
 
 
 @router.get(
@@ -974,3 +1134,50 @@ async def update_review_schedule(
         last_review_status=schedule.last_review_status,
         consecutive_failures=schedule.consecutive_failures,
     )
+
+
+# ========== Scheduler Endpoint (Called by External Cron) ==========
+
+
+@router.post("/scheduler/run")
+async def run_health_review_scheduler(
+    _: bool = Depends(verify_scheduler_token),
+):
+    """
+    Trigger the health review scheduler to check for and process due reviews.
+
+    This endpoint is called by an external scheduler (GitHub Actions cron).
+    It checks all ReviewSchedule records where next_scheduled_at <= now()
+    and triggers health reviews for those services.
+
+    Authentication: Requires X-Scheduler-Token header.
+
+    Returns:
+        Dict with counts: triggered, skipped, failed
+    """
+    logger.info("Health review scheduler triggered via API")
+
+    try:
+        results = await health_review_scheduler.check_and_trigger_reviews()
+
+        logger.info(
+            f"Health review scheduler completed: "
+            f"{results['triggered']} triggered, "
+            f"{results['skipped']} skipped, "
+            f"{results['failed']} failed"
+        )
+
+        return {
+            "success": True,
+            "triggered": results["triggered"],
+            "skipped": results["skipped"],
+            "failed": results["failed"],
+            "message": f"Processed {results['triggered']} reviews",
+        }
+
+    except Exception as e:
+        logger.exception(f"Health review scheduler failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Scheduler failed: {str(e)}",
+        )

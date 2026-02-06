@@ -239,10 +239,12 @@ class TestServiceServiceCreate:
     """Tests for service creation."""
 
     @pytest.mark.asyncio
+    @patch("app.workspace.client_workspace_services.service_service.publish_health_review_job")
     @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_create_service_success(
         self,
         mock_limit_service,
+        mock_publish_health_review,
         service_service,
         mock_db,
         sample_membership,
@@ -251,6 +253,9 @@ class TestServiceServiceCreate:
         """Should successfully create a service."""
         # Mock limit_service.enforce_service_limit to do nothing (allows creation)
         mock_limit_service.enforce_service_limit = AsyncMock()
+
+        # Mock SQS publish for health review
+        mock_publish_health_review.return_value = None
 
         # Mock owner verification
         owner_result = MagicMock()
@@ -264,10 +269,15 @@ class TestServiceServiceCreate:
         github_result = MagicMock()
         github_result.scalars.return_value.all.return_value = []
 
+        # Mock service count query for billing update
+        count_result = MagicMock()
+        count_result.scalar.return_value = 1
+
         mock_db.execute.side_effect = [
             owner_result,
             unique_result,
             github_result,
+            count_result,
         ]
 
         # Create service
@@ -281,8 +291,10 @@ class TestServiceServiceCreate:
         )
 
         assert result.name == "api-gateway"
-        mock_db.add.assert_called_once()
-        mock_db.commit.assert_called_once()
+        # Service creation now adds: Service, ReviewSchedule, and initial ServiceReview
+        assert mock_db.add.call_count == 3
+        # Commits: 1) Service + ReviewSchedule, 2) Initial ServiceReview
+        assert mock_db.commit.call_count == 2
         mock_limit_service.enforce_service_limit.assert_called_once()
 
     @pytest.mark.asyncio

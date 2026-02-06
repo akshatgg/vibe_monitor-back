@@ -13,8 +13,6 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
 from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
-from app.engagement.service import engagement_service
-from app.health_review_system.scheduler.service import health_review_scheduler
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
 from app.models import Job, JobSource, JobStatus, TurnStatus
@@ -319,132 +317,15 @@ class RCAOrchestratorWorker(BaseWorker):
         Initialize the RCAOrchestratorWorker and set its worker name to "rca_orchestrator".
         """
         super().__init__("rca_orchestrator")
-        self.scheduler_task = None
-        self.health_review_scheduler_task = None
-        self._last_report_date = None  # Track last report date to avoid duplicates
         logger.info("RCA Orchestrator Worker initialized with AI agent")
 
     async def start(self):
-        """Start the SQS worker, engagement scheduler, and health review scheduler."""
+        """Start the SQS worker."""
         await super().start()
-        self.scheduler_task = asyncio.create_task(self._run_engagement_scheduler())
-        logger.info("Engagement scheduler started (6 AM IST daily)")
-
-        if settings.HEALTH_REVIEW_SCHEDULER_ENABLED:
-            self.health_review_scheduler_task = asyncio.create_task(
-                self._run_health_review_scheduler()
-            )
-            logger.info(
-                f"Health review scheduler started (checking every {settings.HEALTH_REVIEW_CHECK_INTERVAL_MINUTES} minutes)"
-            )
 
     async def stop(self):
-        """Stop the SQS worker, engagement scheduler, and health review scheduler."""
-        if self.scheduler_task:
-            self.scheduler_task.cancel()
-            try:
-                await self.scheduler_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("Engagement scheduler stopped")
-
-        if self.health_review_scheduler_task:
-            self.health_review_scheduler_task.cancel()
-            try:
-                await self.health_review_scheduler_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("Health review scheduler stopped")
-
+        """Stop the SQS worker."""
         await super().stop()
-
-    async def _run_engagement_scheduler(self):
-        """
-        Background task that sends daily engagement report.
-
-        Checks every minute if it's time to send the report.
-        Time is configured via ENGAGEMENT_REPORT_HOUR_UTC and ENGAGEMENT_REPORT_MINUTE_UTC.
-        """
-        target_hour_utc = settings.ENGAGEMENT_REPORT_HOUR_UTC
-        target_minute_utc = settings.ENGAGEMENT_REPORT_MINUTE_UTC
-
-        while self.running:
-            try:
-                now = datetime.now(timezone.utc)
-                today = now.date()
-
-                # Check if it's 6 AM IST (00:30 UTC) and we haven't sent today
-                if (
-                    now.hour == target_hour_utc
-                    and now.minute == target_minute_utc
-                    and self._last_report_date != today
-                ):
-                    logger.info("Triggering daily engagement report...")
-                    await self._send_engagement_report()
-                    self._last_report_date = today
-
-                # Sleep for 60 seconds before next check
-                await asyncio.sleep(60)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.exception(f"Error in engagement scheduler: {e}")
-                await asyncio.sleep(60)
-
-    async def _send_engagement_report(self):
-        """Send the daily engagement report to Slack."""
-        try:
-            async with AsyncSessionLocal() as db:
-                (
-                    report,
-                    slack_sent,
-                    error_msg,
-                ) = await engagement_service.send_daily_report(db)
-
-                if slack_sent:
-                    logger.info(
-                        f"Daily engagement report sent. "
-                        f"Signups: {report.signups.last_1_day} (1d), "
-                        f"Active workspaces: {report.active_workspaces.last_1_day} (1d)"
-                    )
-                else:
-                    logger.error(f"Failed to send engagement report: {error_msg}")
-
-        except Exception as e:
-            logger.exception(f"Error sending engagement report: {e}")
-
-    async def _run_health_review_scheduler(self):
-        """
-        Background task that checks for due health reviews and triggers them.
-
-        Runs at the configured interval (default: every 60 minutes).
-        Reviews are scheduled via ReviewSchedule model with next_scheduled_at field.
-        """
-        check_interval_seconds = settings.HEALTH_REVIEW_CHECK_INTERVAL_MINUTES * 60
-
-        while self.running:
-            try:
-                logger.info("Health review scheduler: Starting check cycle...")
-                results = await health_review_scheduler.check_and_trigger_reviews()
-
-                if results["triggered"] > 0 or results["failed"] > 0:
-                    logger.info(
-                        f"Health review scheduler cycle complete: "
-                        f"{results['triggered']} triggered, "
-                        f"{results['skipped']} skipped, "
-                        f"{results['failed']} failed"
-                    )
-
-                # Sleep until next check
-                await asyncio.sleep(check_interval_seconds)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.exception(f"Error in health review scheduler: {e}")
-                # On error, wait before retrying
-                await asyncio.sleep(check_interval_seconds)
 
     async def process_message(self, message_body: dict):
         """
