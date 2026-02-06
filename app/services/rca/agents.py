@@ -176,7 +176,6 @@ def _build_conversational_prompt() -> ChatPromptTemplate:
         "**ALL tools support environment-specific commits:**\n"
         "- get_repository_commits_tool(repo_name='...', commit_sha='<deployed_sha>') - shows commits UP TO deployment\n"
         "- read_repository_file_tool(repo_name='...', file_path='...', commit_sha='<deployed_sha>') - reads file from deployment\n"
-        "- download_file_tool(repo_name='...', file_path='...', ref='<deployed_sha>') - downloads file from deployment\n"
         "- get_repository_tree_tool(repo_name='...', expression='<deployed_sha>:path/') - explores files from deployment\n\n"
         "**Examples:**\n"
         "Context shows: 'Deployed commits: test: Vibe-Monitor/marketplace@ab2f9b1'\n"
@@ -354,7 +353,7 @@ async def hypothesis_agent(state: RCAState, llm: BaseChatModel) -> RCAState:
 
     prompt = (
         "Generate 5-8 distinct RCA hypotheses for this incident.\n"
-        "Return ONLY valid JSON in this exact format:\n"
+        "Respond with plain text in this exact structure:\n"
         '{ "hypotheses": [ {"hypothesis": "..."} ] }\n'
         "Do not include markdown.\n\n"
         f"Task: {state.get('task')}\n"
@@ -436,12 +435,9 @@ def _build_evidence_prompt() -> ChatPromptTemplate:
         "\n"
         "**CRITICAL TOOL USAGE RULES:**\n"
         "- ONLY call tools from your available tools list\n"
-        "- NEVER call non-existent tools like 'json', 'parse', 'format', etc.\n"
-        "- Tool responses are already in JSON format - just read them directly\n"
-        "- When you finish gathering evidence, return ONLY valid JSON (no markdown)\n"
-        "- Do NOT try to call a 'json' tool - there is no such tool\n"
+        "- Tool responses are already structured data - just read them directly\n"
         "\n"
-        "Return ONLY valid JSON in this exact format:\n"
+        "When you are done gathering evidence, respond with your final answer as plain text (no markdown code blocks) in this exact structure:\n"
         '{ "evidence_board": { "global": { "notes": "..." }, "by_hypothesis": [ { "hypothesis": "...", "evidence": { "signals": [], "code": [], "logs": [], "metrics": [] } } ] } }'
     )
     return ChatPromptTemplate.from_messages(
@@ -486,24 +482,25 @@ def _format_evidence_input(state: RCAState, execution_context: ExecutionContext)
         "\n"
         "**⚠️ CRITICAL: SERVICE NAMES vs REPOSITORY NAMES:**\n"
         "- For LOG tools (fetch_logs_tool, fetch_error_logs_tool): Use SERVICE NAME (e.g., 'marketplace-service')\n"
-        "- For GITHUB tools (download_file_tool, get_repository_commits_tool, etc.): Use REPOSITORY NAME from the mapping above!\n"
+        "- For GITHUB tools (read_repository_file_tool, get_repository_commits_tool, etc.): Use REPOSITORY NAME from the mapping above!\n"
         f"- Example: If investigating '{service_name}', check mapping above to find the repo name\n"
-        "- WRONG: download_file_tool(repo_name='service-name') ❌\n"
-        "- RIGHT: download_file_tool(repo_name='repo-name') ✅ (if mapping shows service-name→repo-name)\n"
+        "- WRONG: read_repository_file_tool(repo_name='service-name') ❌\n"
+        "- RIGHT: read_repository_file_tool(repo_name='repo-name') ✅ (if mapping shows service-name→repo-name)\n"
         "\n"
         "**CRITICAL INSTRUCTIONS:**\n"
         "- Call tools to gather evidence for each hypothesis\n"
         "- **IF OBSERVABILITY TOOLS FAIL** (Grafana/Loki unreachable): IMMEDIATELY fall back to code reading:\n"
         "  1. Use `search_code_tool` to find the service repository\n"
-        "  2. Use `download_file_tool` to read the main file (app.py, server.js, main.go, etc.)\n"
-        "  3. Prefer the `parsed` and `interesting_lines` fields from the tool response over reading full file content\n"
+        "  2. Use `read_repository_file_tool` to read the main file (app.py, server.js, main.go, etc.)\n"
+        "  3. Prefer the `parsed` field from the tool response over reading full file content\n"
         "  4. Only call `parse_code_tool(code=..., language=...)` if the tool response did not include `parsed`\n"
-        "  5. Code often contains the root cause (latency injections, inefficient queries, etc.)\n"
+        "  5. Read the code carefully and reason about what could cause the reported issue\n"
         "- If a tool fails (e.g., 'All connection attempts failed'), note it and try other tools OR read code\n"
-        "- After gathering evidence, return ONLY valid JSON with an `evidence_board`\n"
-        "- DO NOT try to call a 'json' tool - there is no such tool\n"
-        "- Tool responses are already JSON - just read them directly\n"
-        "- If a tool requires a label key or metric name, discover it first using get_labels_tool or get_label_values_tool\n"
+        "- After gathering evidence, respond with your final answer as plain text containing an `evidence_board`\n"
+        "- Tool responses are already structured data - just read them directly\n"
+        "- Log tools auto-discover the correct label key — just provide the service name\n"
+        "- NEVER call the same tool with the same arguments more than once — if you already got a result, use it\n"
+        "- If a file read returns a truncated excerpt, use the `parsed` field (functions/classes) instead of re-reading\n"
     )
 
 
@@ -557,12 +554,11 @@ async def evidence_agent(
             "Prefer deterministic evidence over assumptions.\n"
             "\n"
             "**CRITICAL TOOL USAGE RULES:**\n"
-            f"- Your available tools are: {tool_list_text}\n"
-            "- ONLY call tools from this list - NEVER call tools that are not listed\n"
-            "- There is NO 'json' tool, NO 'parse' tool, NO 'format' tool in your available tools\n"
-            "- Tool responses are already in JSON format - just read them directly\n"
-            "- When you finish gathering evidence, return ONLY valid JSON (no markdown)\n"
-            "- Do NOT try to call a 'json' tool - there is no such tool\n"
+            f"- Your ONLY available tools are: {tool_list_text}\n"
+            "- ONLY call tools from this list above - calling any other tool will cause an error\n"
+            "- NEVER repeat a tool call with the same arguments — reuse previous results\n"
+            "- Tool responses are already structured data - just read them directly\n"
+            "- When done, respond with your final answer as plain text (not a tool call)\n"
         )
         prompt_template = ChatPromptTemplate.from_messages(
             [
@@ -579,67 +575,89 @@ async def evidence_agent(
         builder = builder.with_callbacks(callbacks)
     executor = builder.build()
 
-    try:
-        result = await executor.ainvoke(
-            {"input": _format_evidence_input(state, execution_context)}
-        )
-        output = result.get("output") if isinstance(result, dict) else None
-        payload = _extract_json(str(output or ""))
-        evidence_board = (
-            payload.get("evidence_board") if isinstance(payload, dict) else None
-        )
-        if (
-            evidence_board
-            and isinstance(evidence_board, dict)
-            and ("global" in evidence_board or "by_hypothesis" in evidence_board)
-        ):
-            state["evidence_board"] = evidence_board
-        else:
+    evidence_input = _format_evidence_input(state, execution_context)
+    max_retries = settings.RCA_EVIDENCE_AGENT_MAX_RETRIES
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            result = await executor.ainvoke({"input": evidence_input})
+            output = result.get("output") if isinstance(result, dict) else None
+            payload = _extract_json(str(output or ""))
+            evidence_board = (
+                payload.get("evidence_board") if isinstance(payload, dict) else None
+            )
+            if (
+                evidence_board
+                and isinstance(evidence_board, dict)
+                and ("global" in evidence_board or "by_hypothesis" in evidence_board)
+            ):
+                state["evidence_board"] = evidence_board
+            else:
+                steps = (
+                    result.get("intermediate_steps")
+                    if isinstance(result, dict)
+                    else None
+                )
+                state["evidence_board"] = _build_minimal_evidence_board_from_steps(
+                    state=state, steps=steps
+                )
+
+            by_hyp = None
+            if isinstance(evidence_board, dict):
+                by_hyp = evidence_board.get("by_hypothesis")
+            if isinstance(by_hyp, list):
+                hyp_map: Dict[str, Dict[str, Any]] = {}
+                for item in by_hyp:
+                    if not isinstance(item, dict):
+                        continue
+                    h = item.get("hypothesis")
+                    e = item.get("evidence")
+                    if isinstance(h, str) and isinstance(e, dict):
+                        hyp_map[h.strip()] = e
+                for h in state.get("hypotheses") or []:
+                    key = (h.get("hypothesis") or "").strip()
+                    if key and key in hyp_map:
+                        h["evidence"] = hyp_map[key]
+
             steps = (
-                result.get("intermediate_steps") if isinstance(result, dict) else None
+                result.get("intermediate_steps")
+                if isinstance(result, dict)
+                else None
             )
-            state["evidence_board"] = _build_minimal_evidence_board_from_steps(
-                state=state, steps=steps
+            _add_trace(
+                state,
+                "evidence",
+                {
+                    "iteration": state["iteration"],
+                    "tool_steps": len(steps) if isinstance(steps, list) else 0,
+                    "has_evidence_board": bool(state.get("evidence_board")),
+                },
             )
+            return state
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+            # Retry on tool hallucination errors (LLM calling non-existent tools)
+            if attempt < max_retries - 1 and "tool call validation failed" in error_msg:
+                logger.warning(
+                    f"Evidence agent attempted to call a non-existent tool "
+                    f"(attempt {attempt + 1}/{max_retries}), retrying..."
+                )
+                continue
+            break
 
-        by_hyp = None
-        if isinstance(evidence_board, dict):
-            by_hyp = evidence_board.get("by_hypothesis")
-        if isinstance(by_hyp, list):
-            hyp_map: Dict[str, Dict[str, Any]] = {}
-            for item in by_hyp:
-                if not isinstance(item, dict):
-                    continue
-                h = item.get("hypothesis")
-                e = item.get("evidence")
-                if isinstance(h, str) and isinstance(e, dict):
-                    hyp_map[h.strip()] = e
-            for h in state.get("hypotheses") or []:
-                key = (h.get("hypothesis") or "").strip()
-                if key and key in hyp_map:
-                    h["evidence"] = hyp_map[key]
-
-        steps = result.get("intermediate_steps") if isinstance(result, dict) else None
-        _add_trace(
-            state,
-            "evidence",
-            {
-                "iteration": state["iteration"],
-                "tool_steps": len(steps) if isinstance(steps, list) else 0,
-                "has_evidence_board": bool(state.get("evidence_board")),
-            },
-        )
-        return state
-    except Exception as e:
-        logger.exception("Evidence gathering failed")
-        state["evidence_board"] = {
-            "global": {"note": "Evidence gathering failed due to an internal error."},
-            "by_hypothesis": [],
-        }
-        _add_trace(
-            state, "evidence", {"iteration": state["iteration"], "error": str(e)}
-        )
-        return state
+    logger.exception("Evidence gathering failed")
+    state["evidence_board"] = {
+        "global": {"note": "Evidence gathering failed due to an internal error."},
+        "by_hypothesis": [],
+    }
+    _add_trace(
+        state,
+        "evidence",
+        {"iteration": state["iteration"], "error": str(last_error)},
+    )
+    return state
 
 
 def _build_minimal_evidence_board_from_steps(
@@ -691,43 +709,6 @@ def _build_minimal_evidence_board_from_steps(
             if not isinstance(parsed_observation, dict):
                 continue
 
-            interesting_lines = parsed_observation.get("interesting_lines")
-            parsed_block = parsed_observation.get("parsed")
-
-            hits: list[dict] = []
-            if isinstance(interesting_lines, list):
-                hits.extend([x for x in interesting_lines if isinstance(x, dict)])
-            if isinstance(parsed_block, dict):
-                findings = parsed_block.get("findings")
-                if isinstance(findings, list):
-                    hits.extend([x for x in findings if isinstance(x, dict)])
-
-            if not hits:
-                continue
-
-            bucket = "signals"
-            if isinstance(parsed_observation.get("file_path"), str) or isinstance(
-                parsed_observation.get("excerpt"), str
-            ):
-                bucket = "code"
-            elif "log" in str(tool).lower():
-                bucket = "logs"
-            elif "metric" in str(tool).lower():
-                bucket = "metrics"
-
-            for hit in hits[:30]:
-                signal = hit.get("type")
-                if not isinstance(signal, str) or not signal:
-                    continue
-                entry = {
-                    "source": tool,
-                    "signal": signal,
-                    "line": hit.get("line"),
-                    "text": hit.get("text"),
-                }
-                for row in by_hypothesis:
-                    row["evidence"][bucket].append(dict(entry))
-
     if not by_hypothesis:
         by_hypothesis = []
 
@@ -746,7 +727,7 @@ def _build_validation_messages(state: RCAState) -> List[Any]:
         "Validate each hypothesis using the evidence.\n"
         "For each hypothesis, choose ONE status: validated | rejected | needs_more_evidence.\n"
         "Provide a confidence integer 0-100, a brief rationale, and 1-3 concrete next steps.\n"
-        "Return ONLY valid JSON in this exact format:\n"
+        "Respond with plain text in this exact structure:\n"
         '{ "results": [ {"hypothesis": "...", "status": "validated", "confidence": 0, "rationale": "...", "next_steps": ["..."]} ] }\n'
         "Do not include markdown.\n\n"
         f"Task: {state.get('task')}\n"

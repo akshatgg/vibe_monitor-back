@@ -10,10 +10,12 @@ from typing import Dict, Optional
 import httpx
 from sqlalchemy import select
 
+from ..core.config import settings
 from ..core.database import AsyncSessionLocal
 from ..models import GrafanaIntegration
 from ..utils.retry_decorator import retry_external_api
 from ..utils.token_processor import token_processor
+from ..utils.ttl_cache import TTLCache, _MISSING
 from .models import (
     LabelResponse,
     LogQueryData,
@@ -25,6 +27,21 @@ from .models import (
 from .utils import get_loki_uid_cached
 
 logger = logging.getLogger(__name__)
+
+# Cache for auto-discovered service label keys: {workspace_id: label_key}
+_label_key_cache: TTLCache = TTLCache(
+    ttl_seconds=settings.LOKI_LABEL_CACHE_TTL_SECONDS,
+    maxsize=settings.LOKI_LABEL_CACHE_MAXSIZE,
+)
+
+# Cache for resolved service names: {(workspace_id, service_name): resolved_loki_value}
+_resolved_name_cache: TTLCache = TTLCache(
+    ttl_seconds=settings.LOKI_RESOLVED_NAME_CACHE_TTL_SECONDS,
+    maxsize=settings.LOKI_RESOLVED_NAME_CACHE_MAXSIZE,
+)
+
+# Common label keys used by different Loki setups, ordered by prevalence
+_SERVICE_LABEL_CANDIDATES = ["service_name", "service", "job", "app", "container_name"]
 
 
 class LogsService:
@@ -87,6 +104,101 @@ class LogsService:
         if not pattern:
             return pattern
         return re.escape(pattern)
+
+    async def _resolve_service_label_key(
+        self, workspace_id: str, service_name: Optional[str] = None
+    ) -> tuple[str, Optional[str]]:
+        """
+        Auto-discover the correct Loki label key and resolve the actual Loki service value.
+
+        Checks common label candidates and finds which one contains the service
+        via exact match.
+
+        Results are cached per workspace to avoid repeated API calls.
+
+        Returns:
+            Tuple of (label_key, resolved_service_name).
+            resolved_service_name is the actual Loki label value to use in queries,
+            or None if no match was found (callers should use original service_name).
+        """
+        cache_key = (workspace_id, service_name)
+
+        # Check resolved name cache first (per service_name)
+        resolved = _resolved_name_cache.get(cache_key, _MISSING)
+        label_key = _label_key_cache.get(workspace_id, _MISSING)
+        if resolved is not _MISSING and label_key is not _MISSING:
+            return label_key, resolved
+
+        # If we have a cached label key but no resolved name for this service
+        label_key = _label_key_cache.get(workspace_id, _MISSING)
+        if label_key is not _MISSING and service_name:
+            values_response = await self.get_label_values(workspace_id, label_key)
+            resolved = None
+            if values_response.status == "success" and values_response.data:
+                if service_name in values_response.data:
+                    resolved = service_name
+            _resolved_name_cache.set(cache_key, resolved)
+            return label_key, resolved
+
+        label_key = _label_key_cache.get(workspace_id, _MISSING)
+        if label_key is not _MISSING:
+            return label_key, None
+
+        try:
+            # Get available labels from Loki
+            label_response = await self.get_all_labels(workspace_id)
+            if label_response.status != "success" or not label_response.data:
+                logger.warning(
+                    f"Could not discover labels for workspace {workspace_id}, "
+                    "falling back to 'job'"
+                )
+                return "job", None
+
+            available_labels = set(label_response.data)
+
+            # Find which candidate labels exist in this Loki instance
+            matching_candidates = [
+                c for c in _SERVICE_LABEL_CANDIDATES if c in available_labels
+            ]
+
+            if not matching_candidates:
+                logger.warning(
+                    f"No common service label found in workspace {workspace_id}, "
+                    f"available labels: {label_response.data}, falling back to 'job'"
+                )
+                return "job", None
+
+            # If we have a service name, check which label actually contains it
+            if service_name:
+                for candidate in matching_candidates:
+                    values_response = await self.get_label_values(
+                        workspace_id, candidate
+                    )
+                    if values_response.status != "success" or not values_response.data:
+                        continue
+
+                    if service_name in values_response.data:
+                        logger.info(
+                            f"Auto-discovered service label key for workspace "
+                            f"{workspace_id}: '{candidate}' (exact match '{service_name}')"
+                        )
+                        _label_key_cache.set(workspace_id, candidate)
+                        _resolved_name_cache.set(cache_key, service_name)
+                        return candidate, service_name
+
+            # No match found — use the first available candidate
+            best_candidate = matching_candidates[0]
+            logger.info(
+                f"Auto-discovered service label key for workspace "
+                f"{workspace_id}: '{best_candidate}' (best candidate, no service match)"
+            )
+            _label_key_cache.set(workspace_id, best_candidate)
+            _resolved_name_cache.set(cache_key, None)
+            return best_candidate, None
+
+        except Exception as e:
+            logger.error(f"Error auto-discovering service label key: {e}")
+            return "job", None
 
     def _format_time(self, time_value: str) -> str:
         """
@@ -184,6 +296,7 @@ class LogsService:
             escaped_search = self._escape_logql_value(search_term)
             query += f' |= "{escaped_search}"'
 
+        logger.debug(f"Built LogQL query: {query}")
         return query
 
     async def _query_loki(
@@ -273,8 +386,14 @@ class LogsService:
         service_label_key: Optional[str] = None,
     ) -> LogQueryResponse:
         """Get logs for a specific service"""
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
 
@@ -300,9 +419,16 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         # Build query with case-insensitive error filter
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
         logql_query += ' |~ "(?i)error"'
@@ -330,8 +456,15 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             search_term=search_term,
             service_label_key=service_label_key,
         )
@@ -428,9 +561,16 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         # Build query with warning filter (case-insensitive)
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
         logql_query += ' |~ "(?i)(warn|warning)"'
@@ -457,9 +597,16 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         # Build query with info filter (case-insensitive)
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
         logql_query += ' |~ "(?i)info"'
@@ -486,9 +633,16 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         # Build query with debug filter (case-insensitive)
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
         logql_query += ' |~ "(?i)debug"'
@@ -516,9 +670,16 @@ class LogsService:
         if time_range is None:
             time_range = TimeRange(start="now-1h", end="now")
 
+        resolved_name = service_name
+        if not service_label_key:
+            service_label_key, resolved_name = await self._resolve_service_label_key(
+                workspace_id, service_name
+            )
+            resolved_name = resolved_name or service_name
+
         # Build query with custom log level filter (case-insensitive)
         logql_query = self._build_logql_query(
-            service_name=service_name,
+            service_name=resolved_name,
             service_label_key=service_label_key,
         )
         # Escape log_level to prevent regex injection and ReDoS attacks

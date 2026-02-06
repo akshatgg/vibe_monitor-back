@@ -54,7 +54,6 @@ class ToolRegistry:
             search_datadog_logs_tool,
         )
         from app.services.rca.tools.github.tools import (
-            download_file_tool,
             get_branch_recent_commits_tool,
             get_repository_commits_tool,
             get_repository_metadata_tool,
@@ -70,9 +69,6 @@ class ToolRegistry:
             fetch_logs_tool,
             fetch_memory_metrics_tool,
             fetch_metrics_tool,
-            get_datasources_tool,
-            get_label_values_tool,
-            get_labels_tool,
         )
         from app.services.rca.tools.newrelic.tools import (
             get_newrelic_infra_metrics_tool,
@@ -94,17 +90,11 @@ class ToolRegistry:
                 fetch_http_latency_tool,
                 fetch_metrics_tool,
             ],
-            Capability.DATASOURCES: [
-                get_datasources_tool,
-                get_labels_tool,
-                get_label_values_tool,
-            ],
             Capability.CODE_SEARCH: [
                 search_code_tool,
             ],
             Capability.CODE_READ: [
                 read_repository_file_tool,
-                download_file_tool,
                 parse_code_tool,
             ],
             Capability.REPOSITORY_INFO: [
@@ -311,6 +301,13 @@ class AgentExecutorBuilder:
             prompt=self.prompt,
         )
 
+        # Build tool name list for error recovery guidance
+        tool_names = [t.name for t in tools_with_workspace]
+        parsing_error_msg = (
+            "Tool call failed. Call tools directly by name without any prefix. "
+            f"Available tools: {', '.join(tool_names)}"
+        )
+
         # Create executor
         executor = AgentExecutor(
             agent=agent,
@@ -318,7 +315,7 @@ class AgentExecutorBuilder:
             verbose=True,
             max_iterations=self._max_iterations,
             max_execution_time=self._max_execution_time,
-            handle_parsing_errors=True,
+            handle_parsing_errors=parsing_error_msg,
             return_intermediate_steps=True,
             callbacks=self._callbacks,
         )

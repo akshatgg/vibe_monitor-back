@@ -310,7 +310,6 @@ class SlackProgressCallback(AsyncCallbackHandler):
                 "search_code_tool",
                 "get_repository_commits_tool",
                 "list_pull_requests_tool",
-                "download_file_tool",
                 "get_repository_tree_tool",
                 "get_branch_recent_commits_tool",
                 "get_repository_metadata_tool",

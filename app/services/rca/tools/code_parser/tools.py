@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 
 from langchain_core.tools import tool
 
@@ -56,138 +55,10 @@ def parse_code(code: str, language: str = "python") -> dict:
             "error": f"Code too large ({len(code)} bytes, max {MAX_CODE_SIZE})",
             "code_length": len(code),
             "line_count": len(code.splitlines()),
-            "findings": _find_interesting_lines(code[:MAX_CODE_SIZE]),
         }
     if language == "python":
         return _parse_python(code)
     return _parse_with_tree_sitter_or_fallback(code=code, language=language)
-
-
-_INTERESTING_LINE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (
-        re.compile(r"\bTraceback \(most recent call last\):", re.IGNORECASE),
-        "stacktrace",
-    ),
-    (
-        re.compile(
-            r"\b(logger|log|console)\.(exception|error|warn|warning|critical)\b"
-        ),
-        "log",
-    ),
-    (re.compile(r"\braise\s+\w+|\bthrow\s+new\b|\bpanic\s*\(", re.IGNORECASE), "raise"),
-    (
-        re.compile(
-            r"\bHTTPException\b|\bstatus_code\s*=\s*(4\d\d|5\d\d)\b|\bHTTP/\d\.\d\b",
-            re.IGNORECASE,
-        ),
-        "http_error",
-    ),
-    (
-        re.compile(
-            r"\brate\s*limit\b|\bthrottl(e|ing)\b|\btoo many requests\b|\b429\b",
-            re.IGNORECASE,
-        ),
-        "rate_limit",
-    ),
-    (re.compile(r"\btimeout\b|\bdeadline\b|\bETIMEDOUT\b", re.IGNORECASE), "timeout"),
-    (
-        re.compile(
-            r"\bretry\b|\bbackoff\b|\bexponential\b|\btenacity\b", re.IGNORECASE
-        ),
-        "retry",
-    ),
-    (
-        re.compile(r"\bcircuit\s*breaker\b|\bbreaker\b|\btrip(ped)?\b", re.IGNORECASE),
-        "circuit_breaker",
-    ),
-    (
-        re.compile(
-            r"\bunauthorized\b|\bforbidden\b|\bpermission\b|\bauth(orization)?\b",
-            re.IGNORECASE,
-        ),
-        "auth",
-    ),
-    (
-        re.compile(r"\bdeadlock\b|\bpool\b.*\b(exhaust|full)\b", re.IGNORECASE),
-        "db_pool",
-    ),
-    (
-        re.compile(
-            r"\bconnection\b.*\b(refused|reset)\b|\bECONNRESET\b|\bECONNREFUSED\b",
-            re.IGNORECASE,
-        ),
-        "network",
-    ),
-    (re.compile(r"\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bJOIN\b"), "sql"),
-    (
-        re.compile(
-            r"\bhttpx\b|\brequests\b|\baxios\b|\bfetch\s*\(",
-            re.IGNORECASE,
-        ),
-        "http_client",
-    ),
-    (
-        re.compile(
-            r"\bgrpc\b|\bkafka\b|\brabbitmq\b|\bsqs\b|\bpubsub\b",
-            re.IGNORECASE,
-        ),
-        "messaging",
-    ),
-    (re.compile(r"\bos\.environ\b|\bgetenv\s*\(", re.IGNORECASE), "env"),
-    (
-        re.compile(
-            r"\bfeature[_-]?flag\b|\btoggle\b|\bexperiment\b|\benable(d)?\b.*\bflag\b",
-            re.IGNORECASE,
-        ),
-        "feature_flag",
-    ),
-    (
-        re.compile(
-            r"\b(alembic|migration)\b",
-            re.IGNORECASE,
-        ),
-        "migration",
-    ),
-    (
-        re.compile(
-            r"\b(sentry|prometheus|opentelemetry|otel|trace(id)?|span)\b",
-            re.IGNORECASE,
-        ),
-        "observability",
-    ),
-    (re.compile(r"\b(time\.sleep|asyncio\.sleep)\s*\(", re.IGNORECASE), "sleep"),
-    (
-        re.compile(
-            r"\b(delay|latency|slow|performance|perf)\b",
-            re.IGNORECASE,
-        ),
-        "performance",
-    ),
-    (re.compile(r"\b(SIMULATED|MOCK|FAKE|STUB)_[A-Z0-9_]+\b"), "simulation"),
-    (re.compile(r"\bTODO\b|\bFIXME\b|\bHACK\b"), "todo"),
-]
-
-
-def find_interesting_lines(code: str) -> list[dict]:
-    return _find_interesting_lines(code)
-
-
-def _find_interesting_lines(code: str) -> list[dict]:
-    hits: list[dict] = []
-    for idx, line in enumerate(code.splitlines(), 1):
-        for pattern, kind in _INTERESTING_LINE_PATTERNS:
-            if pattern.search(line):
-                hits.append(
-                    {
-                        "type": kind,
-                        "line": idx,
-                        "text": line.strip()[:300],
-                    }
-                )
-                if len(hits) >= 60:
-                    return hits
-                break
-    return hits
 
 
 def _parse_python(code: str) -> dict:
@@ -253,7 +124,6 @@ def _parse_python(code: str) -> dict:
                 "classes": classes,
                 "function_count": len(functions),
                 "class_count": len(classes),
-                "findings": _find_interesting_lines(code),
             }
         except SyntaxError as e:
             func_pattern = r"^\s*(?:async\s+)?def\s+(\w+)\s*\([^)]*\)\s*:"
@@ -284,7 +154,6 @@ def _parse_python(code: str) -> dict:
                 "function_count": len(functions),
                 "class_count": len(classes),
                 "note": "Extracted functions using regex due to syntax error",
-                "findings": _find_interesting_lines(code),
             }
     except ImportError:
         return _parse_with_tree_sitter_or_fallback(code=code, language="python")
@@ -301,7 +170,6 @@ def _parse_with_tree_sitter_or_fallback(code: str, language: str) -> dict:
                 "has_error": bool(getattr(root, "has_error", False)),
                 "parser": "tree_sitter",
                 "sexp": root.sexp()[:2000],
-                "findings": _find_interesting_lines(code),
             }
         except Exception as e:
             error_msg = f"tree-sitter parsing failed: {str(e)}"
@@ -319,5 +187,4 @@ def _parse_with_tree_sitter_or_fallback(code: str, language: str) -> dict:
         "error": error_msg,
         "code_length": len(code),
         "line_count": len(code.splitlines()),
-        "findings": _find_interesting_lines(code),
     }

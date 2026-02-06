@@ -27,15 +27,9 @@ class ToolFriendlyMessage(str, Enum):
     SEARCH_CODE = "Searching codebase..."
     GET_REPOSITORY_COMMITS = "Checking recent commits..."
     LIST_PULL_REQUESTS = "Reviewing pull requests..."
-    DOWNLOAD_FILE = "Downloading file..."
     GET_REPOSITORY_TREE = "Exploring repository structure..."
     GET_BRANCH_RECENT_COMMITS = "Checking branch commits..."
     GET_REPOSITORY_METADATA = "Fetching repository metadata..."
-
-    # Grafana datasource tools
-    GET_DATASOURCES = "Discovering datasources..."
-    GET_LABELS = "Discovering available labels..."
-    GET_LABEL_VALUES = "Fetching label values..."
 
     # CloudWatch tools
     LIST_CLOUDWATCH_LOG_GROUPS = "Listing CloudWatch log groups..."
@@ -79,14 +73,9 @@ TOOL_NAME_TO_MESSAGE = {
     "search_code_tool": ToolFriendlyMessage.SEARCH_CODE,
     "get_repository_commits_tool": ToolFriendlyMessage.GET_REPOSITORY_COMMITS,
     "list_pull_requests_tool": ToolFriendlyMessage.LIST_PULL_REQUESTS,
-    "download_file_tool": ToolFriendlyMessage.DOWNLOAD_FILE,
     "get_repository_tree_tool": ToolFriendlyMessage.GET_REPOSITORY_TREE,
     "get_branch_recent_commits_tool": ToolFriendlyMessage.GET_BRANCH_RECENT_COMMITS,
     "get_repository_metadata_tool": ToolFriendlyMessage.GET_REPOSITORY_METADATA,
-    # Grafana datasource tools
-    "get_datasources_tool": ToolFriendlyMessage.GET_DATASOURCES,
-    "get_labels_tool": ToolFriendlyMessage.GET_LABELS,
-    "get_label_values_tool": ToolFriendlyMessage.GET_LABEL_VALUES,
     # CloudWatch tools
     "list_cloudwatch_log_groups_tool": ToolFriendlyMessage.LIST_CLOUDWATCH_LOG_GROUPS,
     "filter_cloudwatch_log_events_tool": ToolFriendlyMessage.FILTER_CLOUDWATCH_LOG_EVENTS,

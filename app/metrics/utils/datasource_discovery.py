@@ -3,11 +3,10 @@ Datasource discovery utilities for Grafana
 Auto-discovers datasource UIDs from Grafana API
 """
 
-from typing import Dict
-
 import httpx
 
 from ...utils.retry_decorator import retry_external_api
+from ...utils.ttl_cache import TTLCache
 
 
 class DatasourceDiscovery:
@@ -67,7 +66,7 @@ class DatasourceDiscovery:
 
 
 # Singleton instance for caching
-_datasource_cache: Dict[str, str] = {}
+_datasource_cache: TTLCache = TTLCache(ttl_seconds=1800, maxsize=64)
 
 
 async def get_prometheus_uid_cached(grafana_url: str, api_token: str) -> str:
@@ -83,10 +82,11 @@ async def get_prometheus_uid_cached(grafana_url: str, api_token: str) -> str:
     Returns:
         Prometheus datasource UID
     """
-    if grafana_url in _datasource_cache:
-        return _datasource_cache[grafana_url]
+    cached = _datasource_cache.get(grafana_url)
+    if cached is not None:
+        return cached
 
     uid = await DatasourceDiscovery.get_prometheus_uid(grafana_url, api_token)
 
-    _datasource_cache[grafana_url] = uid
+    _datasource_cache.set(grafana_url, uid)
     return uid

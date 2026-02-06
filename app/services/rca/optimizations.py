@@ -177,50 +177,36 @@ async def extract_key_info_from_code(
 {code_to_analyze}
 
 ## YOUR TASK:
-**CRITICAL**: First, scan the code for sleep/delay statements. If you find ANY, that's the MOST IMPORTANT finding.
-
 Create a concise summary (2-4 sentences) that captures:
-1. **PERFORMANCE ISSUES FIRST**: If you find sleep(), time.sleep(), setTimeout(), delay(), wait(), or ANY blocking call, START your summary with "PERFORMANCE ISSUE: [exact code found]" (e.g., "PERFORMANCE ISSUE: time.sleep(5) found")
-2. **Main purpose**: What is this code's primary function? (e.g., "API endpoint handler", "service client", "authentication middleware")
-3. **Service dependencies**: What OTHER services does this code depend on? Extract ALL service names/endpoints it calls (look for HTTP requests, API calls, service URLs, function calls to other services)
-4. **External dependencies**: What external APIs, databases, or resources does it use? (database calls, third-party APIs, message queues)
+1. **Main purpose**: What is this code's primary function? (e.g., "API endpoint handler", "service client", "authentication middleware")
+2. **Service dependencies**: What OTHER services does this code depend on? Extract ALL service names/endpoints it calls (look for HTTP requests, API calls, service URLs, function calls to other services)
+3. **External dependencies**: What external APIs, databases, or resources does it use? (database calls, third-party APIs, message queues)
+4. **Potential issues**: Any error handling gaps, unusual patterns, or configuration that could cause problems
 
 ## ANALYSIS GUIDELINES:
-- **CRITICAL**: Extract ALL service dependencies (HTTP requests, API calls, gRPC calls, message queue consumers/producers)
+- Extract ALL service dependencies (HTTP requests, API calls, gRPC calls, message queue consumers/producers)
 - Identify HTTP methods used (GET, POST, PUT, DELETE) and endpoints
-- Look for service URLs in environment variables or configuration (e.g., AUTH_SERVICE_URL, MARKETPLACE_API)
+- Look for service URLs in environment variables or configuration
 - Check for import statements that reference other services
 - Identify database connections and queries
-- **CRITICAL - PERFORMANCE ISSUES**: You MUST identify and explicitly mention:
-  * sleep(), time.sleep(), Thread.sleep(), setTimeout(), delay(), wait(), asyncio.sleep()
-  * ANY artificial delays, hardcoded waits, or blocking calls
-  * Retry loops with delays
-  * Long-running loops or blocking operations
-  * If you find ANY sleep/delay/wait statement, you MUST include it in the summary with the exact duration (e.g., "time.sleep(5)" or "sleep(3 seconds)")
 - Note authentication/authorization calls
-- Identify timeout configurations
-- Note any hardcoded delays or rate limiting that could cause latency
+- Identify timeout configurations and error handling patterns
 
 ## OUTPUT FORMAT:
-Write 2-4 sentences (use more if you find performance issues):
+Write 2-4 sentences:
 - Sentence 1: Main purpose and which OTHER SERVICES it depends on (extract all service names)
 - Sentence 2: External dependencies (databases, APIs, message queues) and how it calls them
-- Sentence 3: **MANDATORY if sleep/delay found**: Explicitly state "PERFORMANCE ISSUE: [exact sleep/delay statement found]" with the exact code (e.g., "PERFORMANCE ISSUE: time.sleep(5) found on line X" or "PERFORMANCE ISSUE: setTimeout(3000) found")
-- Sentence 4: Other performance concerns (timeouts, loops) and potential issues
+- Sentence 3-4: Notable patterns, error handling, or configuration that could be relevant to incident investigation
 
 ## EXAMPLES:
 
 Example 1:
-Code: [Python code showing requests.get() call to auth service + time.sleep(2)]
-Summary: "API handler that depends on 'auth' service for token verification via GET /verify endpoint. Has artificial 2-second delay (time.sleep(2)) before each request. Performance issue: hardcoded delay causes latency."
+Code: [Python code showing requests.get() call to auth service]
+Summary: "API handler that depends on 'auth' service for token verification via GET /verify endpoint. Uses PostgreSQL for data storage with a 30-second query timeout. No retry logic on auth calls — a single failure causes the request to fail."
 
 Example 2:
 Code: [Go code calling payment-service and user-service with retry logic]
-Summary: "Transaction processor that depends on 'payment' service (/charge endpoint) and 'user' service (/profile endpoint). Uses PostgreSQL database with 5-second query timeout. Retry logic with exponential backoff could amplify latency."
-
-Example 3:
-Code: [JavaScript with setTimeout and multiple service dependencies]
-Summary: "Frontend orchestrator that depends on 'backend-api' (/products), 'analytics' (/track), and 'recommendations' (/suggest) services. Uses setTimeout with 3-second delays between calls. Sequential calling pattern causes cumulative latency."
+Summary: "Transaction processor that depends on 'payment' service (/charge endpoint) and 'user' service (/profile endpoint). Uses PostgreSQL database with 5-second query timeout. Retry logic with exponential backoff on payment calls."
 
 ## NOW ANALYZE THE CODE ABOVE:
 

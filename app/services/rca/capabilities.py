@@ -25,7 +25,6 @@ class Capability(str, Enum):
     # Observability capabilities (Grafana/Datadog/NewRelic)
     LOGS = "logs"  # Fetch and search logs
     METRICS = "metrics"  # Fetch system metrics (CPU, memory, etc.)
-    DATASOURCES = "datasources"  # List available datasources
 
     # Code capabilities (GitHub)
     CODE_SEARCH = "code_search"  # Search code across repositories
@@ -95,7 +94,6 @@ class IntegrationCapabilityResolver:
         "grafana": {
             Capability.LOGS,
             Capability.METRICS,
-            Capability.DATASOURCES,
         },
         "github": {
             Capability.CODE_SEARCH,

@@ -12,6 +12,7 @@ from langchain.callbacks.base import AsyncCallbackHandler
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.notifiers.web import WebNotifier
+from app.core.config import settings
 from app.services.rca.get_service_name.enums import TOOL_NAME_TO_MESSAGE
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ class WebProgressCallback(AsyncCallbackHandler):
         # Track current step for matching tool_start with tool_end
         self._current_step_id: str | None = None
         self._current_tool_display_name: str | None = None
+        # Counter for suppressed retryable chain errors
+        self._suppressed_error_count: int = 0
 
     async def on_tool_start(
         self,
@@ -145,7 +148,42 @@ class WebProgressCallback(AsyncCallbackHandler):
         error: Exception,
         **kwargs: Any,
     ) -> None:
-        """Called when chain encounters an error."""
+        """Called when chain encounters an error.
+
+        Suppresses retryable errors (e.g., tool call validation failures)
+        to avoid showing transient errors to the frontend while the backend
+        retries and may still succeed.  Stops suppressing after
+        ``RCA_EVIDENCE_AGENT_MAX_RETRIES`` consecutive retryable errors and
+        escalates to WARNING after half that limit.
+        """
+        error_msg = str(error).lower()
+        retryable_patterns = [
+            "tool call validation failed",
+            "is not a valid tool",
+        ]
+        if any(pattern in error_msg for pattern in retryable_patterns):
+            self._suppressed_error_count += 1
+            max_suppress = settings.RCA_EVIDENCE_AGENT_MAX_RETRIES
+
+            if self._suppressed_error_count > max_suppress:
+                logger.warning(
+                    f"[Turn {self.turn_id}] Retry limit reached "
+                    f"({self._suppressed_error_count} suppressed errors), "
+                    f"surfacing error: {str(error)[:200]}"
+                )
+                await self.notifier.on_error(str(error)[:500])
+                return
+
+            log_fn = (
+                logger.warning
+                if self._suppressed_error_count > max_suppress // 2
+                else logger.debug
+            )
+            log_fn(
+                f"[Turn {self.turn_id}] Suppressed retryable chain error "
+                f"({self._suppressed_error_count}/{max_suppress}): {str(error)[:200]}"
+            )
+            return
         await self.notifier.on_error(str(error)[:500])
 
     async def send_status(self, message: str) -> None:

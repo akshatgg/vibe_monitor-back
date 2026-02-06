@@ -154,24 +154,21 @@ def _format_file_content_response(response: dict) -> str:
             except Exception:
                 parsed = None
 
-        excerpt_max_chars = 1800
+        excerpt_max_chars = 10000
         excerpt = content[:excerpt_max_chars] if content else ""
         if content and len(content) > excerpt_max_chars:
             excerpt = excerpt + "\n... (truncated excerpt)"
-
-        interesting_lines = _extract_interesting_lines(content)
 
         return json.dumps(
             {
                 "success": True,
                 "file_path": file_path,
                 "size_bytes": int(byte_size or 0),
+                "language": language,
+                "excerpt": excerpt,
                 "sha": sha,
                 "encoding": encoding,
                 "content_decoded": decoded,
-                "language": language,
-                "excerpt": excerpt,
-                "interesting_lines": interesting_lines,
                 "parsed": parsed,
             },
             indent=2,
@@ -205,18 +202,6 @@ def _detect_language(file_path: str) -> Optional[str]:
     if path.endswith(".php"):
         return "php"
     return None
-
-
-def _extract_interesting_lines(content: str) -> list[dict]:
-    if not content:
-        return []
-
-    try:
-        from app.services.rca.tools.code_parser.tools import find_interesting_lines
-
-        return find_interesting_lines(content)
-    except Exception:
-        return []
 
 
 def _format_code_search_response(response: dict) -> str:

@@ -237,7 +237,7 @@ class Settings(BaseSettings):
         8192  # Increased for detailed multi-service investigations
     )
     RCA_AGENT_MAX_ITERATIONS: int = (
-        50  # Increased for complex multi-service investigations
+        25  # Capped to prevent excessive token usage in looping scenarios
     )
     RCA_AGENT_MAX_EXECUTION_TIME: int = 300  # 5 minutes for thorough upstream analysis
 
@@ -253,6 +253,19 @@ class Settings(BaseSettings):
         1500  # Max chars for environment context in evidence prompt
     )
     RCA_HYPOTHESES_MAX_LENGTH: int = 4000  # Max chars for hypotheses text in prompts
+    RCA_EVIDENCE_AGENT_MAX_RETRIES: int = (
+        2  # Max retries for evidence gathering tool validation errors
+    )
+
+    # Loki service label cache settings
+    LOKI_LABEL_CACHE_TTL_SECONDS: int = 900  # 15 min TTL for label key cache
+    LOKI_LABEL_CACHE_MAXSIZE: int = 256  # Max entries in label key cache
+    LOKI_RESOLVED_NAME_CACHE_TTL_SECONDS: int = (
+        900  # 15 min TTL for resolved service name cache
+    )
+    LOKI_RESOLVED_NAME_CACHE_MAXSIZE: int = (
+        1024  # Max entries in resolved name cache
+    )
     RCA_EVIDENCE_BOARD_MAX_LENGTH: int = 8000  # Max chars for evidence board notes
     RCA_VALIDATION_EVIDENCE_MAX_LENGTH: int = (
         6000  # Max chars for evidence board in validation

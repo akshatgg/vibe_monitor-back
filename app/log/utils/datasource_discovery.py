@@ -3,11 +3,10 @@ Datasource discovery utilities for Grafana Loki
 Auto-discovers Loki datasource UIDs from Grafana API
 """
 
-from typing import Dict
-
 import httpx
 
 from ...utils.retry_decorator import retry_external_api
+from ...utils.ttl_cache import TTLCache
 
 
 class DatasourceDiscovery:
@@ -67,7 +66,7 @@ class DatasourceDiscovery:
 
 
 # Singleton instance for caching
-_datasource_cache: Dict[str, str] = {}
+_datasource_cache: TTLCache = TTLCache(ttl_seconds=1800, maxsize=64)
 
 
 async def get_loki_uid_cached(grafana_url: str, api_token: str) -> str:
@@ -84,10 +83,11 @@ async def get_loki_uid_cached(grafana_url: str, api_token: str) -> str:
         Loki datasource UID
     """
     cache_key = f"{grafana_url}_loki"
-    if cache_key in _datasource_cache:
-        return _datasource_cache[cache_key]
+    cached = _datasource_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     uid = await DatasourceDiscovery.get_loki_uid(grafana_url, api_token)
 
-    _datasource_cache[cache_key] = uid
+    _datasource_cache.set(cache_key, uid)
     return uid

@@ -104,39 +104,32 @@ def _format_metrics_response(response) -> str:
 async def fetch_logs_tool(
     service_name: str,
     workspace_id: str,
-    service_label_key: str,
     search_term: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
     limit: int = 100,
+    service_label_key: Optional[str] = None,
 ) -> str:
     """
     Fetch logs from a specific service with optional text search.
 
-    ⚠️ CRITICAL - MUST DISCOVER LABELS FIRST:
-    Before using this tool, you MUST use get_labels_tool to discover available labels in the customer's Loki.
-    Different customers use different label names for services (e.g., 'job', 'service_name', 'app', 'service').
-    Use the label that identifies services in their setup.
+    The correct Loki label key is auto-discovered — just provide the service name.
 
     Args:
-        service_name: ACTUAL service name value from logs (NOT "xyz" or any placeholder)
+        service_name: The service name to fetch logs for (e.g., 'auth', 'marketplace')
         workspace_id: Workspace identifier (automatically provided from job context)
-        service_label_key: The label key used for service identification in this Loki instance.
-                          MUST be discovered first using get_labels_tool (e.g., 'job', 'service_name', 'app')
         search_term: Optional text to search for in logs (e.g., 'timeout', 'error', 'failed')
         start: Start time - use relative format like 'now-30m', 'now-1h', 'now-6h' (default: 'now-30m')
         end: End time - typically 'now' (default: 'now')
         limit: Maximum number of log entries to return (default: 100)
+        service_label_key: Optional override for the Loki label key (auto-discovered if not provided)
 
     Returns:
         Formatted log entries with timestamps and messages
 
-    Example workflow:
-        1. First call get_labels_tool to discover available labels (e.g., returns ['service_name', 'pod', 'namespace'])
-        2. Identify which label represents services (e.g., 'service_name')
-        3. Call get_label_values_tool to find service names (e.g., returns ['vm-api', 'auth-service'])
-        4. Then use this tool with the correct label:
-           fetch_logs_tool(service_name="vm-api", service_label_key="service_name", start="now-1h")
+    Example:
+        fetch_logs_tool(service_name="auth", start="now-1h")
+        fetch_logs_tool(service_name="marketplace", search_term="timeout", start="now-6h")
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
@@ -173,40 +166,32 @@ async def fetch_logs_tool(
 @tool
 async def fetch_error_logs_tool(
     workspace_id: str,
-    service_label_key: str,
     service_name: Optional[str] = None,
     start: str = "now-30m",
     end: str = "now",
     limit: int = 100,
+    service_label_key: Optional[str] = None,
 ) -> str:
     """
     Fetch ERROR-level logs to quickly identify failures and issues.
 
-    ⚠️ CRITICAL - MUST DISCOVER LABELS FIRST:
-    Before using this tool, you MUST use get_labels_tool to discover available labels in the customer's Loki.
-    Different customers use different label names for services (e.g., 'job', 'service_name', 'app', 'service').
-
     Filters logs containing error keywords (case-insensitive).
+    The correct Loki label key is auto-discovered — just provide the service name.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        service_label_key: The label key used for service identification in this Loki instance.
-                          MUST be discovered first using get_labels_tool (e.g., 'job', 'service_name', 'app')
-        service_name: Optional service name value to filter by (if None, searches ALL services)
+        service_name: Optional service name to filter by (if None, searches ALL services)
         start: Start time in relative format (default: 'now-30m')
         end: End time (default: 'now')
         limit: Maximum number of entries (default: 100)
+        service_label_key: Optional override for the Loki label key (auto-discovered if not provided)
 
     Returns:
         Error logs with timestamps, service names, and error messages
 
-    Example workflow:
-        1. First call get_labels_tool to discover available labels
-        2. Identify which label represents services (look for 'job', 'service_name', 'service', 'app')
-        3. Call this tool with the correct label:
-           fetch_error_logs_tool(service_label_key="service_name", start="now-1h")
-        4. Or filter by specific service:
-           fetch_error_logs_tool(service_label_key="service_name", service_name="vm-api", start="now-1h")
+    Example:
+        fetch_error_logs_tool(service_name="auth", start="now-1h")
+        fetch_error_logs_tool(start="now-6h")  # all services
     """
     try:
         time_range = LogTimeRange(start=start, end=end)
