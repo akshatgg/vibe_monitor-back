@@ -39,7 +39,7 @@ def sample_free_plan():
     plan.id = str(uuid.uuid4())
     plan.name = "Free"
     plan.plan_type = PlanType.FREE
-    plan.base_service_count = 5
+    plan.base_service_count = 2
     plan.rca_session_limit_daily = 10
     plan.is_active = True
     return plan
@@ -52,7 +52,7 @@ def sample_pro_plan():
     plan.id = str(uuid.uuid4())
     plan.name = "Pro"
     plan.plan_type = PlanType.PRO
-    plan.base_service_count = 5
+    plan.base_service_count = 3
     plan.rca_session_limit_daily = 100
     plan.is_active = True
     return plan
@@ -123,7 +123,7 @@ class TestLimitServiceCheckCanAddService:
         plan_result.scalar_one_or_none.return_value = sample_free_plan
 
         count_result = MagicMock()
-        count_result.scalar.return_value = 3  # Under limit of 5
+        count_result.scalar.return_value = 1  # Under limit of 2
 
         mock_db.execute.side_effect = [sub_result, plan_result, count_result]
 
@@ -132,8 +132,8 @@ class TestLimitServiceCheckCanAddService:
         )
 
         assert can_add is True
-        assert details["current_count"] == 3
-        assert details["limit"] == 5
+        assert details["current_count"] == 1
+        assert details["limit"] == 2
         assert details["is_paid"] is False
 
     @pytest.mark.asyncio
@@ -148,7 +148,7 @@ class TestLimitServiceCheckCanAddService:
         plan_result.scalar_one_or_none.return_value = sample_free_plan
 
         count_result = MagicMock()
-        count_result.scalar.return_value = 5  # At limit
+        count_result.scalar.return_value = 2  # At limit
 
         mock_db.execute.side_effect = [sub_result, plan_result, count_result]
 
@@ -157,8 +157,8 @@ class TestLimitServiceCheckCanAddService:
         )
 
         assert can_add is False
-        assert details["current_count"] == 5
-        assert details["limit"] == 5
+        assert details["current_count"] == 2
+        assert details["limit"] == 2
 
     @pytest.mark.asyncio
     async def test_pro_plan_unlimited(
@@ -183,7 +183,7 @@ class TestLimitServiceCheckCanAddService:
         )
 
         assert can_add is True
-        assert details["limit"] == 5  # Base count (can exceed with $5/each additional)
+        assert details["limit"] == 3  # Base count (can exceed with $5/each additional)
         assert details["is_paid"] is True
 
     @pytest.mark.asyncio
@@ -193,7 +193,7 @@ class TestLimitServiceCheckCanAddService:
         sub_result.scalar_one_or_none.return_value = None
 
         count_result = MagicMock()
-        count_result.scalar.return_value = 4
+        count_result.scalar.return_value = 1
 
         mock_db.execute.side_effect = [sub_result, count_result]
 
@@ -300,7 +300,7 @@ class TestLimitServiceEnforceServiceLimit:
         plan_result.scalar_one_or_none.return_value = sample_free_plan
 
         count_result = MagicMock()
-        count_result.scalar.return_value = 3
+        count_result.scalar.return_value = 1
 
         mock_db.execute.side_effect = [sub_result, plan_result, count_result]
 
@@ -322,7 +322,7 @@ class TestLimitServiceEnforceServiceLimit:
         plan_result.scalar_one_or_none.return_value = sample_free_plan
 
         count_result = MagicMock()
-        count_result.scalar.return_value = 5  # At limit
+        count_result.scalar.return_value = 2  # At limit
 
         mock_db.execute.side_effect = [sub_result, plan_result, count_result]
 
@@ -335,8 +335,8 @@ class TestLimitServiceEnforceServiceLimit:
         detail = exc_info.value.detail
         assert detail["error"] == "Service limit exceeded"
         assert detail["limit_type"] == "service"
-        assert detail["current"] == 5
-        assert detail["limit"] == 5
+        assert detail["current"] == 2
+        assert detail["limit"] == 2
         assert detail["upgrade_available"] is True
 
 
@@ -435,7 +435,7 @@ class TestLimitServiceGetUsageStats:
         plan_result.scalar_one_or_none.return_value = sample_free_plan
 
         service_count_result = MagicMock()
-        service_count_result.scalar.return_value = 3
+        service_count_result.scalar.return_value = 1
 
         rca_count_result = MagicMock()
         rca_count_result.scalar.return_value = 7
@@ -457,9 +457,9 @@ class TestLimitServiceGetUsageStats:
             assert stats["plan_name"] == "Free"
             assert stats["plan_type"] == "FREE"
             assert stats["is_paid"] is False
-            assert stats["service_count"] == 3
-            assert stats["service_limit"] == 5
-            assert stats["services_remaining"] == 2
+            assert stats["service_count"] == 1
+            assert stats["service_limit"] == 2
+            assert stats["services_remaining"] == 1
             assert stats["can_add_service"] is True
             assert stats["rca_sessions_today"] == 7
             assert stats["rca_session_limit_daily"] == 10
@@ -472,6 +472,7 @@ class TestLimitServiceGetUsageStats:
     ):
         """Pro plan should show unlimited services."""
         sample_subscription.plan_id = sample_pro_plan.id
+        sample_subscription.billable_service_count = 0  # No additional services yet
 
         sub_result = MagicMock()
         sub_result.scalar_one_or_none.return_value = sample_subscription
@@ -501,8 +502,8 @@ class TestLimitServiceGetUsageStats:
 
             assert stats["plan_name"] == "Pro"
             assert stats["is_paid"] is True
-            assert stats["service_limit"] == 5  # Base count included in Pro
-            assert stats["services_remaining"] == 2  # 5 - 3 = 2 (before paying $5/each)
+            assert stats["service_limit"] == 3  # Base count included in Pro
+            assert stats["services_remaining"] == 0  # 3 - 3 = 0 (before paying $5/each)
             assert stats["can_add_service"] is True  # Can always add more
             assert stats["rca_session_limit_daily"] == 100
             assert stats["rca_sessions_remaining"] == 50
@@ -517,9 +518,9 @@ class TestUsageResponseSchema:
             plan_name="Free",
             plan_type="free",
             is_paid=False,
-            service_count=3,
-            service_limit=5,
-            services_remaining=2,
+            service_count=1,
+            service_limit=2,
+            services_remaining=1,
             can_add_service=True,
             rca_sessions_today=5,
             rca_session_limit_daily=10,
@@ -536,14 +537,14 @@ class TestUsageResponseSchema:
             plan_type="pro",
             is_paid=True,
             service_count=50,
-            service_limit=5,  # Pro base count (can exceed with $5/each additional)
-            services_remaining=0,  # max(0, 5-50) = 0 (paying for 45 additional services)
+            service_limit=3,  # Pro base count (can exceed with $5/each additional)
+            services_remaining=0,  # max(0, 3-50) = 0 (paying for 47 additional services)
             can_add_service=True,
             rca_sessions_today=50,
             rca_session_limit_daily=100,
             rca_sessions_remaining=50,
             can_start_rca=True,
         )
-        assert response.service_limit == 5
+        assert response.service_limit == 3
         assert response.services_remaining == 0
         assert response.is_paid is True

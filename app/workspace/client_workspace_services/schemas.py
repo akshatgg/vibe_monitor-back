@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.workspace.client_workspace_teams.schemas import TeamSummaryResponse
 
 # Constants
-FREE_TIER_SERVICE_LIMIT = 5
+FREE_TIER_SERVICE_LIMIT = 2
 
 
 # ============================================================================

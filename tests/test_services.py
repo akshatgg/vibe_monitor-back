@@ -151,88 +151,63 @@ class TestServiceServiceCount:
     """Tests for service count and limit logic."""
 
     @pytest.mark.asyncio
+    @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_get_service_count_free_tier(
-        self, service_service, mock_db, sample_workspace
+        self, mock_limit_service, service_service, mock_db, sample_workspace
     ):
         """Service count should work for free tier workspaces."""
-        # Mock count query
-        count_result = MagicMock()
-        count_result.scalar.return_value = 3
-
-        # Mock workspace query (called twice: once in get_service_count, once in _get_service_limit)
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
-
-        workspace_result2 = MagicMock()
-        workspace_result2.scalar_one_or_none.return_value = sample_workspace
-
-        mock_db.execute.side_effect = [
-            count_result,
-            workspace_result,
-            workspace_result2,
-        ]
+        mock_limit_service.get_usage_stats = AsyncMock(return_value={
+            "service_count": 1,
+            "service_limit": 2,
+            "can_add_service": True,
+            "is_paid": False,
+        })
 
         result = await service_service.get_service_count(sample_workspace.id, mock_db)
 
-        assert result.current_count == 3
-        assert result.limit == FREE_TIER_SERVICE_LIMIT
+        assert result.current_count == 1
+        assert result.limit == 2
         assert result.can_add_more is True
         assert result.is_paid is False
 
     @pytest.mark.asyncio
+    @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_get_service_count_at_limit(
-        self, service_service, mock_db, sample_workspace
+        self, mock_limit_service, service_service, mock_db, sample_workspace
     ):
         """Should indicate limit reached when at max services."""
-        count_result = MagicMock()
-        count_result.scalar.return_value = FREE_TIER_SERVICE_LIMIT
-
-        # Mock workspace query (called twice)
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
-
-        workspace_result2 = MagicMock()
-        workspace_result2.scalar_one_or_none.return_value = sample_workspace
-
-        mock_db.execute.side_effect = [
-            count_result,
-            workspace_result,
-            workspace_result2,
-        ]
+        mock_limit_service.get_usage_stats = AsyncMock(return_value={
+            "service_count": 2,
+            "service_limit": 2,
+            "can_add_service": False,
+            "is_paid": False,
+        })
 
         result = await service_service.get_service_count(sample_workspace.id, mock_db)
 
-        assert result.current_count == FREE_TIER_SERVICE_LIMIT
+        assert result.current_count == 2
         assert result.can_add_more is False
 
     @pytest.mark.asyncio
+    @patch("app.workspace.client_workspace_services.service_service.limit_service")
     async def test_validate_service_limit(
-        self, service_service, mock_db, sample_workspace
+        self, mock_limit_service, service_service, mock_db, sample_workspace
     ):
         """Validate service limit should return correct tuple."""
-        count_result = MagicMock()
-        count_result.scalar.return_value = 2
-
-        # Mock workspace query (called twice)
-        workspace_result = MagicMock()
-        workspace_result.scalar_one_or_none.return_value = sample_workspace
-
-        workspace_result2 = MagicMock()
-        workspace_result2.scalar_one_or_none.return_value = sample_workspace
-
-        mock_db.execute.side_effect = [
-            count_result,
-            workspace_result,
-            workspace_result2,
-        ]
+        mock_limit_service.get_usage_stats = AsyncMock(return_value={
+            "service_count": 1,
+            "service_limit": 2,
+            "can_add_service": True,
+            "is_paid": False,
+        })
 
         can_add, current, limit = await service_service.validate_service_limit(
             sample_workspace.id, mock_db
         )
 
         assert can_add is True
-        assert current == 2
-        assert limit == FREE_TIER_SERVICE_LIMIT
+        assert current == 1
+        assert limit == 2
 
 
 class TestServiceServiceCreate:
@@ -667,7 +642,7 @@ class TestSchemas:
             limit_reached=False,
         )
         assert response.total_count == 0
-        assert response.limit == 5
+        assert response.limit == 2
         assert response.limit_reached is False
 
     def test_service_count_response(self):

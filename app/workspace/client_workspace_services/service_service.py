@@ -166,32 +166,16 @@ class ServiceService:
     ) -> ServiceCountResponse:
         """
         Get the count of services and limit information for a workspace.
+        Uses the billing system to determine limits and paid status.
         """
-        # Count services
-        count_query = (
-            select(sql_func.count())
-            .select_from(Service)
-            .where(Service.workspace_id == workspace_id)
-        )
-        result = await db.execute(count_query)
-        current_count = result.scalar() or 0
-
-        # Get limit and paid status
-        workspace_query = select(Workspace).where(Workspace.id == workspace_id)
-        ws_result = await db.execute(workspace_query)
-        workspace = ws_result.scalar_one_or_none()
-
-        if not workspace:
-            raise HTTPException(status_code=404, detail="Workspace not found")
-
-        limit = await self._get_service_limit(workspace_id, db)
-        can_add_more = current_count < limit
+        # Get usage stats from billing system (includes proper plan checking)
+        usage_stats = await limit_service.get_usage_stats(db, workspace_id)
 
         return ServiceCountResponse(
-            current_count=current_count,
-            limit=limit if limit < 999999 else FREE_TIER_SERVICE_LIMIT,
-            can_add_more=can_add_more,
-            is_paid=workspace.is_paid,
+            current_count=usage_stats["service_count"],
+            limit=usage_stats["service_limit"],
+            can_add_more=usage_stats["can_add_service"],
+            is_paid=usage_stats["is_paid"],
         )
 
     async def validate_service_limit(
@@ -283,29 +267,17 @@ class ServiceService:
         await db.commit()
         await db.refresh(new_service)
 
-        # Update subscription billing with new service count
-        try:
-            # Count total services in workspace
-            count_query = (
-                select(sql_func.count())
-                .select_from(Service)
-                .where(Service.workspace_id == workspace_id)
-            )
-            result = await db.execute(count_query)
-            total_services = result.scalar() or 0
-
-            # Update Stripe subscription with new count (handles proration)
-            await self.subscription_service.update_service_count(
-                db=db,
-                workspace_id=workspace_id,
-                new_service_count=total_services,
-            )
-            logger.info(
-                f"Updated billing for workspace {workspace_id}: {total_services} services"
-            )
-        except Exception as e:
-            # Log but don't fail the service creation if billing update fails
-            logger.error(f"Failed to update billing after service creation: {e}")
+        # Note: We DO NOT automatically update Stripe subscription when services are added.
+        # For Pro users:
+        #   - They can add services up to their paid limit (base + additional purchased slots)
+        #   - To increase the limit, they use the billing page to purchase more slots
+        # For Free users:
+        #   - The enforce_service_limit() check above already blocked them if over limit
+        # This prevents complex billing cycle resets and race conditions with webhooks.
+        logger.info(
+            f"Service created for workspace {workspace_id}. "
+            f"User manages service limits through billing page."
+        )
 
         # Auto-trigger initial health review for new service
         try:

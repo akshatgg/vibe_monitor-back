@@ -371,11 +371,12 @@ class StripeService:
                     "quantity": additional_service_quantity
                 })
 
-            # Create new subscription with billing cycle anchor = now
+            # Create new subscription starting immediately (Stripe handles billing anchor)
+            # Don't set billing_cycle_anchor explicitly - it causes "timestamp in the past" errors
+            # due to processing delays. Stripe will anchor to subscription creation time.
             new_sub = stripe.Subscription.create(
                 customer=customer_id,
                 items=new_items,
-                billing_cycle_anchor=int(now.timestamp()),
                 proration_behavior="none",  # No proration, we handle credit manually
                 metadata=old_sub.metadata,
             )

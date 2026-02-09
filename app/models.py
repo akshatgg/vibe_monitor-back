@@ -1353,7 +1353,7 @@ class Plan(Base):
         Enum(PlanType, values_callable=lambda x: [e.value for e in x]), nullable=False
     )
     stripe_price_id = Column(String(255), nullable=True)  # Null for free plan
-    base_service_count = Column(Integer, default=5, nullable=False)  # Included services
+    base_service_count = Column(Integer, default=2, nullable=False)  # Included services (Free: 2, Pro: 3)
     base_price_cents = Column(Integer, default=0, nullable=False)  # 3000 = $30.00
     additional_service_price_cents = Column(
         Integer, default=500, nullable=False

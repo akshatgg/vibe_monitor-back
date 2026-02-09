@@ -611,10 +611,28 @@ class SubscriptionService:
         subscription = result.scalar_one_or_none()
 
         if not subscription:
-            logger.warning(
-                f"No local subscription found for Stripe subscription {stripe_subscription_id}"
+            logger.info(
+                f"No local subscription found for Stripe subscription {stripe_subscription_id} "
+                f"(may have already been replaced by a new subscription)"
             )
             return
+
+        # Safety check: verify this is still the active stripe subscription
+        # This prevents race conditions where a new subscription was created
+        # but the DB hasn't been updated yet
+        try:
+            stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+            if stripe_sub.status != "canceled":
+                logger.warning(
+                    f"Stripe subscription {stripe_subscription_id} is not actually canceled "
+                    f"(status: {stripe_sub.status}), skipping downgrade"
+                )
+                return
+        except stripe.error.InvalidRequestError:
+            # Subscription doesn't exist in Stripe anymore, proceed with downgrade
+            pass
+        except Exception as e:
+            logger.warning(f"Could not verify subscription status: {e}, proceeding with downgrade")
 
         # Downgrade to Free plan
         free_plan = await self.get_plan_by_type(db, PlanType.FREE)
@@ -776,15 +794,6 @@ class SubscriptionService:
         )
 
         if is_service_update and old_subscription_id:
-            # This is a service count update - cancel the old subscription
-            logger.info(f"Service count update detected - canceling old subscription {old_subscription_id}")
-            try:
-                stripe.Subscription.delete(old_subscription_id)
-                logger.info(f"Successfully canceled old subscription {old_subscription_id}")
-            except stripe.error.StripeError as e:
-                logger.error(f"Failed to cancel old subscription {old_subscription_id}: {e}")
-                # Continue anyway - new subscription is already created
-
             # Calculate billable service count from new service count
             new_service_count = int(checkout_session.metadata.get("new_service_count", "0"))
             plan = await self.get_plan_by_id(db, plan_id)
@@ -795,7 +804,26 @@ class SubscriptionService:
                     f"(total: {new_service_count}, base: {plan.base_service_count})"
                 )
 
-        await db.commit()
+            # IMPORTANT: Commit BEFORE deleting old subscription to avoid race condition.
+            # The delete triggers a customer.subscription.deleted webhook. If the DB still
+            # has the old stripe_subscription_id, that webhook handler would match and
+            # incorrectly downgrade to Free.
+            await db.commit()
+            logger.info(
+                f"Committed new subscription {subscription.stripe_subscription_id} "
+                f"before canceling old subscription {old_subscription_id}"
+            )
+
+            # Now safe to cancel the old subscription
+            logger.info(f"Service count update detected - canceling old subscription {old_subscription_id}")
+            try:
+                stripe.Subscription.delete(old_subscription_id)
+                logger.info(f"Successfully canceled old subscription {old_subscription_id}")
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to cancel old subscription {old_subscription_id}: {e}")
+                # Continue anyway - new subscription is already created
+        else:
+            await db.commit()
         logger.info(
             f"Successfully updated subscription for workspace {workspace_id}: "
             f"plan={subscription.plan_id}, stripe_sub={subscription.stripe_subscription_id}"

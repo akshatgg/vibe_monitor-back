@@ -29,8 +29,8 @@ class TestConstants:
     """Tests for billing constants."""
 
     def test_free_tier_service_limit(self):
-        """FREE_TIER_SERVICE_LIMIT should be 5."""
-        assert FREE_TIER_SERVICE_LIMIT == 5
+        """FREE_TIER_SERVICE_LIMIT should be 2."""
+        assert FREE_TIER_SERVICE_LIMIT == 2
 
 
 class TestServiceCreate:

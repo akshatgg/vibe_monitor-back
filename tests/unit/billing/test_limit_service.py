@@ -21,8 +21,8 @@ class TestConstants:
     """Tests for default limit constants."""
 
     def test_default_free_service_limit(self):
-        """Default free service limit should be 5."""
-        assert DEFAULT_FREE_SERVICE_LIMIT == 5
+        """Default free service limit should be 2."""
+        assert DEFAULT_FREE_SERVICE_LIMIT == 2
 
     def test_default_free_rca_daily_limit(self):
         """Default free RCA daily limit should be 10."""
@@ -43,7 +43,7 @@ class TestLimitServiceCheckCanAddService:
         plan = MagicMock(spec=Plan)
         plan.name = "Pro"
         plan.plan_type = PlanType.PRO
-        plan.base_service_count = 10
+        plan.base_service_count = 3
         plan.rca_session_limit_daily = 100
         return plan
 
@@ -53,7 +53,7 @@ class TestLimitServiceCheckCanAddService:
         plan = MagicMock(spec=Plan)
         plan.name = "Free"
         plan.plan_type = PlanType.FREE
-        plan.base_service_count = 5
+        plan.base_service_count = 2
         plan.rca_session_limit_daily = 10
         return plan
 
@@ -80,7 +80,7 @@ class TestLimitServiceCheckCanAddService:
         can_add, details = await limit_service.check_can_add_service(mock_db, "ws-123")
 
         assert can_add is True
-        assert details["limit"] == 10  # Shows base count (not enforced, can exceed with $5/each)
+        assert details["limit"] == 3  # Shows base count (not enforced, can exceed with $5/each)
         assert details["current_count"] == 50
         assert details["plan_name"] == "Pro"
         assert details["is_paid"] is True
@@ -93,13 +93,13 @@ class TestLimitServiceCheckCanAddService:
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_free_plan)
         )
-        limit_service.get_service_count = AsyncMock(return_value=3)
+        limit_service.get_service_count = AsyncMock(return_value=1)
 
         can_add, details = await limit_service.check_can_add_service(mock_db, "ws-123")
 
         assert can_add is True
-        assert details["limit"] == 5
-        assert details["current_count"] == 3
+        assert details["limit"] == 2
+        assert details["current_count"] == 1
         assert details["plan_name"] == "Free"
         assert details["is_paid"] is False
 
@@ -111,19 +111,19 @@ class TestLimitServiceCheckCanAddService:
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_free_plan)
         )
-        limit_service.get_service_count = AsyncMock(return_value=5)
+        limit_service.get_service_count = AsyncMock(return_value=2)
 
         can_add, details = await limit_service.check_can_add_service(mock_db, "ws-123")
 
         assert can_add is False
-        assert details["limit"] == 5
-        assert details["current_count"] == 5
+        assert details["limit"] == 2
+        assert details["current_count"] == 2
 
     @pytest.mark.asyncio
     async def test_no_subscription_uses_defaults(self, limit_service, mock_db):
         """No subscription should use default free limits."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
-        limit_service.get_service_count = AsyncMock(return_value=4)
+        limit_service.get_service_count = AsyncMock(return_value=1)
 
         can_add, details = await limit_service.check_can_add_service(mock_db, "ws-123")
 
@@ -268,7 +268,7 @@ class TestLimitServiceEnforceServiceLimit:
         limit_service.check_can_add_service = AsyncMock(
             return_value=(
                 False,
-                {"current_count": 5, "limit": 5, "plan_name": "Free", "is_paid": False},
+                {"current_count": 2, "limit": 2, "plan_name": "Free", "is_paid": False},
             )
         )
 
@@ -278,8 +278,8 @@ class TestLimitServiceEnforceServiceLimit:
         assert exc_info.value.status_code == 402
         assert exc_info.value.detail["error"] == "Service limit exceeded"
         assert exc_info.value.detail["limit_type"] == "service"
-        assert exc_info.value.detail["current"] == 5
-        assert exc_info.value.detail["limit"] == 5
+        assert exc_info.value.detail["current"] == 2
+        assert exc_info.value.detail["limit"] == 2
         assert exc_info.value.detail["upgrade_available"] is True
         assert "Upgrade to Pro" in exc_info.value.detail["message"]
 
@@ -289,7 +289,7 @@ class TestLimitServiceEnforceServiceLimit:
         limit_service.check_can_add_service = AsyncMock(
             return_value=(
                 True,
-                {"current_count": 3, "limit": 5, "plan_name": "Free", "is_paid": False},
+                {"current_count": 1, "limit": 2, "plan_name": "Free", "is_paid": False},
             )
         )
 
@@ -304,8 +304,8 @@ class TestLimitServiceEnforceServiceLimit:
             return_value=(
                 False,
                 {
-                    "current_count": 5,
-                    "limit": 5,
+                    "current_count": 2,
+                    "limit": 2,
                     "plan_name": "Starter",
                     "is_paid": False,
                 },
@@ -406,7 +406,7 @@ class TestLimitServiceGetUsageStats:
         plan = MagicMock(spec=Plan)
         plan.name = "Pro"
         plan.plan_type = PlanType.PRO
-        plan.base_service_count = 10
+        plan.base_service_count = 3
         plan.rca_session_limit_daily = 100
         return plan
 
@@ -415,6 +415,7 @@ class TestLimitServiceGetUsageStats:
         subscription = MagicMock(spec=Subscription)
         subscription.status = SubscriptionStatus.ACTIVE
         subscription.current_period_end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        subscription.billable_service_count = 0  # No additional services
         return subscription
 
     @pytest.mark.asyncio
@@ -425,7 +426,7 @@ class TestLimitServiceGetUsageStats:
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_pro_plan)
         )
-        limit_service.get_service_count = AsyncMock(return_value=8)  # Under base (not paying extra yet)
+        limit_service.get_service_count = AsyncMock(return_value=2)  # Under base (not paying extra yet)
         limit_service.get_rca_sessions_today = AsyncMock(return_value=25)
 
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")
@@ -433,9 +434,9 @@ class TestLimitServiceGetUsageStats:
         assert stats["plan_name"] == "Pro"
         assert stats["plan_type"] == "PRO"
         assert stats["is_paid"] is True
-        assert stats["service_count"] == 8
-        assert stats["service_limit"] == 10  # Base count included in Pro plan
-        assert stats["services_remaining"] == 2  # 10 - 8 = 2 (services before paying $5/each)
+        assert stats["service_count"] == 2
+        assert stats["service_limit"] == 3  # Base count included in Pro plan
+        assert stats["services_remaining"] == 1  # 3 - 2 = 1 (services before paying $5/each)
         assert stats["can_add_service"] is True  # Can always add (unlimited with payment)
         assert stats["rca_sessions_today"] == 25
         assert stats["rca_session_limit_daily"] == 100
@@ -447,7 +448,7 @@ class TestLimitServiceGetUsageStats:
     async def test_free_plan_usage_stats_no_subscription(self, limit_service, mock_db):
         """Free plan (no subscription) usage stats should use defaults."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
-        limit_service.get_service_count = AsyncMock(return_value=3)
+        limit_service.get_service_count = AsyncMock(return_value=1)
         limit_service.get_rca_sessions_today = AsyncMock(return_value=5)
 
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")
@@ -456,7 +457,7 @@ class TestLimitServiceGetUsageStats:
         assert stats["plan_type"] == "FREE"
         assert stats["is_paid"] is False
         assert stats["service_limit"] == DEFAULT_FREE_SERVICE_LIMIT
-        assert stats["services_remaining"] == 2  # 5 - 3
+        assert stats["services_remaining"] == 1  # 2 - 1
         assert stats["can_add_service"] is True
         assert stats["rca_session_limit_daily"] == DEFAULT_FREE_RCA_DAILY_LIMIT
         assert stats["rca_sessions_remaining"] == 5  # 10 - 5
@@ -468,7 +469,7 @@ class TestLimitServiceGetUsageStats:
     async def test_at_limit_cannot_add(self, limit_service, mock_db):
         """When at limit, can_add_service should be False."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
-        limit_service.get_service_count = AsyncMock(return_value=5)
+        limit_service.get_service_count = AsyncMock(return_value=2)
         limit_service.get_rca_sessions_today = AsyncMock(return_value=0)
 
         stats = await limit_service.get_usage_stats(mock_db, "ws-123")

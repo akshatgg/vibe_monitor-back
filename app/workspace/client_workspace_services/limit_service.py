@@ -18,7 +18,7 @@ from app.utils.rate_limiter import is_byollm_workspace
 logger = logging.getLogger(__name__)
 
 # Default limits for Free plan (fallback if no subscription exists)
-DEFAULT_FREE_SERVICE_LIMIT = 5
+DEFAULT_FREE_SERVICE_LIMIT = 2
 DEFAULT_FREE_RCA_DAILY_LIMIT = 10
 
 
@@ -27,7 +27,7 @@ class LimitService:
     Enforces plan-based limits for workspaces.
 
     Handles:
-    - Service count limits (Free: 5, Pro: unlimited)
+    - Service count limits (Free: 2, Pro: 3 base + $5/each additional)
     - RCA session daily limits (Free: 10, Pro: 100)
     """
 
@@ -95,8 +95,8 @@ class LimitService:
         """
         Check if workspace can add another service.
 
-        Free plan: Hard limit of 5 services (cannot exceed)
-        Pro plan: 5 base services + unlimited additional at $5/each
+        Free plan: Hard limit of 2 services (cannot exceed)
+        Pro plan: 3 base services + unlimited additional at $5/each
 
         Returns:
             Tuple of (can_add, details_dict)
@@ -273,8 +273,12 @@ class LimitService:
             plan_name = plan.name
             plan_type = plan.plan_type
             is_paid = plan.plan_type == PlanType.PRO
-            # Both Free and Pro have base service limits (Free: 5, Pro: 5 base + $5/each additional)
-            service_limit = plan.base_service_count
+            # For Pro users, effective limit = base + billable (paid additional services)
+            # For Free users, limit = base only
+            if is_paid and subscription:
+                service_limit = plan.base_service_count + (subscription.billable_service_count or 0)
+            else:
+                service_limit = plan.base_service_count
         else:
             plan_name = "Free"
             plan_type = PlanType.FREE
@@ -293,7 +297,7 @@ class LimitService:
             "service_count": service_count,
             "service_limit": service_limit,
             "services_remaining": services_remaining,
-            "can_add_service": service_count < service_limit,
+            "can_add_service": is_paid or service_count < service_limit,
             # RCA usage (unlimited if BYOLLM)
             "rca_sessions_today": rca_sessions_today,
             "rca_session_limit_daily": rca_daily_limit,  # -1 for BYOLLM (unlimited)
