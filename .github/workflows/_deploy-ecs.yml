@@ -55,6 +55,9 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    permissions:
+      contents: write  # Required to push deployment tags
+      id-token: write  # Required for AWS OIDC
 
     env:
       AWS_REGION: ${{ inputs.aws_region }}
@@ -345,6 +348,7 @@ jobs:
       - name: Tag successful deployment
         if: success()
         run: |
+          set -e  # Exit on any error
           echo "🏷️  Tagging successful deployment..."
 
           CURRENT_COMMIT="${{ github.sha }}"
@@ -357,14 +361,20 @@ jobs:
 
           # Create timestamped tag (permanent deployment history)
           HISTORY_TAG="deployed-${ENVIRONMENT}-${TIMESTAMP}"
-          git tag "$HISTORY_TAG" "$CURRENT_COMMIT"
-          git push origin "$HISTORY_TAG"
+          echo "Creating tag: $HISTORY_TAG for commit $CURRENT_COMMIT"
+          git tag "$HISTORY_TAG" "$CURRENT_COMMIT" || { echo "Failed to create tag $HISTORY_TAG"; exit 1; }
+
+          echo "Pushing tag: $HISTORY_TAG"
+          git push origin "$HISTORY_TAG" || { echo "Failed to push tag $HISTORY_TAG"; exit 1; }
           echo "📜 Created history tag: $HISTORY_TAG"
 
           # Create/update latest pointer (used for change detection)
           LATEST_TAG="deployed-${ENVIRONMENT}-latest"
-          git tag -f "$LATEST_TAG" "$CURRENT_COMMIT"
-          git push origin "$LATEST_TAG" --force
+          echo "Creating/updating latest tag: $LATEST_TAG"
+          git tag -f "$LATEST_TAG" "$CURRENT_COMMIT" || { echo "Failed to create tag $LATEST_TAG"; exit 1; }
+
+          echo "Force pushing latest tag: $LATEST_TAG"
+          git push origin "$LATEST_TAG" --force || { echo "Failed to push tag $LATEST_TAG"; exit 1; }
           echo "🔖 Updated latest pointer: $LATEST_TAG"
 
           echo ""
