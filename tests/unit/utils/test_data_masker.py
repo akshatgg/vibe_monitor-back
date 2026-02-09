@@ -6,6 +6,7 @@ Tests the masking and unmasking functionality for PII data.
 
 from app.utils.data_masker import (
     PIIMapper,
+    mask_email_for_context,
     mask_log_message,
     mask_secrets,
     redact_query_for_log,
@@ -424,3 +425,56 @@ class TestEdgeCases:
         result = mask_secrets(123)
         # Should return the input unchanged
         assert result == 123
+
+
+class TestMaskEmailForContext:
+    """Test suite for mask_email_for_context function."""
+
+    def test_mask_email_preserves_username(self):
+        """Test that email masking preserves username."""
+        email = "alice@example.com"
+        masked = mask_email_for_context(email)
+
+        assert "alice" in masked
+        assert "@[REDACTED]" in masked
+        assert "example.com" not in masked
+
+    def test_mask_email_with_complex_domain(self):
+        """Test masking email with complex domain."""
+        email = "user@subdomain.example.co.uk"
+        masked = mask_email_for_context(email)
+
+        assert "user" in masked
+        assert "@[REDACTED]" in masked
+        assert "subdomain.example.co.uk" not in masked
+
+    def test_mask_email_with_plus_sign(self):
+        """Test masking email with plus sign in username."""
+        email = "user+tag@example.com"
+        masked = mask_email_for_context(email)
+
+        assert "user+tag" in masked
+        assert "@[REDACTED]" in masked
+        assert "example.com" not in masked
+
+    def test_mask_email_without_at_sign(self):
+        """Test that non-email strings are returned unchanged."""
+        text = "not-an-email"
+        masked = mask_email_for_context(text)
+
+        assert masked == text
+
+    def test_mask_email_empty_string(self):
+        """Test masking empty string."""
+        masked = mask_email_for_context("")
+        assert masked == ""
+
+    def test_mask_email_none(self):
+        """Test masking None value."""
+        masked = mask_email_for_context(None)
+        assert masked is None
+
+    def test_mask_email_non_string(self):
+        """Test masking non-string input."""
+        masked = mask_email_for_context(123)
+        assert masked == 123

@@ -90,6 +90,30 @@ def redact_query_for_log(query: str) -> str:
     return f"[QUERY: {len(query)} chars]"
 
 
+def mask_email_for_context(email: str) -> str:
+    """
+    Mask email address for safe inclusion in LLM context.
+
+    Masks the domain part while preserving the username for identification.
+    Example: "alice@example.com" -> "alice@[REDACTED]"
+
+    Args:
+        email: Email address to mask
+
+    Returns:
+        Masked email address with domain redacted
+    """
+    if not email or not isinstance(email, str):
+        return email
+
+    # Simple email masking: preserve username, mask domain
+    if "@" in email:
+        username, domain = email.rsplit("@", 1)
+        return f"{username}@[REDACTED]"
+
+    return email
+
+
 class PIIMapper:
     """
     Reversible PII masking for customer queries.

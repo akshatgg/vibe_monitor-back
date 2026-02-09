@@ -5,7 +5,7 @@ This module provides reusable helper functions for formatting context informatio
 (environments, services, repositories) for LLM prompts across different LangGraph branches.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypedDict
 
 if TYPE_CHECKING:
     from app.models import Integration
@@ -15,6 +15,15 @@ from app.services.rca.capabilities import (
     IntegrationCapabilityResolver,
 )
 from app.services.rca.state import RCAState
+
+
+class TeamInfo(TypedDict, total=False):
+    """Type definition for team information returned by get_team_for_service."""
+
+    name: str
+    geography: Optional[str]
+    members: List[str]
+    services: List[str]
 
 
 def format_environments_display(env_context: dict) -> str:
@@ -84,6 +93,68 @@ def format_service_mapping_display(service_mapping: dict) -> str:
     return ", ".join(formatted_services)
 
 
+def format_team_data_display(team_context: dict) -> str:
+    """
+    Format team data for LLM display.
+
+    Shows which teams own which services, their members, and geography.
+
+    Args:
+        team_context: Team context dict containing:
+            - 'teams': List of dicts with 'name', 'geography', 'members', 'services'
+
+    Returns:
+        Formatted string with teams separated by "; " like
+        "Backend (US-East): auth-service [members: Alice]; Frontend (US-West): web-service [members: Bob]"
+        or empty string if no teams
+
+    Examples:
+        >>> # Single team
+        >>> team_ctx = {
+        ...     "teams": [
+        ...         {"name": "Backend", "geography": "US-East", "members": ["Alice"], "services": ["auth-service"]}
+        ...     ]
+        ... }
+        >>> format_team_data_display(team_ctx)
+        'Backend (US-East): auth-service [members: Alice]'
+
+        >>> # Multiple teams
+        >>> team_ctx = {
+        ...     "teams": [
+        ...         {"name": "Backend", "geography": "US-East", "members": ["Alice"], "services": ["auth-service"]},
+        ...         {"name": "Frontend", "geography": "US-West", "members": ["Bob"], "services": ["web-service"]}
+        ...     ]
+        ... }
+        >>> format_team_data_display(team_ctx)
+        'Backend (US-East): auth-service [members: Alice]; Frontend (US-West): web-service [members: Bob]'
+    """
+    if not team_context or not team_context.get("teams"):
+        return ""
+
+    parts = []
+    for team in team_context["teams"]:
+        if not isinstance(team, dict):
+            continue
+        name = team.get("name")
+        if not name:
+            continue
+
+        geography = team.get("geography")
+        members = team.get("members") or []
+        services = team.get("services") or []
+
+        label = f"{name} ({geography})" if geography else name
+        services_str = ", ".join(services) if services else "no services"
+        line = f"{label}: {services_str}"
+
+        if members:
+            line += f" [members: {', '.join(members)}]"
+
+        parts.append(line)
+
+    return "; ".join(parts)
+
+
 def format_integrations_display(
     integrations: Dict[str, "Integration"],
     all_integration_types: Set[str],
@@ -139,6 +210,7 @@ def build_context_string(
     include_environments: bool = True,
     include_deployed_commits: bool = True,
     include_integrations: bool = True,
+    include_teams: bool = True,
 ) -> str:
     """
     Build complete context string for LLM prompts.
@@ -203,6 +275,14 @@ def build_context_string(
             services_str = format_service_mapping_display(service_mapping)
             if services_str:
                 context_parts.append(f"Available services: {services_str}")
+
+    # Add team data
+    if include_teams:
+        team_context = state.get("context", {}).get("team_context", {})
+        if team_context:
+            teams_str = format_team_data_display(team_context)
+            if teams_str:
+                context_parts.append(f"Teams: {teams_str}")
 
     # Add environments
     if include_environments:
@@ -456,6 +536,79 @@ def format_deployed_commits_display(
     return f"{env_name}: {', '.join(commit_list)}"
 
 
+def get_team_list(state: RCAState) -> List[str]:
+    """
+    Extract list of team names from state.
+
+    Args:
+        state: RCA state containing team context
+
+    Returns:
+        List of team names
+
+    Examples:
+        >>> state = {
+        ...     "context": {
+        ...         "team_context": {
+        ...             "teams": [
+        ...                 {"name": "Backend", "geography": "US-East"},
+        ...                 {"name": "Frontend", "geography": None}
+        ...             ]
+        ...         }
+        ...     }
+        ... }
+        >>> get_team_list(state)
+        ['Backend', 'Frontend']
+    """
+    team_context = state.get("context", {}).get("team_context", {})
+    teams = team_context.get("teams", [])
+    return [
+        t.get("name") for t in teams if isinstance(t, dict) and t.get("name")
+    ]
+
+
+def get_team_for_service(
+    state: RCAState, service_name: str
+) -> List[TeamInfo]:
+    """
+    Find all teams that own a specific service.
+
+    Args:
+        state: RCA state containing team context
+        service_name: Service name to look up
+
+    Returns:
+        List of TeamInfo dicts with name, geography, members, services.
+        Returns empty list if not found or service_name is empty.
+
+    Examples:
+        >>> state = {
+        ...     "context": {
+        ...         "team_context": {
+        ...             "teams": [
+        ...                 {"name": "Backend", "services": ["auth-service", "api-service"], "members": ["Alice"]},
+        ...                 {"name": "Frontend", "services": ["auth-service"], "members": ["Bob"]}
+        ...             ]
+        ...         }
+        ...     }
+        ... }
+        >>> get_team_for_service(state, "auth-service")
+        [{'name': 'Backend', 'services': ['auth-service', 'api-service'], 'members': ['Alice']}, {'name': 'Frontend', 'services': ['auth-service'], 'members': ['Bob']}]
+    """
+    # Input validation: early return if service_name is empty
+    if not service_name:
+        return []
+
+    team_context = state.get("context", {}).get("team_context", {})
+    matching_teams = []
+    for team in team_context.get("teams", []):
+        if not isinstance(team, dict):
+            continue
+        if service_name in (team.get("services") or []):
+            matching_teams.append(team)  # type: ignore
+    return matching_teams
+
+
 def get_context_summary(
     execution_context: ExecutionContext, state: RCAState
 ) -> Dict[str, Any]:
@@ -493,6 +646,7 @@ def get_context_summary(
     default_env = get_default_environment(state)
     deployed_commits = get_deployed_commits(state)
     thread_history = get_thread_history(state)
+    teams = get_team_list(state)
 
     # Get integration info
     all_integration_types = set(
@@ -509,6 +663,8 @@ def get_context_summary(
         "services": list(service_mapping.keys()),
         "service_count": len(service_mapping),
         "service_mapping": service_mapping,
+        "teams": teams,
+        "team_count": len(teams),
         "environments": environments,
         "default_environment": default_env,
         "env_count": len(environments),

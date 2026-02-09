@@ -259,11 +259,6 @@ async def list_cloudwatch_log_groups_tool(
     Use this tool to discover available log groups before querying logs.
     Essential for understanding what services are logging to CloudWatch.
 
-    Use this tool to:
-    - Discover all log groups in the AWS account
-    - Find log groups for specific services or applications
-    - Understand data retention and storage for logs
-
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
         name_prefix: Optional prefix to filter log groups (e.g., "/aws/lambda/", "/ecs/")
@@ -306,14 +301,7 @@ async def filter_cloudwatch_log_events_tool(
     """
     Filter and search log events across CloudWatch log streams.
 
-    Use this tool to search for specific patterns, errors, or keywords in logs.
-    Searches across all log streams in a log group.
-
-    Use this tool to:
-    - Search for specific error messages or patterns
-    - Find logs containing specific keywords (e.g., "timeout", "failed", "error")
-    - Investigate issues by searching for request IDs or correlation IDs
-    - Filter logs by CloudWatch filter patterns
+    Search for specific patterns, errors, or keywords across all log streams in a log group.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
@@ -372,11 +360,6 @@ async def search_cloudwatch_logs_tool(
     Simplified search tool that looks for exact text matches in log messages.
     For complex patterns, use filter_cloudwatch_log_events_tool instead.
 
-    Use this tool to:
-    - Find logs containing specific text or error messages
-    - Search for request IDs, user IDs, or transaction IDs
-    - Look for specific function names or API endpoints
-
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
         log_group_name: CloudWatch log group name
@@ -432,14 +415,7 @@ async def execute_cloudwatch_insights_query_tool(
     """
     Execute a CloudWatch Logs Insights query for advanced log analysis.
 
-    CloudWatch Logs Insights is a powerful query language for searching and analyzing logs.
-    Use this for complex queries that require aggregation, filtering, or statistics.
-
-    Use this tool to:
-    - Analyze log patterns and trends
-    - Aggregate error counts or response times
-    - Extract specific fields from structured logs (JSON)
-    - Calculate statistics over time periods
+    CloudWatch Logs Insights query language for advanced log analysis with aggregation and statistics.
 
     Common query patterns:
     - Count errors: "fields @timestamp, @message | filter @message like /ERROR/ | stats count() by bin(5m)"
@@ -507,13 +483,7 @@ async def list_cloudwatch_metrics_tool(
     """
     List available CloudWatch metrics.
 
-    Use this tool to discover what metrics are available for monitoring and analysis.
-    Metrics are organized by namespace (AWS service or custom application).
-
-    Use this tool to:
-    - Discover available metrics in an AWS account
-    - Find metrics for specific services (EC2, Lambda, RDS, etc.)
-    - Understand metric dimensions (instance IDs, function names, etc.)
+    Discover available CloudWatch metrics organized by namespace.
 
     Common namespaces:
     - AWS/EC2: EC2 instance metrics (CPUUtilization, NetworkIn, DiskWriteOps)
@@ -568,14 +538,7 @@ async def get_cloudwatch_metric_statistics_tool(
     """
     Get CloudWatch metric statistics for performance analysis.
 
-    Use this tool to fetch time-series data for metrics and analyze trends.
-    Essential for investigating performance issues, resource utilization, and errors.
-
-    Use this tool to:
-    - Monitor CPU, memory, or disk utilization
-    - Track error rates and request counts
-    - Analyze response times and latencies
-    - Correlate metrics with incidents
+    Fetch time-series metric data for performance analysis and trend investigation.
 
     Common metrics by service:
     - EC2: CPUUtilization, NetworkIn, NetworkOut, DiskReadOps, DiskWriteOps
@@ -654,13 +617,7 @@ async def list_cloudwatch_namespaces_tool(
     """
     List all unique CloudWatch metric namespaces available in the account.
 
-    Use this tool to discover what AWS services and custom applications
-    are publishing metrics to CloudWatch.
-
-    Use this tool to:
-    - Discover all services publishing metrics
-    - Find custom application namespaces
-    - Understand the monitoring landscape
+    Discover what AWS services and custom applications are publishing metrics.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)

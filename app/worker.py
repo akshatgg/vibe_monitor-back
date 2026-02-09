@@ -12,7 +12,7 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
-from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
+from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS, LLM_METRICS
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
 from app.models import Job, JobSource, JobStatus, TurnStatus
@@ -25,7 +25,7 @@ from app.services.rca.callbacks import (
 from app.services.rca.get_service_name.service import extract_service_names_from_repo
 from app.services.sqs.client import sqs_client
 from app.slack.service import slack_event_service
-from app.utils.data_masker import PIIMapper, redact_query_for_log
+from app.utils.data_masker import PIIMapper, mask_email_for_context, redact_query_for_log
 from app.workers.base_worker import BaseWorker
 from app.services.rca.langfuse_handler import get_langfuse_callback
 
@@ -309,6 +309,100 @@ async def fetch_environment_context(workspace_id: str, db: AsyncSessionLocal) ->
         logger.error(f"Error fetching environment context: {e}", exc_info=True)
 
     return environment_context
+
+
+async def fetch_team_context(workspace_id: str, db: AsyncSessionLocal) -> dict:
+    """
+    Fetch team context for RCA agent including:
+    - List of all teams in the workspace
+    - Team members (names)
+    - Team geography
+    - Services owned by each team
+
+    This function queries the database directly (bypassing service layer membership checks)
+    since it runs in the internal RCA agent context where the job has already been authenticated.
+
+    Args:
+        workspace_id: Workspace identifier
+        db: Database session
+
+    Returns:
+        Dictionary with team context for the RCA agent:
+        {
+            "teams": [
+                {
+                    "name": "Backend Team",
+                    "geography": "US-East",
+                    "members": ["Alice", "Bob"],
+                    "services": ["auth-service", "api-service"]
+                }
+            ]
+        }
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models import Team, TeamMembership
+
+    team_context = {
+        "teams": [],
+    }
+
+    try:
+        result = await db.execute(
+            select(Team)
+            .options(
+                selectinload(Team.memberships).selectinload(TeamMembership.user),
+                selectinload(Team.services),
+            )
+            .where(Team.workspace_id == workspace_id)
+            .order_by(Team.name)
+        )
+        teams = list(result.scalars().all())
+
+        if not teams:
+            logger.info(f"No teams configured for workspace {workspace_id}")
+            return team_context
+
+        for team in teams:
+            members = []
+            for m in team.memberships or []:
+                if m.user:
+                    # Mask emails to protect PII in LLM context
+                    # Preserves username for identification while masking domain
+                    user_display = m.user.name or mask_email_for_context(m.user.email)
+                    members.append(user_display)
+                else:
+                    logger.warning(
+                        f"Orphaned membership found in team {team.name} "
+                        f"(team_id={team.id}, membership_id={m.id if hasattr(m, 'id') else 'unknown'})"
+                    )
+
+            services = [
+                s.name for s in (team.services or []) if s.enabled
+            ]
+
+            team_context["teams"].append(
+                {
+                    "name": team.name,
+                    "geography": team.geography,
+                    "members": members,
+                    "services": services,
+                }
+            )
+
+        logger.info(
+            f"✅ Team context complete: {len(teams)} teams"
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching team context: {e}", exc_info=True)
+        # Reset team_context on error to avoid returning partial data
+        # Sanitize error message to prevent information leakage
+        # Include error field to distinguish from "no teams configured"
+        return {"teams": [], "error": "Failed to fetch team context"}
+
+    return team_context
 
 
 class RCAOrchestratorWorker(BaseWorker):
@@ -625,6 +719,14 @@ class RCAOrchestratorWorker(BaseWorker):
                         workspace_id=workspace_id, db=db
                     )
 
+                    # PRE-PROCESSING: Fetch team context (teams + members + services)
+                    logger.info(
+                        f"👥 Pre-processing: Fetching team context for workspace {workspace_id}"
+                    )
+                    team_context = await fetch_team_context(
+                        workspace_id=workspace_id, db=db
+                    )
+
                     # Perform RCA analysis using LangGraph agent
                     # LangGraph now handles both text and multimodal inputs
                     has_images = job.requested_context.get("has_images", False)
@@ -654,12 +756,13 @@ class RCAOrchestratorWorker(BaseWorker):
 
                     selected_agent = rca_agent_service
 
-                    # Add workspace_id, service mapping, environment context, and files for RCA tools
+                    # Add workspace_id, service mapping, environment context, team context, and files for RCA tools
                     analysis_context = {
                         **(job.requested_context or {}),
                         "workspace_id": workspace_id,
                         "service_repo_mapping": service_repo_mapping,  # Pre-computed mapping
                         "environment_context": environment_context,  # Environments + deployed commits
+                        "team_context": team_context,  # Teams + members + services
                         "files": files
                         if has_images
                         else [],  # Pass files for multimodal analysis
@@ -730,6 +833,8 @@ class RCAOrchestratorWorker(BaseWorker):
                         await db.commit()
 
                         agent_duration = time.time() - agent_start_time
+
+                        # Record RCA agent metrics
                         if AGENT_METRICS:
                             AGENT_METRICS["rca_agent_invocations_total"].add(
                                 1,
@@ -740,6 +845,25 @@ class RCAOrchestratorWorker(BaseWorker):
                             AGENT_METRICS["rca_agent_duration_seconds"].record(
                                 agent_duration
                             )
+
+                        # Record LLM provider usage metrics.
+                        # Currently RCA uses Groq via ChatGroq; when additional
+                        # providers are supported, this can be made dynamic.
+                        if LLM_METRICS:
+                            try:
+                                LLM_METRICS["rca_llm_provider_usage_total"].add(
+                                    1,
+                                    {
+                                        "provider": "groq",
+                                        "workspace_id": workspace_id,
+                                    },
+                                )
+                            except Exception:
+                                # Metrics should never break the RCA flow
+                                logger.debug(
+                                    "Failed to record LLM provider usage metric",
+                                    exc_info=True,
+                                )
 
                         JOB_METRICS["jobs_succeeded_total"].add(
                             1,

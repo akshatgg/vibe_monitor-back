@@ -186,14 +186,7 @@ async def query_newrelic_logs_tool(
     """
     Query New Relic logs using NRQL (New Relic Query Language).
 
-    Use this tool for advanced log queries with complex filtering, aggregation, and analysis.
-    NRQL is powerful for analyzing patterns, counting occurrences, and extracting insights.
-
-    Use this tool to:
-    - Run complex NRQL queries on log data
-    - Aggregate and analyze log patterns
-    - Extract specific fields from structured logs
-    - Calculate statistics over log data
+    Advanced log queries with NRQL for filtering, aggregation, and analysis.
 
     Common NRQL patterns:
     - Basic query: "SELECT * FROM Log WHERE message LIKE '%error%' SINCE 1 hour ago LIMIT 100"
@@ -238,13 +231,8 @@ async def search_newrelic_logs_tool(
     """
     Search New Relic logs for a specific text term.
 
-    Simplified search tool that looks for text matches in log messages.
+    Simplified text search in log messages.
     For complex queries, use query_newrelic_logs_tool instead.
-
-    Use this tool to:
-    - Find logs containing specific error messages or keywords
-    - Search for request IDs, user IDs, or correlation IDs
-    - Look for specific function names or API endpoints
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
@@ -299,14 +287,7 @@ async def query_newrelic_metrics_tool(
     """
     Query New Relic metrics using NRQL (New Relic Query Language).
 
-    Use this tool for advanced metric queries with aggregation and analysis.
-    Essential for investigating performance issues, analyzing trends, and correlating metrics.
-
-    Use this tool to:
-    - Query application performance metrics (APM)
-    - Analyze transaction durations and throughput
-    - Track error rates and response times
-    - Investigate custom metrics
+    Advanced metric queries with NRQL for performance analysis and trend investigation.
 
     Common NRQL patterns:
     - Transaction duration: "SELECT average(duration) FROM Transaction SINCE 1 hour ago TIMESERIES"
@@ -353,14 +334,7 @@ async def get_newrelic_time_series_tool(
     """
     Get New Relic metric time series data.
 
-    Use this tool to fetch time-series metric data and analyze trends over time.
-    Useful for investigating performance degradation, spikes, or anomalies.
-
-    Use this tool to:
-    - Monitor performance metrics over time
-    - Track trends in response times, throughput, or error rates
-    - Correlate metrics with incidents
-    - Identify patterns and anomalies
+    Fetch time-series metric data for trend analysis and anomaly investigation.
 
     Common metrics:
     - duration: Transaction duration in seconds
@@ -426,14 +400,7 @@ async def get_newrelic_infra_metrics_tool(
     """
     Get New Relic infrastructure metrics.
 
-    Use this tool to fetch infrastructure monitoring data like CPU, memory, disk, and network.
-    Essential for correlating application issues with infrastructure problems.
-
-    Use this tool to:
-    - Monitor server resource utilization (CPU, memory, disk)
-    - Investigate infrastructure-related performance issues
-    - Correlate infrastructure metrics with application errors
-    - Track host-level metrics over time
+    Fetch infrastructure metrics (CPU, memory, disk, network) for correlation with application issues.
 
     Common infrastructure metrics:
     - cpuPercent: CPU utilization percentage

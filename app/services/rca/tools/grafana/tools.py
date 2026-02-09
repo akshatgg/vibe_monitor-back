@@ -239,10 +239,6 @@ async def fetch_cpu_metrics_tool(
 
     Returns:
         CPU usage statistics (latest, average, max, min) for ACTUAL services
-
-    Example usage pattern (NOT real service names):
-        # Use ACTUAL service name discovered from error logs
-        fetch_cpu_metrics_tool(service_name="<ACTUAL_SERVICE>", start_time="now-2h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -288,10 +284,6 @@ async def fetch_memory_metrics_tool(
 
     Returns:
         Memory usage statistics in MB for ACTUAL services
-
-    Example usage pattern (NOT real service names):
-        # Use ACTUAL service name discovered from error logs
-        fetch_memory_metrics_tool(service_name="<ACTUAL_SERVICE>", start_time="now-3h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -338,10 +330,6 @@ async def fetch_http_latency_tool(
 
     Returns:
         HTTP latency statistics at the specified percentile for ACTUAL services
-
-    Example usage pattern (NOT real service names):
-        # Use ACTUAL service name discovered from error logs
-        fetch_http_latency_tool(service_name="<ACTUAL_SERVICE>", percentile=0.99, start_time="now-2h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)
@@ -389,12 +377,6 @@ async def fetch_metrics_tool(
 
     Returns:
         Metrics data formatted for analysis showing ACTUAL service names
-
-    Example usage pattern (NOT real service names):
-        # Use ACTUAL service name discovered from error logs, or omit to see all services
-        fetch_metrics_tool(metric_type="errors", service_name="<ACTUAL_SERVICE>", start_time="now-3h")
-        # OR discover all services experiencing errors:
-        fetch_metrics_tool(metric_type="errors", start_time="now-3h")
     """
     try:
         time_range = MetricTimeRange(start=start_time, end=end_time, step=step)

@@ -16,7 +16,6 @@ from app.github.tools.router import (
     get_repository_metadata,
     get_repository_tree,
     list_pull_requests,
-    list_repositories_graphql,
     read_repository_file,
     search_code,
 )
@@ -330,46 +329,6 @@ def _format_pull_requests_response(response: dict) -> str:
         return f"Error parsing pull requests: {str(e)}"
 
 
-@tool
-async def list_repositories_tool(
-    workspace_id: str,
-    first: int = 50,
-    after: Optional[str] = None,
-) -> str:
-    """
-    List GitHub repositories accessible in the workspace.
-
-    Use this tool to discover available repositories for code analysis or investigation.
-
-    Args:
-        workspace_id: Workspace identifier (automatically provided from job context)
-        first: Number of repositories to fetch (default: 50)
-        after: Cursor for pagination (optional)
-
-    Returns:
-        Formatted list of repositories with names, descriptions, and languages
-
-    Example:
-        list_repositories_tool(first=20)
-    """
-    try:
-        async with AsyncSessionLocal() as db:
-            # Use a dummy user_id since we're in agent context
-            # The workspace_id is pre-bound, so we just need a valid user
-            # In practice, the workspace itself provides the authorization
-            response = await list_repositories_graphql(
-                workspace_id=workspace_id,
-                first=first,
-                after=after,
-                user_id="rca-agent",  # Placeholder for agent context
-                db=db,
-            )
-
-        return _format_repositories_response(response)
-
-    except Exception as e:
-        return _format_tool_error("list_repositories", e, "repository list")
-
 
 @tool
 async def read_repository_file_tool(
@@ -590,9 +549,6 @@ async def list_pull_requests_tool(
     Use this tool to identify recent deployments, ongoing development work,
     or investigate which PRs might have introduced issues.
 
-    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
-    Use the SERVICE→REPOSITORY mapping to translate.
-
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
         repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
@@ -626,72 +582,6 @@ async def list_pull_requests_tool(
         return _format_tool_error("list_pull_requests", e, "pull requests")
 
 
-@tool
-async def download_file_tool(
-    workspace_id: str,
-    repo_name: str,
-    file_path: str,
-    owner: Optional[str] = None,
-    ref: Optional[str] = None,
-) -> str:
-    """
-    Download and read a file from a GitHub repository using the Contents API.
-
-    Alternative to read_repository_file_tool that uses REST API instead of GraphQL.
-    Useful for fetching binary files or when GraphQL access is limited.
-
-    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
-    Use the SERVICE→REPOSITORY mapping to translate. Example:
-    - If service is "marketplace-service" and mapping shows {"marketplace-service": "marketplace"}
-    - Use repo_name="marketplace", NOT repo_name="marketplace-service"
-
-    **CRITICAL: For Environment-Specific Investigations:**
-    When investigating code deployed in a specific environment, ALWAYS use the deployed commit SHA
-    from the environment context in the ref parameter. This ensures you're reading the ACTUAL deployed code, not HEAD.
-
-    Args:
-        workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
-        file_path: Path to the file in the repository
-        owner: Repository owner (defaults to workspace's GitHub username)
-        ref: Branch, tag, or commit SHA (defaults to default branch). Use deployed commit SHA for environment investigations.
-
-    Returns:
-        File content (automatically decoded from base64 to UTF-8)
-
-    Examples:
-        # Download from HEAD (latest code)
-        download_file_tool(repo_name="marketplace", file_path="app.py")
-
-        # Download from deployed commit (for environment-specific investigation)
-        download_file_tool(repo_name="marketplace", file_path="app.py", ref="ab2f9b1c")
-    """
-    try:
-        async with AsyncSessionLocal() as db:
-            resolved_ref = ref
-            if not resolved_ref or str(resolved_ref).upper() == "HEAD":
-                integration, _ = await get_github_integration_with_token(
-                    workspace_id, db
-                )
-                resolved_owner = get_owner_or_default(owner, integration)
-                resolved_ref = await get_default_branch(
-                    workspace_id, repo_name, resolved_owner, db
-                )
-
-            response = await download_file_by_path(
-                workspace_id=workspace_id,
-                repo=repo_name,
-                file_path=file_path,
-                owner=owner,
-                ref=str(resolved_ref),
-                user_id="rca-agent",
-                db=db,
-            )
-
-        return _format_file_content_response(response)
-
-    except Exception as e:
-        return _format_tool_error("download_file", e, f"file '{file_path}'")
 
 
 def _format_tree_response(response: dict) -> str:
@@ -808,34 +698,22 @@ async def get_repository_tree_tool(
     or understand the codebase organization. The expression parameter lets you
     navigate directories and view file contents.
 
-    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
-    Use the SERVICE→REPOSITORY mapping to translate.
-
-    **CRITICAL: For Environment-Specific Investigations:**
-    When investigating code deployed in a specific environment, use the deployed commit SHA
-    in the expression instead of "HEAD:" or branch names. This ensures you're exploring the
-    ACTUAL deployed code structure.
+    Use deployed commit SHA in expression for environment-specific investigations.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping
         expression: Git expression to query (default: "HEAD:")
-            - "HEAD:" - Root directory of default branch
-            - "main:" - Root directory of main branch
-            - "abc123:" - Root directory of specific commit (for deployed code)
-            - "HEAD:src/" - Contents of src directory
-            - "ab2f9b1c:src/" - Contents of src directory from deployed commit
-            - "HEAD:src/config.py" - Specific file content
+            - "HEAD:" or "main:" - Root/branch directory
+            - "abc123:" - Specific commit directory
+            - "HEAD:src/" - Subdirectory
+            - "HEAD:src/config.py" - Specific file
         owner: Repository owner (defaults to workspace's GitHub username)
 
     Returns:
         Directory listing or file content depending on expression
 
-    Examples:
-        # Explore HEAD
-        get_repository_tree_tool(repo_name="marketplace", expression="HEAD:src/")
-
-        # Explore deployed commit (for environment-specific investigation)
+    Example:
         get_repository_tree_tool(repo_name="marketplace", expression="ab2f9b1c:src/")
     """
     try:
@@ -870,12 +748,9 @@ async def get_branch_recent_commits_tool(
     particularly useful for comparing feature branches or release branches
     to understand what changes are about to be deployed.
 
-    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
-    Use the SERVICE→REPOSITORY mapping to translate.
-
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping
         ref: Branch reference (default: "refs/heads/main")
             - "refs/heads/main" - Main branch
             - "refs/heads/develop" - Develop branch
@@ -919,15 +794,11 @@ async def get_repository_metadata_tool(
     Get repository metadata including languages and topics.
 
     Use this to understand what technologies a repository uses (programming languages,
-    frameworks) or to identify repositories by their topics/tags. Helpful for
-    understanding the tech stack when investigating issues.
-
-    ⚠️ CRITICAL: repo_name is the GITHUB REPOSITORY name, NOT the service name!
-    Use the SERVICE→REPOSITORY mapping to translate.
+    frameworks) or to identify repositories by their topics/tags.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
-        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping (NOT the service name!)
+        repo_name: GitHub repository name from SERVICE→REPOSITORY mapping
         owner: Repository owner (defaults to workspace's GitHub username)
         first: Number of languages to fetch (default: 12)
 

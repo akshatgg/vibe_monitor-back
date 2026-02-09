@@ -11,11 +11,14 @@ from app.services.rca.context_utils import (
     format_environments_display,
     format_integrations_display,
     format_service_mapping_display,
+    format_team_data_display,
     format_thread_history_for_prompt,
     get_context_summary,
     get_default_environment,
     get_deployed_commits,
     get_environment_list,
+    get_team_for_service,
+    get_team_list,
     get_thread_history,
 )
 
@@ -924,6 +927,507 @@ class TestGetThreadHistory:
         state = {}
         result = get_thread_history(state)
         assert result is None
+
+
+class TestFormatTeamDataDisplay:
+    """Tests for format_team_data_display function"""
+
+    def test_formats_single_team(self):
+        """Should format single team with all fields"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": ["Alice", "Bob"],
+                    "services": ["auth-service", "api-service"],
+                }
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert "Backend (US-East)" in result
+        assert "auth-service, api-service" in result
+        assert "[members: Alice, Bob]" in result
+
+    def test_formats_multiple_teams_with_separator(self):
+        """Should format multiple teams separated by semicolon"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": ["Alice"],
+                    "services": ["auth-service"],
+                },
+                {
+                    "name": "Frontend",
+                    "geography": "US-West",
+                    "members": ["Bob"],
+                    "services": ["web-service"],
+                },
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert "Backend (US-East): auth-service [members: Alice]" in result
+        assert "Frontend (US-West): web-service [members: Bob]" in result
+        assert "; " in result  # Check semicolon separator
+
+    def test_formats_team_without_geography(self):
+        """Should format team without geography field"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": None,
+                    "members": ["Alice"],
+                    "services": ["auth-service"],
+                }
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert result == "Backend: auth-service [members: Alice]"
+        assert "None" not in result
+
+    def test_formats_team_without_members(self):
+        """Should format team without members"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": [],
+                    "services": ["auth-service"],
+                }
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert result == "Backend (US-East): auth-service"
+        assert "[members:" not in result
+
+    def test_formats_team_without_services(self):
+        """Should show 'no services' when team has no services"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": ["Alice"],
+                    "services": [],
+                }
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert "Backend (US-East): no services [members: Alice]" in result
+
+    def test_handles_empty_teams(self):
+        """Should return empty string when no teams"""
+        team_ctx = {"teams": []}
+        result = format_team_data_display(team_ctx)
+        assert result == ""
+
+    def test_handles_none_context(self):
+        """Should return empty string when context is None"""
+        result = format_team_data_display(None)
+        assert result == ""
+
+    def test_handles_missing_teams_key(self):
+        """Should return empty string when teams key missing"""
+        team_ctx = {}
+        result = format_team_data_display(team_ctx)
+        assert result == ""
+
+    def test_ignores_non_dict_entries(self):
+        """Should skip non-dict entries in teams list"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": ["Alice"],
+                    "services": ["auth-service"],
+                },
+                "invalid_entry",  # Should be skipped
+                {
+                    "name": "Frontend",
+                    "geography": None,
+                    "members": ["Bob"],
+                    "services": ["web-service"],
+                },
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert "Backend (US-East)" in result
+        assert "Frontend:" in result
+        assert "invalid_entry" not in result
+
+    def test_ignores_entries_without_name(self):
+        """Should skip entries that don't have a name"""
+        team_ctx = {
+            "teams": [
+                {
+                    "name": "Backend",
+                    "geography": "US-East",
+                    "members": ["Alice"],
+                    "services": ["auth-service"],
+                },
+                {
+                    "geography": "US-West",
+                    "members": ["Bob"],
+                    "services": ["web-service"],
+                },  # No name - should be skipped
+            ]
+        }
+        result = format_team_data_display(team_ctx)
+        assert "Backend (US-East)" in result
+        assert "US-West" not in result
+
+
+class TestGetTeamList:
+    """Tests for get_team_list function"""
+
+    def test_returns_team_names(self):
+        """Should return list of team names"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {"name": "Backend", "geography": "US-East"},
+                        {"name": "Frontend", "geography": None},
+                    ]
+                }
+            }
+        }
+        result = get_team_list(state)
+        assert result == ["Backend", "Frontend"]
+
+    def test_returns_empty_list_when_no_teams(self):
+        """Should return empty list when no teams"""
+        state = {"context": {"team_context": {"teams": []}}}
+        result = get_team_list(state)
+        assert result == []
+
+    def test_filters_invalid_entries(self):
+        """Should filter out non-dict entries and entries without names"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {"name": "Backend", "geography": "US-East"},
+                        "invalid",  # Should be filtered
+                        {"geography": "US-West"},  # No name, should be filtered
+                        {"name": "Frontend", "geography": None},
+                    ]
+                }
+            }
+        }
+        result = get_team_list(state)
+        assert result == ["Backend", "Frontend"]
+
+    def test_handles_missing_team_context(self):
+        """Should return empty list when team context missing"""
+        state = {"context": {}}
+        result = get_team_list(state)
+        assert result == []
+
+    def test_handles_empty_state(self):
+        """Should return empty list when state is empty"""
+        state = {}
+        result = get_team_list(state)
+        assert result == []
+
+
+class TestGetTeamForService:
+    """Tests for get_team_for_service function"""
+
+    def test_finds_team_for_service(self):
+        """Should find team that owns the service"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "services": ["auth-service", "api-service"],
+                            "members": ["Alice"],
+                            "geography": "US-East",
+                        }
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "auth-service")
+        assert len(result) == 1
+        assert result[0]["name"] == "Backend"
+        assert "auth-service" in result[0]["services"]
+        assert result[0]["members"] == ["Alice"]
+
+    def test_returns_empty_list_when_service_not_found(self):
+        """Should return empty list when service not owned by any team"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "services": ["auth-service"],
+                            "members": ["Alice"],
+                        }
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "unknown-service")
+        assert result == []
+
+    def test_returns_empty_list_for_empty_service_name(self):
+        """Should return empty list when service_name is empty (input validation)"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "services": ["auth-service"],
+                            "members": ["Alice"],
+                        }
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "")
+        assert result == []
+
+    def test_returns_all_matching_teams(self):
+        """Should return all teams when service is owned by multiple teams"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "services": ["shared-service"],
+                            "members": ["Alice"],
+                        },
+                        {
+                            "name": "Frontend",
+                            "services": ["shared-service"],
+                            "members": ["Bob"],
+                        },
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "shared-service")
+        assert len(result) == 2
+        assert result[0]["name"] == "Backend"
+        assert result[1]["name"] == "Frontend"
+
+    def test_handles_team_with_no_services(self):
+        """Should skip teams with no services or None services"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {"name": "Team1", "services": None, "members": []},
+                        {"name": "Team2", "services": [], "members": []},
+                        {
+                            "name": "Backend",
+                            "services": ["auth-service"],
+                            "members": ["Alice"],
+                        },
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "auth-service")
+        assert len(result) == 1
+        assert result[0]["name"] == "Backend"
+
+    def test_ignores_non_dict_team_entries(self):
+        """Should skip non-dict entries in teams list"""
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        "invalid_entry",  # Should be skipped
+                        {
+                            "name": "Backend",
+                            "services": ["auth-service"],
+                            "members": ["Alice"],
+                        },
+                    ]
+                }
+            }
+        }
+        result = get_team_for_service(state, "auth-service")
+        assert len(result) == 1
+        assert result[0]["name"] == "Backend"
+
+    def test_handles_missing_team_context(self):
+        """Should return empty list when team context missing"""
+        state = {"context": {}}
+        result = get_team_for_service(state, "auth-service")
+        assert result == []
+
+    def test_handles_empty_state(self):
+        """Should return empty list when state is empty"""
+        state = {}
+        result = get_team_for_service(state, "auth-service")
+        assert result == []
+
+
+class TestBuildContextStringWithTeams:
+    """Tests for build_context_string function with team data"""
+
+    def test_includes_team_data_by_default(self):
+        """Should include team data in context string by default"""
+
+        def _make_integration(status="active", health_status="healthy"):
+            integration = MagicMock()
+            integration.status = status
+            integration.health_status = health_status
+            return integration
+
+        execution_context = ExecutionContext(
+            workspace_id="test-workspace",
+            capabilities=set(),
+            integrations={
+                "github": _make_integration(status="active", health_status="healthy"),
+            },
+            service_mapping={"marketplace-service": "marketplace"},
+        )
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "geography": "US-East",
+                            "members": ["Alice"],
+                            "services": ["auth-service"],
+                        }
+                    ]
+                },
+                "environment_context": {
+                    "environments": [{"name": "prod", "is_default": True}],
+                    "default_environment": "prod",
+                },
+            }
+        }
+
+        result = build_context_string(execution_context, state)
+
+        assert "Teams: Backend (US-East): auth-service [members: Alice]" in result
+
+    def test_excludes_teams_when_flag_false(self):
+        """Should not include team data when include_teams=False"""
+        execution_context = ExecutionContext(
+            workspace_id="test-workspace",
+            capabilities=set(),
+            integrations={},
+            service_mapping={"marketplace-service": "marketplace"},
+        )
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {
+                            "name": "Backend",
+                            "geography": "US-East",
+                            "members": ["Alice"],
+                            "services": ["auth-service"],
+                        }
+                    ]
+                },
+                "environment_context": {
+                    "environments": [{"name": "prod", "is_default": True}],
+                    "default_environment": "prod",
+                },
+            }
+        }
+
+        result = build_context_string(
+            execution_context, state, include_teams=False, include_integrations=False
+        )
+
+        assert "Teams:" not in result
+        assert "Backend" not in result
+
+    def test_handles_empty_team_context(self):
+        """Should handle empty team context gracefully"""
+        execution_context = ExecutionContext(
+            workspace_id="test-workspace",
+            capabilities=set(),
+            integrations={},
+            service_mapping={"marketplace-service": "marketplace"},
+        )
+        state = {
+            "context": {
+                "team_context": {"teams": []},
+                "environment_context": {
+                    "environments": [{"name": "prod", "is_default": True}],
+                    "default_environment": "prod",
+                },
+            }
+        }
+
+        result = build_context_string(
+            execution_context, state, include_integrations=False
+        )
+
+        # Should not include Teams section when no teams
+        assert "Teams:" not in result
+        assert "Available services:" in result
+
+
+class TestGetContextSummaryWithTeams:
+    """Tests for get_context_summary function with team data"""
+
+    def test_includes_teams_in_summary(self):
+        """Should include teams and team_count in summary"""
+        execution_context = ExecutionContext(
+            workspace_id="test-workspace",
+            capabilities=set(),
+            integrations={},
+            service_mapping={
+                "marketplace-service": "marketplace",
+                "auth-service": "auth",
+            },
+        )
+        state = {
+            "context": {
+                "team_context": {
+                    "teams": [
+                        {"name": "Backend", "geography": "US-East"},
+                        {"name": "Frontend", "geography": None},
+                    ]
+                },
+                "environment_context": {
+                    "environments": [{"name": "prod", "is_default": True}],
+                    "default_environment": "prod",
+                },
+            }
+        }
+
+        result = get_context_summary(execution_context, state)
+
+        assert result["teams"] == ["Backend", "Frontend"]
+        assert result["team_count"] == 2
+
+    def test_handles_no_teams_in_summary(self):
+        """Should handle empty teams in summary"""
+        execution_context = ExecutionContext(
+            workspace_id="test-workspace",
+            capabilities=set(),
+            integrations={},
+            service_mapping={},
+        )
+        state = {"context": {"team_context": {"teams": []}}}
+
+        result = get_context_summary(execution_context, state)
+
+        assert result["teams"] == []
+        assert result["team_count"] == 0
 
 
 class TestFormatThreadHistoryForPrompt:

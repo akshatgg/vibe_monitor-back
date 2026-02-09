@@ -336,14 +336,7 @@ async def search_datadog_logs_tool(
     """
     Search Datadog logs using Datadog log search syntax.
 
-    Use this tool for searching logs with complex filtering and analysis.
-    Essential for investigating errors, exceptions, and application behavior.
-
-    Use this tool to:
-    - Find logs containing specific error messages or keywords
-    - Filter logs by service, status, or custom attributes
-    - Search for request IDs, trace IDs, or correlation IDs
-    - Investigate application errors and exceptions
+    Search logs with complex filtering, analysis, and Datadog query syntax.
 
     Query syntax examples:
     - "service:my-app" - Filter by service name
@@ -408,12 +401,6 @@ async def list_datadog_logs_tool(
     List Datadog logs with simplified filtering (returns simplified format).
 
     Simpler alternative to search_datadog_logs_tool with basic filtering options.
-    Use this for quick log review without complex query syntax.
-
-    Use this tool to:
-    - Get recent logs from a specific service
-    - Filter logs by status level
-    - Quick log review and monitoring
 
     Status levels: error, warn, info, debug
 
@@ -470,13 +457,7 @@ async def list_datadog_log_services_tool(
     """
     List all services that have logged data in Datadog.
 
-    Use this tool to discover what services are available for log analysis.
-    Helpful for understanding the service landscape and identifying which services to investigate.
-
-    Use this tool to:
-    - Discover available services in the environment
-    - Understand service naming conventions
-    - Identify services to investigate during RCA
+    Discover what services have logged data for investigation.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
@@ -530,14 +511,7 @@ async def query_datadog_metrics_tool(
     """
     Query Datadog metrics using Datadog metric query syntax.
 
-    Use this tool for querying metrics and analyzing performance data.
-    Essential for investigating performance issues, resource utilization, and trends.
-
-    Use this tool to:
-    - Monitor application performance metrics
-    - Track infrastructure metrics (CPU, memory, disk, network)
-    - Analyze custom application metrics
-    - Investigate performance degradation
+    Query metrics for performance analysis and trend investigation.
 
     Common metrics and query patterns:
     - System metrics:
@@ -600,13 +574,7 @@ async def query_datadog_timeseries_tool(
     """
     Query Datadog timeseries metrics (advanced format with full metadata).
 
-    Use this tool for detailed timeseries metric analysis with complete metadata.
-    Provides more detailed response than query_datadog_metrics_tool.
-
-    Use this tool to:
-    - Get detailed metric metadata and units
-    - Analyze complex metric queries
-    - Track metrics with specific grouping or filtering
+    Advanced timeseries format with full metadata. More detailed than query_datadog_metrics_tool.
 
     Args:
         workspace_id: Workspace identifier (automatically provided from job context)
@@ -657,14 +625,7 @@ async def search_datadog_events_tool(
     """
     Search Datadog events (deployments, alerts, changes, annotations).
 
-    Use this tool to find events that occurred during a time range.
-    Events show what changed in your infrastructure - critical for RCA!
-
-    Use this tool to:
-    - Find deployments and code changes
-    - Track alerts that fired or resolved
-    - Investigate configuration changes
-    - Correlate events with incidents
+    Find events (deployments, alerts, changes) during a time range — critical for RCA.
 
     Event types include:
     - Deployments and releases
@@ -719,13 +680,7 @@ async def list_datadog_tags_tool(
     """
     List all available Datadog tags.
 
-    Use this tool to discover what tags are available for filtering logs, metrics, and events.
-    Helps understand the tagging strategy and find relevant filters.
-
-    Use this tool to:
-    - Discover available tags in the environment
-    - Understand tag structure and categories
-    - Find tags to use in other queries
+    Discover available tags for filtering logs, metrics, and events.
 
     Tag categories typically include:
     - env: Environment (prod, staging, dev)
