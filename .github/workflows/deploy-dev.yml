@@ -2,10 +2,16 @@ name: Deploy to ECS - Dev
 
 on:
   workflow_dispatch:
+    inputs:
+      force_no_cache:
+        description: 'Force rebuild without cache (DEBUG)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
-  contents: read
+  contents: write  # Required to push deployment tags
 
 jobs:
   deploy:
@@ -15,6 +21,7 @@ jobs:
       ecs_cluster: vm-api-cluster-dev
       ecs_service: vm-api-svc-dev
       iam_role_session_name: gha-ecs-deploy-dev
+      force_no_cache: ${{ inputs.force_no_cache || false }}
     secrets:
       aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
 

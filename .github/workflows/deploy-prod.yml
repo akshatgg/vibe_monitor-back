@@ -3,19 +3,43 @@ name: Deploy to ECS - Prod
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      force_no_cache:
+        description: '⚠️ Force rebuild without cache (rebuilds all Docker layers)'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   id-token: write
-  contents: read
+  contents: write  # Required to push deployment tags
 
 jobs:
+  check-branch:
+    name: Verify Branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Ensure deployment from main branch only
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "❌ Production deployments are only allowed from the 'main' branch"
+            echo "Current branch: ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "✅ Deploying from main branch"
+
   deploy:
     uses: ./.github/workflows/_deploy-ecs.yml
+    needs: [check-branch]
+    if: always() && (needs.check-branch.result == 'success' || needs.check-branch.result == 'skipped')
     with:
       environment: prod
       ecs_cluster: vm-api-cluster-prod
       ecs_service: vm-api-svc-prod
       iam_role_session_name: gha-ecs-deploy-prod
+      force_no_cache: ${{ inputs.force_no_cache || false }}
     secrets:
       aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
 

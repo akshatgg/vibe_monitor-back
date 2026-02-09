@@ -9,6 +9,11 @@ on:
         description: 'Environment to deploy to (dev/prod)'
         required: true
         type: string
+      force_no_cache:
+        description: 'Force docker build without cache (DEBUG ONLY)'
+        required: false
+        type: boolean
+        default: false
       aws_region:
         description: 'AWS region'
         required: false
@@ -63,6 +68,74 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 100  # Fetch recent history (optimized for speed)
+          fetch-tags: true  # Fetch all tags for deployment tracking
+          persist-credentials: true  # Ensure credentials persist for tag push later
+
+      - name: Check changes since last deployment
+        id: deps-check
+        run: |
+          echo "🔍 Checking changes since last deployment..."
+          echo ""
+
+          LATEST_TAG="deployed-${{ inputs.environment }}-latest"
+
+          # Fetch the deployment tag if it exists remotely
+          git fetch origin "refs/tags/$LATEST_TAG:refs/tags/$LATEST_TAG" 2>/dev/null || true
+
+          # Check if deployment tag exists (first deployment?)
+          if ! git rev-parse "$LATEST_TAG" >/dev/null 2>&1; then
+            echo "⚠️  No previous deployment tag found: $LATEST_TAG"
+            echo "This appears to be the FIRST deployment to ${{ inputs.environment }}"
+            echo "Forcing clean build for safety"
+            echo ""
+            echo "deps_changed=false" >> $GITHUB_OUTPUT
+            echo "first_deploy=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Deepen history if tag commit is not in our shallow clone
+          LAST_DEPLOYED=$(git rev-parse "$LATEST_TAG")
+          if ! git cat-file -e "$LAST_DEPLOYED" 2>/dev/null; then
+            echo "📥 Tag commit not in shallow clone, fetching deeper history..."
+            git fetch --deepen=100
+          fi
+
+          CURRENT_COMMIT="${{ github.sha }}"
+
+          echo "📊 Deployment Comparison:"
+          echo "  Last deployed: $LAST_DEPLOYED"
+          echo "  Current commit: $CURRENT_COMMIT"
+          echo ""
+
+          # Compare last deployed to current
+          CHANGED_FILES=$(git diff --name-only "$LAST_DEPLOYED" "$CURRENT_COMMIT")
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "ℹ️  No files changed since last deployment (redeploying same commit)"
+            echo "deps_changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "📄 Files changed since last deployment:"
+          echo "$CHANGED_FILES"
+          echo ""
+
+          # Check if any build-critical files changed
+          if echo "$CHANGED_FILES" | grep -qE '(Dockerfile|\.dockerignore|poetry\.lock|pyproject\.toml|requirements\.txt)'; then
+            echo "🔨 Build-critical files changed since last deployment!"
+            echo ""
+            echo "Critical files that changed:"
+            echo "$CHANGED_FILES" | grep -E '(Dockerfile|\.dockerignore|poetry\.lock|pyproject\.toml|requirements\.txt)' || true
+            echo ""
+            echo "✅ Will force rebuild without cache to ensure fresh dependencies"
+            echo "deps_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ No build-critical changes detected since last deployment"
+            echo "Only application code changed - cache can be safely used"
+            echo "deps_changed=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -70,6 +143,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GithubActionsEcsDeployer
           role-session-name: ${{ inputs.iam_role_session_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to ECR
         id: ecr-login
@@ -93,8 +169,50 @@ jobs:
           command: |
             set -e  # Exit immediately if any command fails
             IMAGE_TAG=${{ inputs.environment }}-${GITHUB_SHA}
-            docker build --no-cache -t $ECR_URI/$ECR_REPO:$IMAGE_TAG .
-            docker push $ECR_URI/$ECR_REPO:$IMAGE_TAG
+
+            # Determine if we should skip cache
+            SKIP_CACHE="false"
+
+            # Check if manual override is set (checkbox)
+            if [ "${{ inputs.force_no_cache }}" = "true" ]; then
+              echo "⚠️ MANUAL OVERRIDE: User requested --no-cache via checkbox"
+              SKIP_CACHE="true"
+            fi
+
+            # Check if this is the first deployment (no previous tag)
+            if [ "${{ steps.deps-check.outputs.first_deploy }}" = "true" ]; then
+              echo "🆕 FIRST DEPLOYMENT: No previous deployment tag found, forcing --no-cache"
+              SKIP_CACHE="true"
+            fi
+
+            # Check if dependencies changed (auto-detection)
+            if [ "${{ steps.deps-check.outputs.deps_changed }}" = "true" ]; then
+              echo "🔍 AUTO-DETECTED: Build-critical files changed, forcing --no-cache"
+              SKIP_CACHE="true"
+            fi
+
+            # Build with or without cache
+            if [ "$SKIP_CACHE" = "true" ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "🔨 Building WITHOUT cache (clean build + updating cache)"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              docker buildx build \
+                --no-cache \
+                --cache-to type=gha,mode=max \
+                --push \
+                -t $ECR_URI/$ECR_REPO:$IMAGE_TAG \
+                .
+            else
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "🚀 Building WITH cache (using existing cache)"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              docker buildx build \
+                --cache-from type=gha \
+                --push \
+                -t $ECR_URI/$ECR_REPO:$IMAGE_TAG \
+                .
+            fi
+
             echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Render task definition from template
@@ -223,6 +341,38 @@ jobs:
           echo "Environment: ${ENVIRONMENT}"
           echo "Image: $ECR_URI/$ECR_REPO:$IMAGE_TAG"
           echo "Task Definition: $REVISION_ARN"
+
+      - name: Tag successful deployment
+        if: success()
+        run: |
+          echo "🏷️  Tagging successful deployment..."
+
+          CURRENT_COMMIT="${{ github.sha }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          TIMESTAMP=$(date +%s)
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create timestamped tag (permanent deployment history)
+          HISTORY_TAG="deployed-${ENVIRONMENT}-${TIMESTAMP}"
+          git tag "$HISTORY_TAG" "$CURRENT_COMMIT"
+          git push origin "$HISTORY_TAG"
+          echo "📜 Created history tag: $HISTORY_TAG"
+
+          # Create/update latest pointer (used for change detection)
+          LATEST_TAG="deployed-${ENVIRONMENT}-latest"
+          git tag -f "$LATEST_TAG" "$CURRENT_COMMIT"
+          git push origin "$LATEST_TAG" --force
+          echo "🔖 Updated latest pointer: $LATEST_TAG"
+
+          echo ""
+          echo "✅ Tagged commit $CURRENT_COMMIT"
+          echo "   History: $HISTORY_TAG (permanent)"
+          echo "   Latest: $LATEST_TAG (change detection)"
+          echo ""
+          echo "Next deployment will compare against $LATEST_TAG"
 
       - name: Debug deployment failure
         if: failure() && steps.wait-stable.outcome == 'failure'
