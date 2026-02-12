@@ -65,7 +65,7 @@ def _format_log_groups_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting log groups response: {e}")
+        logger.debug(f"Error formatting log groups response: {e}")
         return f"Error parsing log groups: {str(e)}"
 
 
@@ -96,7 +96,7 @@ def _format_log_events_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting log events: {e}")
+        logger.debug(f"Error formatting log events: {e}")
         return f"Error parsing log events: {str(e)}"
 
 
@@ -137,7 +137,7 @@ def _format_insights_query_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting insights query: {e}")
+        logger.debug(f"Error formatting insights query: {e}")
         return f"Error parsing query results: {str(e)}"
 
 
@@ -169,7 +169,7 @@ def _format_metrics_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting metrics response: {e}")
+        logger.debug(f"Error formatting metrics response: {e}")
         return f"Error parsing metrics: {str(e)}"
 
 
@@ -218,7 +218,7 @@ def _format_metric_statistics_response(response, metric_name: str) -> str:
         return formatted
 
     except Exception as e:
-        logger.error(f"Error formatting metric statistics: {e}")
+        logger.debug(f"Error formatting metric statistics: {e}")
         return f"Error parsing metric statistics: {str(e)}"
 
 
@@ -238,7 +238,7 @@ def _format_namespaces_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting namespaces response: {e}")
+        logger.debug(f"Error formatting namespaces response: {e}")
         return f"Error parsing namespaces: {str(e)}"
 
 
@@ -286,7 +286,7 @@ async def list_cloudwatch_log_groups_tool(
         return _format_log_groups_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_cloudwatch_log_groups_tool: {e}")
+        logger.exception(f"Error in list_cloudwatch_log_groups_tool: {e}")
         return f"Failed to list log groups: {str(e)}"
 
 
@@ -342,7 +342,7 @@ async def filter_cloudwatch_log_events_tool(
         return _format_log_events_response(response, limit=limit)
 
     except Exception as e:
-        logger.error(f"Error in filter_cloudwatch_log_events_tool: {e}")
+        logger.exception(f"Error in filter_cloudwatch_log_events_tool: {e}")
         return f"Failed to filter log events: {str(e)}"
 
 
@@ -399,7 +399,7 @@ async def search_cloudwatch_logs_tool(
         return _format_log_events_response(response, limit=limit)
 
     except Exception as e:
-        logger.error(f"Error in search_cloudwatch_logs_tool: {e}")
+        logger.exception(f"Error in search_cloudwatch_logs_tool: {e}")
         return f"Failed to search logs: {str(e)}"
 
 
@@ -464,7 +464,7 @@ async def execute_cloudwatch_insights_query_tool(
         return _format_insights_query_response(response)
 
     except Exception as e:
-        logger.error(f"Error in execute_cloudwatch_insights_query_tool: {e}")
+        logger.exception(f"Error in execute_cloudwatch_insights_query_tool: {e}")
         return f"Failed to execute query: {str(e)}"
 
 
@@ -520,7 +520,7 @@ async def list_cloudwatch_metrics_tool(
         return _format_metrics_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_cloudwatch_metrics_tool: {e}")
+        logger.exception(f"Error in list_cloudwatch_metrics_tool: {e}")
         return f"Failed to list metrics: {str(e)}"
 
 
@@ -606,7 +606,7 @@ async def get_cloudwatch_metric_statistics_tool(
         return _format_metric_statistics_response(response, metric_label)
 
     except Exception as e:
-        logger.error(f"Error in get_cloudwatch_metric_statistics_tool: {e}")
+        logger.exception(f"Error in get_cloudwatch_metric_statistics_tool: {e}")
         return f"Failed to get metric statistics: {str(e)}"
 
 
@@ -637,7 +637,7 @@ async def list_cloudwatch_namespaces_tool(
         return _format_namespaces_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_cloudwatch_namespaces_tool: {e}")
+        logger.exception(f"Error in list_cloudwatch_namespaces_tool: {e}")
         return f"Failed to list namespaces: {str(e)}"
 
 

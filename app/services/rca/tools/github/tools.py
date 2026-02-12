@@ -38,12 +38,14 @@ def _format_tool_error(tool_name: str, error: Exception, context: str = "") -> s
 
     # Handle specific error types with helpful suggestions
     if "400" in error_str:
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: Invalid request. "
             f"The parameters provided for {context or 'this request'} may be incorrect. "
             "Try using 'HEAD:' for the default branch or verify the input format."
         )
     if "404" in error_str:
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: Resource not found. "
             f"The requested {context or 'resource'} doesn't exist or isn't accessible. "
@@ -51,30 +53,34 @@ def _format_tool_error(tool_name: str, error: Exception, context: str = "") -> s
             "or verify the repository/file path is correct."
         )
     if "401" in error_str or "403" in error_str:
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: Access denied. "
             "The GitHub integration may not have permission to access this resource. "
             "Try a different repository or check if the repository is private."
         )
     if "422" in error_str:
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: Invalid input. "
             f"The {context or 'request'} contains invalid data. "
             "Check that file paths and branch names are correct."
         )
     if "rate limit" in error_str.lower():
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: GitHub rate limit reached. "
             "Please wait a moment before trying again, or try a different approach."
         )
     if "timeout" in error_str.lower():
+        logger.warning(f"Error in {tool_name}: {error_str}")
         return (
             f"⚠️ {tool_name}: Request timed out. "
             "The repository might be large. Try requesting a specific subdirectory instead."
         )
 
-    # Generic fallback - still helpful but doesn't expose internal details
-    logger.error(f"Tool error in {tool_name}: {error_str}")
+    # Generic fallback - unexpected error, include stack trace
+    logger.exception(f"Error in {tool_name}: {error_str}")
     return (
         f"⚠️ {tool_name}: Unable to complete request. "
         "Try a different approach or use alternative tools to gather the information."
@@ -113,7 +119,7 @@ def _format_repositories_response(response: dict) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting repositories response: {e}")
+        logger.debug(f"Error formatting repositories response: {e}")
         return f"Error parsing repository list: {str(e)}"
 
 
@@ -174,7 +180,7 @@ def _format_file_content_response(response: dict) -> str:
         )
 
     except Exception as e:
-        logger.error(f"Error formatting file content: {e}")
+        logger.debug(f"Error formatting file content: {e}")
         return json.dumps(
             {"success": False, "error": f"Error parsing file content: {str(e)}"}
         )
@@ -241,7 +247,7 @@ def _format_code_search_response(response: dict) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting code search response: {e}")
+        logger.debug(f"Error formatting code search response: {e}")
         return f"Error parsing code search results: {str(e)}"
 
 
@@ -283,7 +289,7 @@ def _format_commits_response(response: dict) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting commits response: {e}")
+        logger.debug(f"Error formatting commits response: {e}")
         return f"Error parsing commits: {str(e)}"
 
 
@@ -325,7 +331,7 @@ def _format_pull_requests_response(response: dict) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting pull requests response: {e}")
+        logger.debug(f"Error formatting pull requests response: {e}")
         return f"Error parsing pull requests: {str(e)}"
 
 
@@ -632,7 +638,7 @@ def _format_tree_response(response: dict) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting tree response: {e}")
+        logger.debug(f"Error formatting tree response: {e}")
         return f"Error parsing repository tree: {str(e)}"
 
 
@@ -680,7 +686,7 @@ def _format_metadata_response(response: dict) -> str:
         return "\n".join(formatted)
 
     except Exception as e:
-        logger.error(f"Error formatting metadata response: {e}")
+        logger.debug(f"Error formatting metadata response: {e}")
         return f"Error parsing repository metadata: {str(e)}"
 
 

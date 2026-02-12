@@ -49,7 +49,7 @@ def _format_logs_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting logs: {e}")
+        logger.debug(f"Error formatting logs: {e}")
         return f"Error parsing log response: {str(e)}"
 
 
@@ -96,7 +96,7 @@ def _format_metrics_response(response) -> str:
             return "Metrics data is empty or invalid."
 
     except Exception as e:
-        logger.error(f"Error formatting metrics: {e}")
+        logger.debug(f"Error formatting metrics: {e}")
         return f"Error parsing metrics response: {str(e)}"
 
 
@@ -159,7 +159,7 @@ async def fetch_logs_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_logs_tool: {e}")
+        logger.exception(f"Error in fetch_logs_tool: {e}")
         return f"Error fetching logs: {str(e)}"
 
 
@@ -209,7 +209,7 @@ async def fetch_error_logs_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_error_logs_tool: {e}")
+        logger.exception(f"Error in fetch_error_logs_tool: {e}")
         return f"Error fetching error logs: {str(e)}"
 
 
@@ -254,7 +254,7 @@ async def fetch_cpu_metrics_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_cpu_metrics_tool: {e}")
+        logger.exception(f"Error in fetch_cpu_metrics_tool: {e}")
         return f"Error fetching CPU metrics: {str(e)}"
 
 
@@ -299,7 +299,7 @@ async def fetch_memory_metrics_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_memory_metrics_tool: {e}")
+        logger.exception(f"Error in fetch_memory_metrics_tool: {e}")
         return f"Error fetching memory metrics: {str(e)}"
 
 
@@ -346,7 +346,7 @@ async def fetch_http_latency_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_http_latency_tool: {e}")
+        logger.exception(f"Error in fetch_http_latency_tool: {e}")
         return f"Error fetching latency metrics: {str(e)}"
 
 
@@ -414,7 +414,7 @@ async def fetch_metrics_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in fetch_metrics_tool: {e}")
+        logger.exception(f"Error in fetch_metrics_tool: {e}")
         return f"Error fetching {metric_type} metrics: {str(e)}"
 
 
@@ -460,7 +460,7 @@ async def get_datasources_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in get_datasources_tool: {e}")
+        logger.exception(f"Error in get_datasources_tool: {e}")
         return f"Error fetching datasources: {str(e)}"
 
 
@@ -526,7 +526,7 @@ async def get_labels_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in get_labels_tool: {e}")
+        logger.exception(f"Error in get_labels_tool: {e}")
         return f"Error fetching labels: {str(e)}"
 
 
@@ -588,5 +588,5 @@ async def get_label_values_tool(
     except ValueError as e:
         return f"Configuration error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error in get_label_values_tool: {e}")
+        logger.exception(f"Error in get_label_values_tool: {e}")
         return f"Error fetching label values: {str(e)}"

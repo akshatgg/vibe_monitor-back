@@ -57,7 +57,7 @@ def _format_logs_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.exception(f"Error formatting logs response: {e}")
+        logger.debug(f"Error formatting logs response: {e}")
         return f"Error parsing log entries: {str(e)}"
 
 
@@ -91,7 +91,7 @@ def _format_query_logs_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.exception(f"Error formatting query logs: {e}")
+        logger.debug(f"Error formatting query logs: {e}")
         return f"Error parsing query results: {str(e)}"
 
 
@@ -118,7 +118,7 @@ def _format_metrics_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.exception(f"Error formatting metrics response: {e}")
+        logger.debug(f"Error formatting metrics response: {e}")
         return f"Error parsing metric results: {str(e)}"
 
 
@@ -169,7 +169,7 @@ def _format_time_series_response(response) -> str:
         return formatted
 
     except Exception as e:
-        logger.exception(f"Error formatting time series: {e}")
+        logger.debug(f"Error formatting time series: {e}")
         return f"Error parsing time series data: {str(e)}"
 
 
@@ -217,7 +217,7 @@ async def query_newrelic_logs_tool(
         return _format_query_logs_response(response)
 
     except Exception as e:
-        logger.error(f"Error in query_newrelic_logs_tool: {e}")
+        logger.exception(f"Error in query_newrelic_logs_tool: {e}")
         return f"Failed to query logs: {str(e)}"
 
 
@@ -270,7 +270,7 @@ async def search_newrelic_logs_tool(
         return _format_logs_response(response, limit=limit)
 
     except Exception as e:
-        logger.error(f"Error in search_newrelic_logs_tool: {e}")
+        logger.exception(f"Error in search_newrelic_logs_tool: {e}")
         return f"Failed to search logs: {str(e)}"
 
 
@@ -319,7 +319,7 @@ async def query_newrelic_metrics_tool(
         return _format_metrics_response(response)
 
     except Exception as e:
-        logger.error(f"Error in query_newrelic_metrics_tool: {e}")
+        logger.exception(f"Error in query_newrelic_metrics_tool: {e}")
         return f"Failed to query metrics: {str(e)}"
 
 
@@ -385,7 +385,7 @@ async def get_newrelic_time_series_tool(
         return _format_time_series_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_newrelic_time_series_tool: {e}")
+        logger.exception(f"Error in get_newrelic_time_series_tool: {e}")
         return f"Failed to get time series: {str(e)}"
 
 
@@ -451,7 +451,7 @@ async def get_newrelic_infra_metrics_tool(
         return _format_time_series_response(response)
 
     except Exception as e:
-        logger.error(f"Error in get_newrelic_infra_metrics_tool: {e}")
+        logger.exception(f"Error in get_newrelic_infra_metrics_tool: {e}")
         return f"Failed to get infrastructure metrics: {str(e)}"
 
 

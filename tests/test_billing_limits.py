@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from app.workspace.client_workspace_services.limit_service import (
     LimitService,
     DEFAULT_FREE_SERVICE_LIMIT,
-    DEFAULT_FREE_AIU_WEEKLY,
 )
 from app.billing.schemas import UsageResponse
 from app.models import Plan, PlanType, Subscription, SubscriptionStatus

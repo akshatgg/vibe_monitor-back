@@ -79,7 +79,7 @@ def _format_logs_search_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting logs search response: {e}")
+        logger.debug(f"Error formatting logs search response: {e}")
         return f"Error parsing log entries: {str(e)}"
 
 
@@ -114,7 +114,7 @@ def _format_logs_list_response(response, limit: int = 50) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting logs list response: {e}")
+        logger.debug(f"Error formatting logs list response: {e}")
         return f"Error parsing log entries: {str(e)}"
 
 
@@ -130,7 +130,7 @@ def _format_services_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting services response: {e}")
+        logger.debug(f"Error formatting services response: {e}")
         return f"Error parsing services list: {str(e)}"
 
 
@@ -180,7 +180,7 @@ def _format_simple_metrics_response(response) -> str:
         return formatted
 
     except Exception as e:
-        logger.error(f"Error formatting simple metrics response: {e}")
+        logger.debug(f"Error formatting simple metrics response: {e}")
         return f"Error parsing metrics data: {str(e)}"
 
 
@@ -245,7 +245,7 @@ def _format_timeseries_response(response) -> str:
         return "Unable to extract data from timeseries response."
 
     except Exception as e:
-        logger.error(f"Error formatting timeseries response: {e}")
+        logger.debug(f"Error formatting timeseries response: {e}")
         return f"Error parsing timeseries data: {str(e)}"
 
 
@@ -287,7 +287,7 @@ def _format_events_response(response, limit: int = 20) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting events response: {e}")
+        logger.debug(f"Error formatting events response: {e}")
         return f"Error parsing events: {str(e)}"
 
 
@@ -317,7 +317,7 @@ def _format_tags_response(response) -> str:
         return summary
 
     except Exception as e:
-        logger.error(f"Error formatting tags response: {e}")
+        logger.debug(f"Error formatting tags response: {e}")
         return f"Error parsing tags: {str(e)}"
 
 
@@ -385,7 +385,7 @@ async def search_datadog_logs_tool(
         return _format_logs_search_response(response, limit=limit)
 
     except Exception as e:
-        logger.error(f"Error in search_datadog_logs_tool: {e}")
+        logger.exception(f"Error in search_datadog_logs_tool: {e}")
         return f"Failed to search logs: {str(e)}"
 
 
@@ -445,7 +445,7 @@ async def list_datadog_logs_tool(
         return _format_logs_list_response(response, limit=limit)
 
     except Exception as e:
-        logger.error(f"Error in list_datadog_logs_tool: {e}")
+        logger.exception(f"Error in list_datadog_logs_tool: {e}")
         return f"Failed to list logs: {str(e)}"
 
 
@@ -493,7 +493,7 @@ async def list_datadog_log_services_tool(
         return _format_services_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_datadog_log_services_tool: {e}")
+        logger.exception(f"Error in list_datadog_log_services_tool: {e}")
         return f"Failed to list services: {str(e)}"
 
 
@@ -561,7 +561,7 @@ async def query_datadog_metrics_tool(
         return _format_simple_metrics_response(response)
 
     except Exception as e:
-        logger.error(f"Error in query_datadog_metrics_tool: {e}")
+        logger.exception(f"Error in query_datadog_metrics_tool: {e}")
         return f"Failed to query metrics: {str(e)}"
 
 
@@ -612,7 +612,7 @@ async def query_datadog_timeseries_tool(
         return _format_timeseries_response(response)
 
     except Exception as e:
-        logger.error(f"Error in query_datadog_timeseries_tool: {e}")
+        logger.exception(f"Error in query_datadog_timeseries_tool: {e}")
         return f"Failed to query timeseries: {str(e)}"
 
 
@@ -669,7 +669,7 @@ async def search_datadog_events_tool(
         return _format_events_response(response)
 
     except Exception as e:
-        logger.error(f"Error in search_datadog_events_tool: {e}")
+        logger.exception(f"Error in search_datadog_events_tool: {e}")
         return f"Failed to search events: {str(e)}"
 
 
@@ -709,7 +709,7 @@ async def list_datadog_tags_tool(
         return _format_tags_response(response)
 
     except Exception as e:
-        logger.error(f"Error in list_datadog_tags_tool: {e}")
+        logger.exception(f"Error in list_datadog_tags_tool: {e}")
         return f"Failed to list tags: {str(e)}"
 
 
