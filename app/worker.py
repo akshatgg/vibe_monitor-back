@@ -12,6 +12,8 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
+from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS
+from app.core.rca_metrics import record_rca_success_metrics
 from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS, LLM_METRICS
 from app.github.tools.router import list_repositories_graphql
 from app.integrations.service import get_workspace_integrations
@@ -941,6 +943,14 @@ class RCAOrchestratorWorker(BaseWorker):
                                     thread_ts=thread_ts,
                                 )
                                 logger.info(f"📤 Job {job_id} result sent to Slack")
+
+                        # Record job-level RCA + LLM metrics in a single helper.
+                        record_rca_success_metrics(
+                            agent_start_time=agent_start_time,
+                            workspace_id=workspace_id,
+                            job_source=job.source.value,
+                            result=result,
+                        )
 
                     else:
                         # Analysis failed - mark as failed

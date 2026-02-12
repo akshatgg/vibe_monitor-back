@@ -16,6 +16,17 @@ class RCAAgentService:
         self._groq_llm = None
 
     @property
+    def provider_name(self) -> str:
+        """
+        Name of the LLM provider used by the RCA agent.
+
+        This is used for metrics and observability. If the underlying
+        provider implementation changes (e.g., to OpenAI or Gemini),
+        this should be updated in one place.
+        """
+        return "groq"
+
+    @property
     def groq_llm(self):
         if self._groq_llm is None:
             if not settings.GROQ_API_KEY:
