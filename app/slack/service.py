@@ -41,6 +41,11 @@ from app.utils.token_processor import token_processor
 
 logger = logging.getLogger(__name__)
 
+SLACK_WORKSPACE_CONFLICT_MSG = (
+    "This Slack bot is already connected to another VibeMonitor workspace. "
+    "Please disconnect it from the existing workspace first before connecting to a new one."
+)
+
 
 # Event deduplication cache to prevent infinite loops
 # Maps event_id -> timestamp of when it was first processed
@@ -808,9 +813,11 @@ class SlackEventService:
         workspace_id: Optional[
             str
         ] = None,  # this is vibemonitor workspace id/ not yet configured
-    ) -> SlackInstallationResponse:
+    ) -> Optional[SlackInstallationResponse]:
         """
-        Store Slack workspace installation details in PostgreSQL
+        Store Slack workspace installation details in PostgreSQL.
+
+        Returns None if the bot is already linked to a different workspace.
         """
 
         try:
@@ -843,11 +850,7 @@ class SlackEventService:
                             f"Blocked Slack bot installation: team_id={team_id} is already "
                             f"linked to workspace {existing.workspace_id}, cannot link to {workspace_id}"
                         )
-                        raise HTTPException(
-                            status_code=409,
-                            detail="This Slack bot is already connected to another VibeMonitor workspace. "
-                            "Please disconnect it from the existing workspace first before connecting to a new one."
-                        )
+                        return None
 
                     # Update existing installation (same workspace or unlinked)
                     existing.team_name = team_name

@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models import Integration, Membership, SlackInstallation, Workspace
 from app.slack.schemas import SlackEventPayload
-from app.slack.service import slack_event_service
+from app.slack.service import SLACK_WORKSPACE_CONFLICT_MSG, slack_event_service
 from app.utils.retry_decorator import retry_external_api
 
 logger = logging.getLogger(__name__)
@@ -540,7 +540,7 @@ async def slack_oauth_callback(
 
         logger.info(f"OAuth successful - Team: {team_name} ({team_id})")
 
-        await slack_event_service.store_installation(
+        installation = await slack_event_service.store_installation(
             team_id=team_id,
             team_name=team_name,
             access_token=access_token,
@@ -548,6 +548,12 @@ async def slack_oauth_callback(
             scope=scope,
             workspace_id=workspace_id,
         )
+
+        if installation is None:
+            # Bot is already linked to a different workspace
+            error_msg = quote(SLACK_WORKSPACE_CONFLICT_MSG)
+            redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
+            return RedirectResponse(url=redirect_url, status_code=302)
 
         logger.info(
             f"✅ Slack App Successfully installed for: {team_name}"
@@ -567,12 +573,8 @@ async def slack_oauth_callback(
     except httpx.HTTPError as e:
         logger.error(f"HTTP error during OAuth: {e}")
         raise HTTPException(status_code=502, detail="Failed to communicate with Slack")
-    except HTTPException as e:
-        # Handle workspace conflict error (bot already linked to another workspace)
-        logger.warning(f"Slack installation blocked: {e.detail}")
-        error_msg = quote(str(e.detail))
-        redirect_url = f"{settings.WEB_APP_URL}/integrations?error={error_msg}"
-        return RedirectResponse(url=redirect_url, status_code=302)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error during OAuth: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Installation failed: {str(e)}")
