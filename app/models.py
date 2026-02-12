@@ -694,7 +694,7 @@ class RateLimitTracking(Base):
 
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    resource_type = Column(String, nullable=False)  # e.g., 'rca_request', 'api_call'
+    resource_type = Column(String, nullable=False)  # e.g., 'aiu_usage', 'api_call'
     window_key = Column(
         String, nullable=False
     )  # e.g., '2025-10-15' (daily), '2025-10-15-14' (hourly)
@@ -1356,11 +1356,17 @@ class Plan(Base):
     base_service_count = Column(Integer, default=2, nullable=False)  # Included services (Free: 2, Pro: 3)
     base_price_cents = Column(Integer, default=0, nullable=False)  # 3000 = $30.00
     additional_service_price_cents = Column(
-        Integer, default=500, nullable=False
-    )  # 500 = $5.00 per additional service
-    rca_session_limit_daily = Column(
-        Integer, default=10, nullable=False
-    )  # Daily RCA session limit
+        Integer, default=0, nullable=False
+    )  # 0 for FREE (cannot add services), 500 for PRO ($5.00 per additional service)
+
+    # Weekly AIU (AI Unit) limits - replaces daily RCA limits
+    aiu_limit_weekly_base = Column(
+        Integer, default=100_000, nullable=False
+    )  # Base weekly AIU (FREE: 100K, PRO: 3M)
+    aiu_limit_weekly_per_service = Column(
+        Integer, default=0, nullable=False
+    )  # Additional AIU per extra service (FREE: 0, PRO: 500K)
+
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

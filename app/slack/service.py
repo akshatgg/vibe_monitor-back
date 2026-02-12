@@ -35,7 +35,6 @@ from app.slack.schemas import (
     SlackInstallationResponse,
 )
 from app.utils.data_masker import PIIMapper, redact_query_for_log
-from app.utils.rate_limiter import ResourceType, check_rate_limit_with_byollm_bypass
 from app.utils.retry_decorator import retry_external_api
 from app.utils.token_processor import token_processor
 
@@ -548,67 +547,6 @@ class SlackEventService:
                             "*To resolve this:*\n"
                             "• Connect your Github account in the dashboard\n"
                             "• Ensure the integration is properly configured"
-                        )
-
-                    # Check rate limit before creating job (BYOLLM users bypass rate limiting)
-
-                    try:
-                        (
-                            allowed,
-                            current_count,
-                            limit,
-                        ) = await check_rate_limit_with_byollm_bypass(
-                            session=db,
-                            workspace_id=workspace_id,
-                            resource_type=ResourceType.RCA_REQUEST,
-                        )
-
-                        if not allowed:
-                            from app.core.otel_metrics import SECURITY_METRICS
-
-                            SECURITY_METRICS["rate_limit_exceeded_total"].add(
-                                1,
-                                {
-                                    "resource_type": ResourceType.SLACK_MESSAGE,
-                                },
-                            )
-
-                            logger.warning(
-                                f"RCA rate limit exceeded for workspace {workspace_id}: "
-                                f"{current_count}/{limit}"
-                            )
-                            return (
-                                f"⚠️ *Daily RCA Request Limit Reached*\n\n"
-                                f"Your workspace has reached the daily limit of *{limit} RCA requests*.\n\n"
-                                f"📅 Current usage: {current_count}/{limit}\n"
-                                f"🔄 Limit resets: Tomorrow at midnight UTC\n\n"
-                                f"💡 *Tip:* Configure your own LLM (OpenAI, Azure, or Gemini) to remove limits!\n"
-                                f"Visit your workspace settings or contact support@vibemonitor.ai for help."
-                            )
-
-                        # Log BYOLLM status (limit=-1 indicates unlimited)
-                        if limit == -1:
-                            logger.info(
-                                f"BYOLLM workspace {workspace_id} - unlimited RCA requests"
-                            )
-                        else:
-                            logger.info(
-                                f"RCA rate limit check passed for workspace {workspace_id}: "
-                                f"{current_count}/{limit}"
-                            )
-
-                    except ValueError as e:
-                        logger.error(f"Rate limit check failed: {e}")
-                        return (
-                            f"❌ Sorry <@{user_id}>, there was an error checking your workspace limits. "
-                            f"Please contact support."
-                        )
-                    except Exception as e:
-                        logger.exception(f"Unexpected error in rate limit check: {e}")
-                        # Fail open: allow the request but log the error
-                        logger.warning(
-                            f"Rate limit check failed for workspace {workspace_id}, "
-                            f"allowing request to proceed"
                         )
 
                     # ═══════════════════════════════════════════════════════════════

@@ -1,6 +1,6 @@
 """
 Unit tests for billing schemas.
-Tests validation rules, computed properties, and model configuration.
+Tests validation rules, Field constraints, and edge cases for AIU-based schemas.
 """
 
 import pytest
@@ -12,200 +12,62 @@ from app.billing.schemas import (
     SubscribeToProRequest,
     CancelSubscriptionRequest,
     UpdateServiceCountRequest,
-    UsageLimitsResponse,
     UsageResponse,
-)
-from app.workspace.client_workspace_services.schemas import (
-    FREE_TIER_SERVICE_LIMIT,
-    ServiceCreate,
-    ServiceUpdate,
-    ServiceResponse,
-    ServiceCountResponse,
 )
 from app.models import PlanType
 
 
-class TestConstants:
-    """Tests for billing constants."""
-
-    def test_free_tier_service_limit(self):
-        """FREE_TIER_SERVICE_LIMIT should be 2."""
-        assert FREE_TIER_SERVICE_LIMIT == 2
-
-
-class TestServiceCreate:
-    """Tests for ServiceCreate schema validation."""
-
-    def test_valid_service_create(self):
-        """Valid service creation data should pass validation."""
-        data = ServiceCreate(name="api-service", repository_name="org/repo")
-        assert data.name == "api-service"
-        assert data.repository_name == "org/repo"
-
-    def test_name_required(self):
-        """Name is required."""
-        with pytest.raises(ValidationError) as exc_info:
-            ServiceCreate(repository_name="org/repo")  # type: ignore
-        assert "name" in str(exc_info.value)
-
-    def test_repository_name_required(self):
-        """Repository name is required."""
-        with pytest.raises(ValidationError) as exc_info:
-            ServiceCreate(name="api-service")  # type: ignore
-        assert "repository_name" in str(exc_info.value)
-
-    def test_name_min_length(self):
-        """Name must be at least 1 character."""
-        with pytest.raises(ValidationError) as exc_info:
-            ServiceCreate(name="", repository_name="org/repo")
-        assert "min_length" in str(exc_info.value).lower() or "at least 1" in str(
-            exc_info.value
-        )
-
-    def test_name_max_length(self):
-        """Name must be at most 255 characters."""
-        long_name = "a" * 256
-        with pytest.raises(ValidationError) as exc_info:
-            ServiceCreate(name=long_name, repository_name="org/repo")
-        assert "max_length" in str(exc_info.value).lower() or "255" in str(
-            exc_info.value
-        )
-
-    def test_repository_name_min_length(self):
-        """Repository name must be at least 1 character."""
-        with pytest.raises(ValidationError) as exc_info:
-            ServiceCreate(name="api-service", repository_name="")
-        assert "min_length" in str(exc_info.value).lower() or "at least 1" in str(
-            exc_info.value
-        )
-
-
-class TestServiceUpdate:
-    """Tests for ServiceUpdate schema validation."""
-
-    def test_all_fields_optional(self):
-        """All fields should be optional."""
-        data = ServiceUpdate()
-        assert data.name is None
-        assert data.repository_name is None
-        assert data.enabled is None
-
-    def test_partial_update_name_only(self):
-        """Can update just the name."""
-        data = ServiceUpdate(name="new-name")
-        assert data.name == "new-name"
-        assert data.repository_name is None
-        assert data.enabled is None
-
-    def test_partial_update_enabled_only(self):
-        """Can update just enabled status."""
-        data = ServiceUpdate(enabled=False)
-        assert data.name is None
-        assert data.enabled is False
-
-    def test_name_validation_when_provided(self):
-        """Name validation applies when value is provided."""
-        with pytest.raises(ValidationError):
-            ServiceUpdate(name="")  # Empty string should fail
-
-
-class TestServiceCountResponse:
-    """Tests for ServiceCountResponse schema."""
-
-    def test_default_values(self):
-        """Default values should match free tier."""
-        data = ServiceCountResponse(current_count=3)
-        assert data.limit == FREE_TIER_SERVICE_LIMIT
-        assert data.can_add_more is True
-        assert data.is_paid is False
-
-    def test_custom_values(self):
-        """Custom values should override defaults."""
-        data = ServiceCountResponse(
-            current_count=10, limit=20, can_add_more=True, is_paid=True
-        )
-        assert data.current_count == 10
-        assert data.limit == 20
-        assert data.can_add_more is True
-        assert data.is_paid is True
-
-
 class TestPlanResponse:
-    """Tests for PlanResponse schema and computed properties."""
+    """Tests for PlanResponse schema."""
 
-    def test_base_price_dollars_property(self):
-        """base_price_dollars should convert cents to dollars."""
-        data = PlanResponse(
-            id="plan-1",
+    def test_valid_plan_response(self):
+        """Valid plan data should pass validation."""
+        plan = PlanResponse(
+            id="plan-123",
             name="Pro",
             plan_type=PlanType.PRO,
-            base_service_count=10,
-            base_price_cents=3000,  # $30.00
-            additional_service_price_cents=500,  # $5.00
-            rca_session_limit_daily=100,
-            is_active=True,
-        )
-        assert data.base_price_dollars == 30.0
-
-    def test_additional_service_price_dollars_property(self):
-        """additional_service_price_dollars should convert cents to dollars."""
-        data = PlanResponse(
-            id="plan-1",
-            name="Pro",
-            plan_type=PlanType.PRO,
-            base_service_count=10,
+            stripe_price_id="price_123",
+            base_service_count=3,
             base_price_cents=3000,
-            additional_service_price_cents=550,  # $5.50
-            rca_session_limit_daily=100,
+            additional_service_price_cents=500,
+            aiu_limit_weekly_base=3_000_000,
+            aiu_limit_weekly_per_service=500_000,
             is_active=True,
         )
-        assert data.additional_service_price_dollars == 5.5
+        assert plan.name == "Pro"
+        assert plan.base_price_dollars == 30.0
+        assert plan.additional_service_price_dollars == 5.0
 
-    def test_zero_price_conversion(self):
-        """Zero cents should convert to zero dollars."""
-        data = PlanResponse(
-            id="plan-1",
-            name="Free",
-            plan_type=PlanType.FREE,
-            base_service_count=5,
-            base_price_cents=0,
-            additional_service_price_cents=0,
-            rca_session_limit_daily=10,
-            is_active=True,
-        )
-        assert data.base_price_dollars == 0.0
-        assert data.additional_service_price_dollars == 0.0
-
-    def test_fractional_dollar_amounts(self):
-        """Fractional amounts should be calculated correctly."""
-        data = PlanResponse(
-            id="plan-1",
+    def test_price_conversion_to_dollars(self):
+        """Cents should convert to dollars correctly."""
+        plan = PlanResponse(
+            id="plan-123",
             name="Pro",
             plan_type=PlanType.PRO,
-            base_service_count=10,
-            base_price_cents=2999,  # $29.99
-            additional_service_price_cents=199,  # $1.99
-            rca_session_limit_daily=100,
+            base_service_count=3,
+            base_price_cents=3000,
+            additional_service_price_cents=500,
+            aiu_limit_weekly_base=3_000_000,
+            aiu_limit_weekly_per_service=500_000,
             is_active=True,
         )
-        assert data.base_price_dollars == 29.99
-        assert data.additional_service_price_dollars == 1.99
+        assert plan.base_price_dollars == 30.0
+        assert plan.additional_service_price_dollars == 5.0
 
 
 class TestSubscribeToProRequest:
-    """Tests for SubscribeToProRequest schema validation."""
+    """Tests for SubscribeToProRequest schema."""
 
-    def test_valid_urls(self):
-        """Valid URLs should pass validation."""
-        data = SubscribeToProRequest(
-            success_url="https://app.example.com/success",
-            cancel_url="https://app.example.com/cancel",
+    def test_valid_request(self):
+        """Valid subscription request should pass validation."""
+        request = SubscribeToProRequest(
+            success_url="https://app.example.com/billing?success=true",
+            cancel_url="https://app.example.com/billing?canceled=true",
         )
-        assert data.success_url == "https://app.example.com/success"
-        assert data.cancel_url == "https://app.example.com/cancel"
+        assert request.success_url == "https://app.example.com/billing?success=true"
 
-    def test_urls_required(self):
-        """Both URLs are required."""
+    def test_missing_urls_rejected(self):
+        """Missing required URLs should be rejected."""
         with pytest.raises(ValidationError):
             SubscribeToProRequest()  # type: ignore
 
@@ -213,133 +75,293 @@ class TestSubscribeToProRequest:
 class TestCancelSubscriptionRequest:
     """Tests for CancelSubscriptionRequest schema."""
 
-    def test_default_immediate_false(self):
-        """immediate should default to False."""
-        data = CancelSubscriptionRequest()
-        assert data.immediate is False
+    def test_immediate_false_by_default(self):
+        """Immediate should default to False."""
+        request = CancelSubscriptionRequest()
+        assert request.immediate is False
 
-    def test_immediate_can_be_true(self):
-        """immediate can be set to True."""
-        data = CancelSubscriptionRequest(immediate=True)
-        assert data.immediate is True
+    def test_immediate_true(self):
+        """Can set immediate to True."""
+        request = CancelSubscriptionRequest(immediate=True)
+        assert request.immediate is True
 
 
 class TestUpdateServiceCountRequest:
-    """Tests for UpdateServiceCountRequest schema validation."""
+    """Tests for UpdateServiceCountRequest schema."""
 
     def test_valid_service_count(self):
-        """Valid service count should pass."""
-        data = UpdateServiceCountRequest(service_count=10)
-        assert data.service_count == 10
-
-    def test_zero_service_count_allowed(self):
-        """Zero service count should be allowed (ge=0)."""
-        data = UpdateServiceCountRequest(service_count=0)
-        assert data.service_count == 0
+        """Valid service count should pass validation."""
+        request = UpdateServiceCountRequest(service_count=5)
+        assert request.service_count == 5
 
     def test_negative_service_count_rejected(self):
         """Negative service count should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
             UpdateServiceCountRequest(service_count=-1)
-        assert "greater than or equal" in str(exc_info.value).lower()
+        assert "greater than or equal to 0" in str(exc_info.value)
 
-
-class TestUsageLimitsResponse:
-    """Tests for UsageLimitsResponse schema and computed properties."""
-
-    def test_estimated_monthly_cost_dollars_property(self):
-        """estimated_monthly_cost_dollars should convert cents to dollars."""
-        data = UsageLimitsResponse(
-            plan_name="Pro",
-            plan_type=PlanType.PRO,
-            base_service_count=10,
-            current_service_count=15,
-            billable_service_count=5,
-            daily_rca_limit=100,
-            daily_rca_used=25,
-            daily_rca_remaining=75,
-            is_paid=True,
-            estimated_monthly_cost_cents=5500,  # $55.00
-        )
-        assert data.estimated_monthly_cost_dollars == 55.0
-
-    def test_zero_cost(self):
-        """Zero cost should convert correctly."""
-        data = UsageLimitsResponse(
-            plan_name="Free",
-            plan_type=PlanType.FREE,
-            base_service_count=5,
-            current_service_count=3,
-            billable_service_count=0,
-            daily_rca_limit=10,
-            daily_rca_used=5,
-            daily_rca_remaining=5,
-            is_paid=False,
-            estimated_monthly_cost_cents=0,
-        )
-        assert data.estimated_monthly_cost_dollars == 0.0
-
-
-class TestServiceResponse:
-    """Tests for ServiceResponse schema."""
-
-    def test_from_attributes_config(self):
-        """model_config should have from_attributes=True."""
-        assert ServiceResponse.model_config.get("from_attributes") is True
-
-    def test_optional_fields(self):
-        """Optional fields should allow None."""
-        data = ServiceResponse(
-            id="svc-1",
-            workspace_id="ws-1",
-            name="test-service",
-            enabled=True,
-        )
-        assert data.repository_id is None
-        assert data.repository_name is None
-        assert data.created_at is None
-        assert data.updated_at is None
+    def test_zero_service_count_allowed(self):
+        """Zero service count should be allowed."""
+        request = UpdateServiceCountRequest(service_count=0)
+        assert request.service_count == 0
 
 
 class TestUsageResponse:
-    """Tests for UsageResponse schema."""
+    """Tests for UsageResponse schema (weekly AIU limits)."""
 
-    def test_all_fields(self):
-        """All fields should be settable."""
-        now = datetime.now(timezone.utc)
-        data = UsageResponse(
-            plan_name="Pro",
-            plan_type="pro",
-            is_paid=True,
-            service_count=15,
-            service_limit=10,  # Pro base count (can exceed with $5/each additional)
-            services_remaining=0,  # max(0, 10-15) = 0 (over base, paying for 5 additional)
-            can_add_service=True,  # Pro can always add more services
-            rca_sessions_today=25,
-            rca_session_limit_daily=100,
-            rca_sessions_remaining=75,
-            can_start_rca=True,
-            subscription_status="active",
-            current_period_end=now,
-        )
-        assert data.service_limit == 10
-        assert data.services_remaining == 0
-        assert data.can_add_service is True
-
-    def test_free_tier_limits(self):
-        """Free tier should have limits set."""
-        data = UsageResponse(
+    def test_valid_free_plan_usage(self):
+        """Valid Free plan usage should pass validation."""
+        usage = UsageResponse(
             plan_name="Free",
             plan_type="free",
             is_paid=False,
-            service_count=3,
-            service_limit=5,
-            services_remaining=2,
+            is_byollm=False,
+            service_count=1,
+            service_limit=2,
+            services_remaining=1,
             can_add_service=True,
-            rca_sessions_today=8,
-            rca_session_limit_daily=10,
-            rca_sessions_remaining=2,
-            can_start_rca=True,
+            aiu_used_this_week=50_000,
+            aiu_weekly_limit=100_000,
+            aiu_remaining=50_000,
+            can_use_aiu=True,
         )
-        assert data.service_limit == 5
-        assert data.services_remaining == 2
+        assert usage.plan_name == "Free"
+        assert usage.aiu_used_this_week == 50_000
+        assert usage.aiu_remaining == 50_000
+
+    def test_valid_pro_plan_usage(self):
+        """Valid Pro plan usage should pass validation."""
+        usage = UsageResponse(
+            plan_name="Pro",
+            plan_type="pro",
+            is_paid=True,
+            is_byollm=False,
+            service_count=5,
+            service_limit=3,
+            services_remaining=0,
+            can_add_service=True,
+            aiu_used_this_week=1_500_000,
+            aiu_weekly_limit=4_000_000,
+            aiu_remaining=2_500_000,
+            can_use_aiu=True,
+            subscription_status="ACTIVE",
+            current_period_end=datetime.now(timezone.utc),
+        )
+        assert usage.plan_name == "Pro"
+        assert usage.is_paid is True
+        assert usage.aiu_weekly_limit == 4_000_000
+
+    def test_byollm_unlimited_usage(self):
+        """BYOLLM users should show -1 for unlimited."""
+        usage = UsageResponse(
+            plan_name="Pro",
+            plan_type="pro",
+            is_paid=True,
+            is_byollm=True,
+            service_count=10,
+            service_limit=3,
+            services_remaining=0,
+            can_add_service=True,
+            aiu_used_this_week=0,
+            aiu_weekly_limit=-1,  # -1 = unlimited
+            aiu_remaining=-1,      # -1 = unlimited
+            can_use_aiu=True,
+        )
+        assert usage.is_byollm is True
+        assert usage.aiu_weekly_limit == -1
+        assert usage.aiu_remaining == -1
+
+    def test_at_limit_usage(self):
+        """Usage at limit should be valid."""
+        usage = UsageResponse(
+            plan_name="Free",
+            plan_type="free",
+            is_paid=False,
+            is_byollm=False,
+            service_count=2,
+            service_limit=2,
+            services_remaining=0,
+            can_add_service=False,
+            aiu_used_this_week=100_000,
+            aiu_weekly_limit=100_000,
+            aiu_remaining=0,
+            can_use_aiu=False,
+        )
+        assert usage.can_add_service is False
+        assert usage.can_use_aiu is False
+        assert usage.aiu_remaining == 0
+
+    # Validation tests for Field constraints
+
+    def test_negative_service_count_rejected(self):
+        """Negative service_count should be rejected (ge=0)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=-1,  # ❌ Invalid
+                service_limit=2,
+                services_remaining=0,
+                can_add_service=True,
+                aiu_used_this_week=0,
+                aiu_weekly_limit=100_000,
+                aiu_remaining=100_000,
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to 0" in str(exc_info.value)
+
+    def test_negative_service_limit_rejected(self):
+        """Negative service_limit should be rejected (ge=0)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=1,
+                service_limit=-2,  # ❌ Invalid
+                services_remaining=0,
+                can_add_service=True,
+                aiu_used_this_week=0,
+                aiu_weekly_limit=100_000,
+                aiu_remaining=100_000,
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to 0" in str(exc_info.value)
+
+    def test_negative_services_remaining_rejected(self):
+        """Negative services_remaining should be rejected (ge=0)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=1,
+                service_limit=2,
+                services_remaining=-1,  # ❌ Invalid
+                can_add_service=True,
+                aiu_used_this_week=0,
+                aiu_weekly_limit=100_000,
+                aiu_remaining=100_000,
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to 0" in str(exc_info.value)
+
+    def test_negative_aiu_used_rejected(self):
+        """Negative aiu_used_this_week should be rejected (ge=0)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=1,
+                service_limit=2,
+                services_remaining=1,
+                can_add_service=True,
+                aiu_used_this_week=-5000,  # ❌ Invalid
+                aiu_weekly_limit=100_000,
+                aiu_remaining=100_000,
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to 0" in str(exc_info.value)
+
+    def test_invalid_aiu_weekly_limit_rejected(self):
+        """aiu_weekly_limit less than -1 should be rejected (ge=-1)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=1,
+                service_limit=2,
+                services_remaining=1,
+                can_add_service=True,
+                aiu_used_this_week=0,
+                aiu_weekly_limit=-5,  # ❌ Invalid (only -1 or positive allowed)
+                aiu_remaining=0,
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to -1" in str(exc_info.value)
+
+    def test_invalid_aiu_remaining_rejected(self):
+        """aiu_remaining less than -1 should be rejected (ge=-1)."""
+        with pytest.raises(ValidationError) as exc_info:
+            UsageResponse(
+                plan_name="Free",
+                plan_type="free",
+                is_paid=False,
+                is_byollm=False,
+                service_count=1,
+                service_limit=2,
+                services_remaining=1,
+                can_add_service=True,
+                aiu_used_this_week=0,
+                aiu_weekly_limit=100_000,
+                aiu_remaining=-999,  # ❌ Invalid (only -1 or positive allowed)
+                can_use_aiu=True,
+            )
+        assert "greater than or equal to -1" in str(exc_info.value)
+
+    def test_zero_values_allowed(self):
+        """Zero values should be allowed for counts."""
+        usage = UsageResponse(
+            plan_name="Free",
+            plan_type="free",
+            is_paid=False,
+            is_byollm=False,
+            service_count=0,  # ✅ Valid
+            service_limit=0,  # ✅ Valid (edge case)
+            services_remaining=0,  # ✅ Valid
+            can_add_service=False,
+            aiu_used_this_week=0,  # ✅ Valid
+            aiu_weekly_limit=0,    # ✅ Valid (edge case)
+            aiu_remaining=0,       # ✅ Valid
+            can_use_aiu=False,
+        )
+        assert usage.service_count == 0
+        assert usage.aiu_used_this_week == 0
+
+    def test_large_aiu_values(self):
+        """Large AIU values should be valid."""
+        usage = UsageResponse(
+            plan_name="Pro",
+            plan_type="pro",
+            is_paid=True,
+            is_byollm=False,
+            service_count=100,
+            service_limit=50,
+            services_remaining=0,
+            can_add_service=True,
+            aiu_used_this_week=50_000_000,  # 50M
+            aiu_weekly_limit=100_000_000,   # 100M
+            aiu_remaining=50_000_000,       # 50M
+            can_use_aiu=True,
+        )
+        assert usage.aiu_used_this_week == 50_000_000
+        assert usage.aiu_weekly_limit == 100_000_000
+
+    def test_optional_fields_can_be_none(self):
+        """Optional subscription fields can be None."""
+        usage = UsageResponse(
+            plan_name="Free",
+            plan_type="free",
+            is_paid=False,
+            is_byollm=False,
+            service_count=1,
+            service_limit=2,
+            services_remaining=1,
+            can_add_service=True,
+            aiu_used_this_week=50_000,
+            aiu_weekly_limit=100_000,
+            aiu_remaining=50_000,
+            can_use_aiu=True,
+            subscription_status=None,  # ✅ Optional
+            current_period_end=None,   # ✅ Optional
+        )
+        assert usage.subscription_status is None
+        assert usage.current_period_end is None

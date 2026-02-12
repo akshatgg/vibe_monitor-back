@@ -1,7 +1,7 @@
 """
 Limit enforcement service for billing.
 
-Enforces plan-based limits for services and RCA sessions.
+Enforces plan-based limits for services and AIU (AI Unit) usage.
 """
 
 import logging
@@ -13,13 +13,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Plan, PlanType, Service, Subscription
-from app.utils.rate_limiter import is_byollm_workspace
+from app.utils.rate_limiter import is_byollm_workspace, get_weekly_window_key
 
 logger = logging.getLogger(__name__)
 
 # Default limits for Free plan (fallback if no subscription exists)
 DEFAULT_FREE_SERVICE_LIMIT = 2
-DEFAULT_FREE_RCA_DAILY_LIMIT = 10
+DEFAULT_FREE_AIU_WEEKLY = 100_000  # 100K AIU per week
 
 
 class LimitService:
@@ -28,7 +28,7 @@ class LimitService:
 
     Handles:
     - Service count limits (Free: 2, Pro: 3 base + $5/each additional)
-    - RCA session daily limits (Free: 10, Pro: 100)
+    - Weekly AIU (AI Unit) limits (Free: 100K, Pro: 3M base + 500K per extra service)
     """
 
     async def get_workspace_plan(
@@ -67,24 +67,28 @@ class LimitService:
         )
         return result.scalar() or 0
 
-    async def get_rca_sessions_today(self, db: AsyncSession, workspace_id: str) -> int:
-        """
-        Get count of RCA sessions started today for a workspace.
 
-        For VibeMonitor users: Uses RateLimitTracking table (only counts rate-limited requests)
-        This ensures we don't count requests made with custom LLM providers.
+    async def get_aiu_usage_this_week(self, db: AsyncSession, workspace_id: str) -> int:
+        """
+        Get AIU (AI Units) consumed this week for a workspace.
+
+        Uses RateLimitTracking table with weekly window_key (e.g., '2026-W06').
+        For VibeMonitor users only - BYOLLM users are unlimited.
+
+        Returns:
+            int: Total AIU consumed this week (0 if no usage or BYOLLM)
         """
         from app.models import RateLimitTracking
         from app.utils.rate_limiter import ResourceType
 
-        today = datetime.now(timezone.utc).date().isoformat()
+        week_key = get_weekly_window_key()
 
         result = await db.execute(
             select(RateLimitTracking.count)
             .where(
                 RateLimitTracking.workspace_id == workspace_id,
-                RateLimitTracking.resource_type == ResourceType.RCA_REQUEST.value,
-                RateLimitTracking.window_key == today,
+                RateLimitTracking.resource_type == ResourceType.AIU_USAGE.value,
+                RateLimitTracking.window_key == week_key,
             )
         )
         return result.scalar() or 0
@@ -125,40 +129,68 @@ class LimitService:
             "is_paid": False,
         }
 
+
     async def check_can_start_rca(
         self, db: AsyncSession, workspace_id: str
     ) -> tuple[bool, dict]:
         """
-        Check if workspace can start another RCA session today.
+        Check if workspace can start an RCA (within weekly AIU limit).
 
-        Free plan: 10 sessions/day
-        Pro plan: 100 sessions/day
+        For BYOLLM workspaces: Always returns True (unlimited)
+        For VibeMonitor workspaces: Checks weekly AIU usage vs limit
 
         Returns:
             Tuple of (can_start, details_dict)
         """
         subscription, plan = await self.get_workspace_plan(db, workspace_id)
-        sessions_today = await self.get_rca_sessions_today(db, workspace_id)
 
-        # Determine daily limit based on plan
+        # Check if BYOLLM (unlimited AIU usage)
+        try:
+            is_byollm = await is_byollm_workspace(workspace_id, db)
+        except Exception as e:
+            logger.error(
+                f"Error checking BYOLLM status for workspace {workspace_id}: {e}",
+                exc_info=True
+            )
+            is_byollm = False
+
+        # BYOLLM workspaces have unlimited AIU
+        if is_byollm:
+            return True, {
+                "aiu_used_this_week": 0,
+                "aiu_weekly_limit": -1,  # -1 indicates unlimited
+                "aiu_remaining": -1,  # -1 indicates unlimited
+                "plan_name": plan.name if plan else "Free",
+                "is_paid": plan.plan_type == PlanType.PRO if plan else False,
+                "is_byollm": True,
+            }
+
+        # Get current AIU usage this week
+        aiu_used_this_week = await self.get_aiu_usage_this_week(db, workspace_id)
+
+        # Calculate weekly AIU limit
         if plan:
-            daily_limit = plan.rca_session_limit_daily
-            is_paid = plan.plan_type == PlanType.PRO
-            plan_name = plan.name
+            aiu_weekly_limit = plan.aiu_limit_weekly_base
+            # Add per-service AIU for Pro plan
+            if plan.plan_type == PlanType.PRO and subscription:
+                billable_services = subscription.billable_service_count or 0
+                aiu_weekly_limit += billable_services * plan.aiu_limit_weekly_per_service
         else:
-            daily_limit = DEFAULT_FREE_RCA_DAILY_LIMIT
-            is_paid = False
-            plan_name = "Free"
+            aiu_weekly_limit = DEFAULT_FREE_AIU_WEEKLY
 
-        can_start = sessions_today < daily_limit
-        remaining = max(0, daily_limit - sessions_today)
+        # Check if under limit
+        can_start = aiu_used_this_week < aiu_weekly_limit
+
+        # Calculate remaining AIU (never negative)
+        aiu_remaining = max(0, aiu_weekly_limit - aiu_used_this_week)
 
         return can_start, {
-            "sessions_today": sessions_today,
-            "daily_limit": daily_limit,
-            "remaining": remaining,
-            "plan_name": plan_name,
-            "is_paid": is_paid,
+            "aiu_used_this_week": aiu_used_this_week,
+            "aiu_weekly_limit": aiu_weekly_limit,
+            "aiu_remaining": aiu_remaining,
+            "plan_name": plan.name if plan else "Free",
+            "is_paid": plan.plan_type == PlanType.PRO if plan else False,
+            "is_byollm": False,
         }
 
     async def enforce_service_limit(self, db: AsyncSession, workspace_id: str) -> None:
@@ -192,7 +224,7 @@ class LimitService:
 
     async def enforce_rca_limit(self, db: AsyncSession, workspace_id: str) -> None:
         """
-        Enforce RCA session limit - raises HTTPException 402 if exceeded.
+        Enforce weekly AIU limit - raises HTTPException 402 if exceeded.
 
         Args:
             db: Database session
@@ -207,17 +239,17 @@ class LimitService:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail={
-                    "error": "Daily RCA session limit exceeded",
-                    "limit_type": "rca_session",
-                    "current": details["sessions_today"],
-                    "limit": details["daily_limit"],
+                    "error": "Weekly AIU limit exceeded",
+                    "limit_type": "aiu_weekly",
+                    "current": details["aiu_used_this_week"],
+                    "limit": details["aiu_weekly_limit"],
                     "upgrade_available": not details["is_paid"],
                     "message": (
-                        f"You've used all {details['daily_limit']} RCA sessions for today. "
+                        f"You've used all {details['aiu_weekly_limit']:,} AIU for this week. "
                         + (
-                            "Upgrade to Pro for more daily sessions."
+                            "Upgrade to Pro for more AIU (3M base + 500K per extra service)."
                             if not details["is_paid"]
-                            else "Your daily limit resets at midnight UTC."
+                            else "Your weekly limit resets every Monday."
                         )
                     ),
                 },
@@ -244,28 +276,34 @@ class LimitService:
             )
             is_byollm = False
 
-        # For BYOLLM users, RCA limits don't apply - don't count sessions
+        # For BYOLLM users, AIU limits don't apply - unlimited usage
         if is_byollm:
-            # Don't count jobs for BYOLLM users - they're unlimited
-            rca_sessions_today = 0  # Not tracked for BYOLLM
-            rca_daily_limit = -1  # -1 indicates unlimited
-            rca_remaining = -1  # Unlimited remaining
+            # Don't count AIU for BYOLLM users - they're unlimited
+            aiu_used_this_week = 0  # Not tracked for BYOLLM
+            aiu_weekly_limit = -1  # -1 indicates unlimited
+            aiu_remaining = -1  # Unlimited remaining
             logger.info(
-                f"BYOLLM workspace {workspace_id} - not counting RCA sessions "
+                f"BYOLLM workspace {workspace_id} - not counting AIU usage "
                 f"(unlimited with custom LLM)"
             )
         else:
-            # Count actual Job records for rate-limited workspaces
-            rca_sessions_today = await self.get_rca_sessions_today(db, workspace_id)
-            # Plan details
+            # Get AIU usage for rate-limited workspaces
+            aiu_used_this_week = await self.get_aiu_usage_this_week(db, workspace_id)
+
+            # Calculate weekly AIU limit
             if plan:
-                rca_daily_limit = plan.rca_session_limit_daily
+                aiu_weekly_limit = plan.aiu_limit_weekly_base
+                # Add per-service AIU for Pro plan
+                if plan.plan_type == PlanType.PRO and subscription:
+                    billable_services = subscription.billable_service_count or 0
+                    aiu_weekly_limit += billable_services * plan.aiu_limit_weekly_per_service
             else:
-                rca_daily_limit = DEFAULT_FREE_RCA_DAILY_LIMIT
-            rca_remaining = max(0, rca_daily_limit - rca_sessions_today)
+                aiu_weekly_limit = DEFAULT_FREE_AIU_WEEKLY
+
+            aiu_remaining = max(0, aiu_weekly_limit - aiu_used_this_week)
             logger.debug(
-                f"VibeMonitor workspace {workspace_id} - RCA sessions: "
-                f"{rca_sessions_today}/{rca_daily_limit}"
+                f"VibeMonitor workspace {workspace_id} - AIU usage: "
+                f"{aiu_used_this_week:,}/{aiu_weekly_limit:,}"
             )
 
         # Plan details
@@ -298,11 +336,11 @@ class LimitService:
             "service_limit": service_limit,
             "services_remaining": services_remaining,
             "can_add_service": is_paid or service_count < service_limit,
-            # RCA usage (unlimited if BYOLLM)
-            "rca_sessions_today": rca_sessions_today,
-            "rca_session_limit_daily": rca_daily_limit,  # -1 for BYOLLM (unlimited)
-            "rca_sessions_remaining": rca_remaining,  # -1 for BYOLLM
-            "can_start_rca": is_byollm or rca_sessions_today < rca_daily_limit,
+            # AIU usage (unlimited if BYOLLM)
+            "aiu_used_this_week": aiu_used_this_week,
+            "aiu_weekly_limit": aiu_weekly_limit,  # -1 for BYOLLM (unlimited)
+            "aiu_remaining": aiu_remaining,  # -1 for BYOLLM
+            "can_use_aiu": is_byollm or aiu_used_this_week < aiu_weekly_limit,
             # Subscription info
             "subscription_status": (
                 subscription.status.value if subscription else None

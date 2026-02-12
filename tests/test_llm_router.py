@@ -495,7 +495,7 @@ class TestRateLimitingIntegration:
             allowed, count, limit = await check_rate_limit_with_byollm_bypass(
                 session=mock_db,
                 workspace_id="workspace-123",
-                resource_type=ResourceType.RCA_REQUEST,
+                resource_type=ResourceType.AIU_USAGE,  # Changed from RCA_REQUEST
             )
 
             assert allowed is True
@@ -521,7 +521,7 @@ class TestRateLimitingIntegration:
                 allowed, count, limit = await check_rate_limit_with_byollm_bypass(
                     session=mock_db,
                     workspace_id=sample_workspace.id,
-                    resource_type=ResourceType.RCA_REQUEST,
+                    resource_type=ResourceType.AIU_USAGE,  # Changed from RCA_REQUEST
                 )
 
                 assert allowed is True

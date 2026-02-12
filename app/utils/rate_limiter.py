@@ -26,11 +26,27 @@ logger = logging.getLogger(__name__)
 class ResourceType(str, Enum):
     """Types of rate-limited resources."""
 
-    RCA_REQUEST = "rca_request"
+    AIU_USAGE = "aiu_usage"  # Weekly AIU (AI Unit) consumption - tracks token usage
     API_CALL = "api_call"
     EXPORT = "export"
     SLACK_MESSAGE = "slack_message"
     FILE_UPLOAD_BYTES = "file_upload_bytes"  # Total bytes uploaded per day
+
+
+def get_weekly_window_key() -> str:
+    """
+    Get the current ISO week window key for weekly rate limiting.
+
+    Returns:
+        str: ISO week key in format 'YYYY-WNN' (e.g., '2026-W06' for week 6 of 2026)
+
+    Example:
+        >>> get_weekly_window_key()
+        '2026-W06'  # Week 6 of 2026 (starts on Monday)
+    """
+    now = datetime.now(timezone.utc)
+    iso_year, iso_week, _ = now.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
 
 
 async def check_rate_limit(
@@ -304,14 +320,14 @@ async def check_rate_limit_with_byollm_bypass(
     """
     # Check feature flag for rate limiting
     RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
-    
+
     if not RATE_LIMITING_ENABLED:
         logger.info(
             f"Rate limiting disabled globally via RATE_LIMITING_ENABLED=false "
             f"for workspace {workspace_id} and resource {resource_type.value}"
         )
         return (True, 0, -1)
-    
+
     # Check if workspace uses BYOLLM (bring your own LLM)
     if await is_byollm_workspace(workspace_id, session):
         logger.info(
@@ -321,7 +337,7 @@ async def check_rate_limit_with_byollm_bypass(
         )
         # Return unlimited indicator: allowed=True, count=0, limit=-1 (unlimited)
         return (True, 0, -1)
-    
+
     # Apply normal rate limiting for regular workspaces
     return await check_rate_limit(
         session=session,
@@ -330,5 +346,111 @@ async def check_rate_limit_with_byollm_bypass(
         limit=limit,
         increment=increment,
     )
+
+
+async def track_aiu_usage(
+    workspace_id: str,
+    token_count: int,
+    session: AsyncSession,
+) -> None:
+    """
+    Track AIU (AI Unit / token) usage for a workspace.
+
+    This function records actual token consumption in the rate_limit_tracking table
+    with weekly aggregation for billing/usage display.
+
+    IMPORTANT: This function should be called AFTER every AI response to track
+    token usage. The token_count should be extracted from the LLM response metadata
+    (e.g., response.usage.total_tokens from LangGraph/Groq).
+
+    Args:
+        workspace_id: The workspace ID
+        token_count: Number of tokens consumed (input + output tokens)
+        session: Database session
+
+    Example:
+        # After AI response completes:
+        total_tokens = response.usage.total_tokens  # ← AI team extracts this
+        await track_aiu_usage(
+            workspace_id=workspace_id,
+            token_count=total_tokens,
+            session=db
+        )
+
+    Storage:
+        - Table: rate_limit_tracking
+        - resource_type: 'aiu_usage'
+        - window_key: '2026-W06' (weekly, resets every Monday)
+        - count: Cumulative tokens used this week
+    """
+    try:
+        # Check if workspace uses BYOLLM - if so, don't track AIU
+        if await is_byollm_workspace(workspace_id, session):
+            logger.debug(
+                f"BYOLLM workspace {workspace_id} - skipping AIU tracking (unlimited)"
+            )
+            return
+
+        # Get weekly window key (e.g., '2026-W06')
+        week_key = get_weekly_window_key()
+
+        # Try to get existing tracking record with lock
+        tracking_stmt = (
+            select(RateLimitTracking)
+            .where(
+                and_(
+                    RateLimitTracking.workspace_id == workspace_id,
+                    RateLimitTracking.resource_type == ResourceType.AIU_USAGE.value,
+                    RateLimitTracking.window_key == week_key,
+                )
+            )
+            .with_for_update()  # Lock row to prevent race conditions
+        )
+
+        tracking_result = await session.execute(tracking_stmt)
+        tracking = tracking_result.scalar_one_or_none()
+
+        # First AIU usage this week - create record
+        if not tracking:
+            try:
+                tracking = RateLimitTracking(
+                    id=str(uuid.uuid4()),
+                    workspace_id=workspace_id,
+                    resource_type=ResourceType.AIU_USAGE.value,
+                    window_key=week_key,
+                    count=token_count,
+                )
+                session.add(tracking)
+                await session.commit()
+
+                logger.info(
+                    f"📊 AIU TRACKING - First usage this week for workspace {workspace_id}. "
+                    f"Tokens: {token_count:,} - Week: {week_key}"
+                )
+                return
+
+            except IntegrityError:
+                # Race condition - another request created the record
+                await session.rollback()
+                tracking_result = await session.execute(tracking_stmt)
+                tracking = tracking_result.scalar_one()
+
+        # Increment existing record
+        old_count = tracking.count
+        tracking.count += token_count
+        await session.commit()
+
+        logger.info(
+            f"📊 AIU TRACKING - Workspace {workspace_id} used {token_count:,} tokens. "
+            f"Total this week: {tracking.count:,} (was {old_count:,}) - Week: {week_key}"
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Failed to track AIU usage for workspace {workspace_id}: {e}",
+            exc_info=True
+        )
+        await session.rollback()
+        # Don't raise - tracking failure shouldn't break the main flow
 
 

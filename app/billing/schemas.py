@@ -27,7 +27,11 @@ class PlanResponse(BaseModel):
     base_service_count: int
     base_price_cents: int
     additional_service_price_cents: int
-    rca_session_limit_daily: int
+
+    # Weekly AIU limits
+    aiu_limit_weekly_base: int
+    aiu_limit_weekly_per_service: int
+
     is_active: bool
     created_at: Optional[datetime] = None
 
@@ -225,18 +229,41 @@ class UsageResponse(BaseModel):
     plan_name: str
     plan_type: str  # "free" or "pro"
     is_paid: bool
+    is_byollm: bool  # Bring Your Own LLM (unlimited AIU)
 
-    # Service usage (both Free and Pro have base limits: 5 services)
-    service_count: int
-    service_limit: int  # Free: hard limit, Pro: base count (can exceed with $5/each additional)
-    services_remaining: int
-    can_add_service: bool
+    # Service usage
+    service_count: int = Field(
+        ge=0,
+        description="Current number of services in the workspace"
+    )
+    service_limit: int = Field(
+        ge=0,
+        description="Maximum services allowed (Free: hard limit, Pro: base count, can exceed with $5/each additional)"
+    )
+    services_remaining: int = Field(
+        ge=0,
+        description="Number of additional services that can be added before hitting limit"
+    )
+    can_add_service: bool = Field(
+        description="Whether the workspace can add another service"
+    )
 
-    # RCA session usage
-    rca_sessions_today: int
-    rca_session_limit_daily: int
-    rca_sessions_remaining: int
-    can_start_rca: bool
+    # AIU (AI Unit) usage - weekly limits
+    aiu_used_this_week: int = Field(
+        ge=0,
+        description="AIU consumed this week (0 if BYOLLM - Bring Your Own LLM)"
+    )
+    aiu_weekly_limit: int = Field(
+        ge=-1,
+        description="Weekly AIU limit (-1 indicates unlimited for BYOLLM users)"
+    )
+    aiu_remaining: int = Field(
+        ge=-1,
+        description="AIU remaining this week (-1 indicates unlimited for BYOLLM users)"
+    )
+    can_use_aiu: bool = Field(
+        description="Whether the workspace can start new RCA sessions (within AIU limits)"
+    )
 
     # Subscription info
     subscription_status: Optional[str] = None

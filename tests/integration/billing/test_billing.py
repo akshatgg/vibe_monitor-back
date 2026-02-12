@@ -104,10 +104,11 @@ async def create_test_plan(
     db: AsyncSession,
     name: str = "Free",
     plan_type: PlanType = PlanType.FREE,
-    base_service_count: int = 5,
+    base_service_count: int = 2,
     base_price_cents: int = 0,
-    additional_service_price_cents: int = 500,
-    rca_session_limit_daily: int = 10,
+    additional_service_price_cents: int = 0,
+    aiu_limit_weekly_base: int = 100_000,
+    aiu_limit_weekly_per_service: int = 0,
     is_active: bool = True,
 ) -> Plan:
     """Create a plan in the test database."""
@@ -118,7 +119,8 @@ async def create_test_plan(
         base_service_count=base_service_count,
         base_price_cents=base_price_cents,
         additional_service_price_cents=additional_service_price_cents,
-        rca_session_limit_daily=rca_session_limit_daily,
+        aiu_limit_weekly_base=aiu_limit_weekly_base,
+        aiu_limit_weekly_per_service=aiu_limit_weekly_per_service,
         is_active=is_active,
     )
     db.add(plan)
@@ -592,10 +594,11 @@ class TestGetPlan:
             test_db,
             name="Pro",
             plan_type=PlanType.PRO,
-            base_service_count=5,
+            base_service_count=3,
             base_price_cents=3000,
             additional_service_price_cents=500,
-            rca_session_limit_daily=100,
+            aiu_limit_weekly_base=3_000_000,
+            aiu_limit_weekly_per_service=500_000,
         )
 
         response = await client.get(f"{API_PREFIX}/billing/plans/{plan.id}")
@@ -605,10 +608,11 @@ class TestGetPlan:
         assert data["id"] == plan.id
         assert data["name"] == "Pro"
         assert data["plan_type"] == "PRO"
-        assert data["base_service_count"] == 5
+        assert data["base_service_count"] == 3
         assert data["base_price_cents"] == 3000
         assert data["additional_service_price_cents"] == 500
-        assert data["rca_session_limit_daily"] == 100
+        assert data["aiu_limit_weekly_base"] == 3_000_000
+        assert data["aiu_limit_weekly_per_service"] == 500_000
 
     @pytest.mark.asyncio
     async def test_get_plan_not_found_returns_404(self, client, test_db):
@@ -707,16 +711,17 @@ class TestGetWorkspaceUsage:
         mock_limit_service.get_usage_stats = AsyncMock(
             return_value={
                 "plan_name": "Free",
-                "plan_type": "free",
+                "plan_type": "FREE",
                 "is_paid": False,
+                "is_byollm": False,
                 "service_count": 2,
-                "service_limit": 5,
-                "services_remaining": 3,
-                "can_add_service": True,
-                "rca_sessions_today": 5,
-                "rca_session_limit_daily": 10,
-                "rca_sessions_remaining": 5,
-                "can_start_rca": True,
+                "service_limit": 2,
+                "services_remaining": 0,
+                "can_add_service": False,
+                "aiu_used_this_week": 50_000,
+                "aiu_weekly_limit": 100_000,
+                "aiu_remaining": 50_000,
+                "can_use_aiu": True,
             }
         )
 
@@ -729,8 +734,10 @@ class TestGetWorkspaceUsage:
         data = response.json()
         assert data["plan_name"] == "Free"
         assert data["service_count"] == 2
-        assert data["can_add_service"] is True
-        assert data["rca_sessions_today"] == 5
+        assert data["can_add_service"] is False
+        assert data["aiu_used_this_week"] == 50_000
+        assert data["aiu_weekly_limit"] == 100_000
+        assert data["can_use_aiu"] is True
 
     @pytest.mark.asyncio
     async def test_get_usage_accessible_by_member(self, client, test_db):

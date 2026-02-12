@@ -134,63 +134,6 @@ async def send_message(
     if files is None:
         files = []
 
-    # Check rate limit before processing (BYOLLM users bypass rate limiting)
-    try:
-        allowed, current_count, limit = await check_rate_limit_with_byollm_bypass(
-            session=db,
-            workspace_id=workspace_id,
-            resource_type=ResourceType.RCA_REQUEST,
-        )
-
-        if not allowed:
-            from app.core.otel_metrics import SECURITY_METRICS
-
-            SECURITY_METRICS["rate_limit_exceeded_total"].add(
-                1,
-                {
-                    "resource_type": ResourceType.RCA_REQUEST,
-                },
-            )
-
-            logger.warning(
-                f"RCA rate limit exceeded for workspace {workspace_id}: "
-                f"{current_count}/{limit}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "message": "Daily RCA request limit reached",
-                    "current_count": current_count,
-                    "limit": limit,
-                    "tip": "Configure your own LLM (OpenAI, Azure, or Gemini) to remove limits",
-                },
-            )
-
-        # Log BYOLLM status (limit=-1 indicates unlimited)
-        if limit == -1:
-            logger.info(f"BYOLLM workspace {workspace_id} - unlimited RCA requests")
-        else:
-            logger.debug(
-                f"RCA rate limit check passed for workspace {workspace_id}: "
-                f"{current_count}/{limit}"
-            )
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        logger.error(f"Rate limit check failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Rate limit check failed: {str(e)}",
-        )
-    except Exception as e:
-        # Fail open: allow the request but log the error
-        logger.exception(f"Unexpected error in rate limit check: {e}")
-        logger.warning(
-            f"Rate limit check failed for workspace {workspace_id}, "
-            f"allowing request to proceed"
-        )
-
     # Validate file count
     if len(files) > settings.MAX_FILES_PER_MESSAGE:
         raise HTTPException(

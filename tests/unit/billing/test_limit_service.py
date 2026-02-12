@@ -5,12 +5,12 @@ Tests limit enforcement logic, error messages, and usage calculations.
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
 from app.workspace.client_workspace_services.limit_service import (
-    DEFAULT_FREE_RCA_DAILY_LIMIT,
+    DEFAULT_FREE_AIU_WEEKLY,
     DEFAULT_FREE_SERVICE_LIMIT,
     LimitService,
 )
@@ -24,9 +24,9 @@ class TestConstants:
         """Default free service limit should be 2."""
         assert DEFAULT_FREE_SERVICE_LIMIT == 2
 
-    def test_default_free_rca_daily_limit(self):
-        """Default free RCA daily limit should be 10."""
-        assert DEFAULT_FREE_RCA_DAILY_LIMIT == 10
+    def test_default_free_aiu_weekly(self):
+        """Default free weekly AIU limit should be 100K."""
+        assert DEFAULT_FREE_AIU_WEEKLY == 100_000
 
 
 class TestLimitServiceCheckCanAddService:
@@ -44,7 +44,8 @@ class TestLimitServiceCheckCanAddService:
         plan.name = "Pro"
         plan.plan_type = PlanType.PRO
         plan.base_service_count = 3
-        plan.rca_session_limit_daily = 100
+        plan.aiu_limit_weekly_base = 3_000_000
+        plan.aiu_limit_weekly_per_service = 500_000
         return plan
 
     @pytest.fixture
@@ -54,7 +55,8 @@ class TestLimitServiceCheckCanAddService:
         plan.name = "Free"
         plan.plan_type = PlanType.FREE
         plan.base_service_count = 2
-        plan.rca_session_limit_daily = 10
+        plan.aiu_limit_weekly_base = 100_000
+        plan.aiu_limit_weekly_per_service = 0
         return plan
 
     @pytest.fixture
@@ -147,7 +149,7 @@ class TestLimitServiceCheckCanAddService:
 
 
 class TestLimitServiceCheckCanStartRCA:
-    """Tests for LimitService.check_can_start_rca method."""
+    """Tests for LimitService.check_can_start_rca method (weekly AIU)."""
 
     @pytest.fixture
     def limit_service(self):
@@ -158,7 +160,8 @@ class TestLimitServiceCheckCanStartRCA:
         plan = MagicMock(spec=Plan)
         plan.name = "Pro"
         plan.plan_type = PlanType.PRO
-        plan.rca_session_limit_daily = 100
+        plan.aiu_limit_weekly_base = 3_000_000
+        plan.aiu_limit_weekly_per_service = 500_000
         return plan
 
     @pytest.fixture
@@ -166,77 +169,110 @@ class TestLimitServiceCheckCanStartRCA:
         plan = MagicMock(spec=Plan)
         plan.name = "Free"
         plan.plan_type = PlanType.FREE
-        plan.rca_session_limit_daily = 10
+        plan.aiu_limit_weekly_base = 100_000
+        plan.aiu_limit_weekly_per_service = 0
         return plan
 
     @pytest.fixture
     def mock_subscription(self):
         subscription = MagicMock(spec=Subscription)
         subscription.workspace_id = "ws-123"
+        subscription.billable_service_count = 0
         return subscription
 
     @pytest.mark.asyncio
-    async def test_pro_plan_under_daily_limit(
+    async def test_pro_plan_under_weekly_limit(
         self, limit_service, mock_db, mock_pro_plan, mock_subscription
     ):
-        """Pro plan should allow RCA when under daily limit."""
+        """Pro plan should allow AIU when under weekly limit."""
+        mock_subscription.billable_service_count = 0
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_pro_plan)
         )
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=50)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=1_500_000)
 
         can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
 
         assert can_start is True
-        assert details["daily_limit"] == 100
-        assert details["sessions_today"] == 50
-        assert details["remaining"] == 50
+        assert details["aiu_weekly_limit"] == 3_000_000
+        assert details["aiu_used_this_week"] == 1_500_000
+        assert details["aiu_remaining"] == 1_500_000
         assert details["is_paid"] is True
 
     @pytest.mark.asyncio
-    async def test_pro_plan_at_daily_limit(
+    async def test_pro_plan_at_weekly_limit(
         self, limit_service, mock_db, mock_pro_plan, mock_subscription
     ):
-        """Pro plan should NOT allow RCA when at daily limit."""
+        """Pro plan should NOT allow AIU when at weekly limit."""
+        mock_subscription.billable_service_count = 0
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_pro_plan)
         )
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=100)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=3_000_000)
 
         can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
 
         assert can_start is False
-        assert details["remaining"] == 0
+        assert details["aiu_remaining"] == 0
         assert details["is_paid"] is True
 
     @pytest.mark.asyncio
-    async def test_free_plan_under_daily_limit(
+    async def test_pro_plan_with_extra_services_aiu_calculation(
+        self, limit_service, mock_db, mock_pro_plan, mock_subscription
+    ):
+        """Pro plan with extra services: verify AIU limit = base + (extra × per_service).
+
+        Scenario: Pro user with 5 total services (3 base + 2 extra)
+        Expected: 3M base + (2 × 500K) = 4M AIU/week
+        """
+        # User is paying for 2 additional services beyond the base 3
+        mock_subscription.billable_service_count = 2
+
+        limit_service.get_workspace_plan = AsyncMock(
+            return_value=(mock_subscription, mock_pro_plan)
+        )
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=1_500_000)
+
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
+
+            can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
+
+            # Verify calculation: 3M + (2 × 500K) = 4M
+            assert can_start is True
+            assert details["aiu_weekly_limit"] == 4_000_000  # 3M base + 1M for 2 extra services
+            assert details["aiu_used_this_week"] == 1_500_000
+            assert details["aiu_remaining"] == 2_500_000  # 4M - 1.5M used
+            assert details["is_paid"] is True
+
+    @pytest.mark.asyncio
+    async def test_free_plan_under_weekly_limit(
         self, limit_service, mock_db, mock_free_plan, mock_subscription
     ):
-        """Free plan should allow RCA when under daily limit."""
+        """Free plan should allow AIU when under weekly limit."""
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_free_plan)
         )
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=5)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=50_000)
 
         can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
 
         assert can_start is True
-        assert details["daily_limit"] == 10
-        assert details["remaining"] == 5
+        assert details["aiu_weekly_limit"] == 100_000
+        assert details["aiu_remaining"] == 50_000
         assert details["is_paid"] is False
 
     @pytest.mark.asyncio
     async def test_no_subscription_uses_defaults(self, limit_service, mock_db):
-        """No subscription should use default free RCA limits."""
+        """No subscription should use default free AIU limits."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=5)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=50_000)
 
         can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
 
         assert can_start is True
-        assert details["daily_limit"] == DEFAULT_FREE_RCA_DAILY_LIMIT
-        assert details["remaining"] == 5
+        assert details["aiu_weekly_limit"] == DEFAULT_FREE_AIU_WEEKLY
+        assert details["aiu_remaining"] == 50_000
         assert details["plan_name"] == "Free"
 
     @pytest.mark.asyncio
@@ -247,12 +283,12 @@ class TestLimitServiceCheckCanStartRCA:
         limit_service.get_workspace_plan = AsyncMock(
             return_value=(mock_subscription, mock_free_plan)
         )
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=15)  # Over limit
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=150_000)  # Over limit
 
         can_start, details = await limit_service.check_can_start_rca(mock_db, "ws-123")
 
         assert can_start is False
-        assert details["remaining"] == 0  # max(0, 10-15) = 0
+        assert details["aiu_remaining"] == 0  # max(0, 100K-150K) = 0
 
 
 class TestLimitServiceEnforceServiceLimit:
@@ -332,9 +368,9 @@ class TestLimitServiceEnforceRCALimit:
             return_value=(
                 False,
                 {
-                    "sessions_today": 10,
-                    "daily_limit": 10,
-                    "remaining": 0,
+                    "aiu_used_this_week": 100_000,
+                    "aiu_weekly_limit": 100_000,
+                    "aiu_remaining": 0,
                     "plan_name": "Free",
                     "is_paid": False,
                 },
@@ -345,8 +381,8 @@ class TestLimitServiceEnforceRCALimit:
             await limit_service.enforce_rca_limit(mock_db, "ws-123")
 
         assert exc_info.value.status_code == 402
-        assert exc_info.value.detail["error"] == "Daily RCA session limit exceeded"
-        assert exc_info.value.detail["limit_type"] == "rca_session"
+        assert exc_info.value.detail["error"] == "Weekly AIU limit exceeded"
+        assert exc_info.value.detail["limit_type"] == "aiu_weekly"
         assert exc_info.value.detail["upgrade_available"] is True
         assert "Upgrade to Pro" in exc_info.value.detail["message"]
 
@@ -357,9 +393,9 @@ class TestLimitServiceEnforceRCALimit:
             return_value=(
                 False,
                 {
-                    "sessions_today": 100,
-                    "daily_limit": 100,
-                    "remaining": 0,
+                    "aiu_used_this_week": 3_000_000,
+                    "aiu_weekly_limit": 3_000_000,
+                    "aiu_remaining": 0,
                     "plan_name": "Pro",
                     "is_paid": True,
                 },
@@ -371,7 +407,7 @@ class TestLimitServiceEnforceRCALimit:
 
         assert exc_info.value.status_code == 402
         assert exc_info.value.detail["upgrade_available"] is False  # Already on Pro
-        assert "midnight UTC" in exc_info.value.detail["message"]
+        assert "Monday" in exc_info.value.detail["message"]  # Weekly reset
 
     @pytest.mark.asyncio
     async def test_no_exception_when_under_limit(self, limit_service, mock_db):
@@ -407,7 +443,8 @@ class TestLimitServiceGetUsageStats:
         plan.name = "Pro"
         plan.plan_type = PlanType.PRO
         plan.base_service_count = 3
-        plan.rca_session_limit_daily = 100
+        plan.aiu_limit_weekly_base = 3_000_000
+        plan.aiu_limit_weekly_per_service = 500_000
         return plan
 
     @pytest.fixture
@@ -427,9 +464,11 @@ class TestLimitServiceGetUsageStats:
             return_value=(mock_subscription, mock_pro_plan)
         )
         limit_service.get_service_count = AsyncMock(return_value=2)  # Under base (not paying extra yet)
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=25)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=1_500_000)
 
-        stats = await limit_service.get_usage_stats(mock_db, "ws-123")
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
+            stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
         assert stats["plan_name"] == "Pro"
         assert stats["plan_type"] == "PRO"
@@ -438,10 +477,10 @@ class TestLimitServiceGetUsageStats:
         assert stats["service_limit"] == 3  # Base count included in Pro plan
         assert stats["services_remaining"] == 1  # 3 - 2 = 1 (services before paying $5/each)
         assert stats["can_add_service"] is True  # Can always add (unlimited with payment)
-        assert stats["rca_sessions_today"] == 25
-        assert stats["rca_session_limit_daily"] == 100
-        assert stats["rca_sessions_remaining"] == 75
-        assert stats["can_start_rca"] is True
+        assert stats["aiu_used_this_week"] == 1_500_000
+        assert stats["aiu_weekly_limit"] == 3_000_000
+        assert stats["aiu_remaining"] == 1_500_000
+        assert stats["can_use_aiu"] is True
         assert stats["subscription_status"] == "ACTIVE"
 
     @pytest.mark.asyncio
@@ -449,9 +488,11 @@ class TestLimitServiceGetUsageStats:
         """Free plan (no subscription) usage stats should use defaults."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
         limit_service.get_service_count = AsyncMock(return_value=1)
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=5)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=50_000)
 
-        stats = await limit_service.get_usage_stats(mock_db, "ws-123")
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
+            stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
         assert stats["plan_name"] == "Free"
         assert stats["plan_type"] == "FREE"
@@ -459,9 +500,9 @@ class TestLimitServiceGetUsageStats:
         assert stats["service_limit"] == DEFAULT_FREE_SERVICE_LIMIT
         assert stats["services_remaining"] == 1  # 2 - 1
         assert stats["can_add_service"] is True
-        assert stats["rca_session_limit_daily"] == DEFAULT_FREE_RCA_DAILY_LIMIT
-        assert stats["rca_sessions_remaining"] == 5  # 10 - 5
-        assert stats["can_start_rca"] is True
+        assert stats["aiu_weekly_limit"] == DEFAULT_FREE_AIU_WEEKLY
+        assert stats["aiu_remaining"] == 50_000
+        assert stats["can_use_aiu"] is True
         assert stats["subscription_status"] is None
         assert stats["current_period_end"] is None
 
@@ -470,23 +511,27 @@ class TestLimitServiceGetUsageStats:
         """When at limit, can_add_service should be False."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
         limit_service.get_service_count = AsyncMock(return_value=2)
-        limit_service.get_rca_sessions_today = AsyncMock(return_value=0)
+        limit_service.get_aiu_usage_this_week = AsyncMock(return_value=0)
 
-        stats = await limit_service.get_usage_stats(mock_db, "ws-123")
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
+            stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
         assert stats["can_add_service"] is False
         assert stats["services_remaining"] == 0
 
     @pytest.mark.asyncio
     async def test_rca_at_limit_cannot_start(self, limit_service, mock_db):
-        """When at RCA limit, can_start_rca should be False."""
+        """When at AIU limit, can_use_aiu should be False."""
         limit_service.get_workspace_plan = AsyncMock(return_value=(None, None))
         limit_service.get_service_count = AsyncMock(return_value=0)
-        limit_service.get_rca_sessions_today = AsyncMock(
-            return_value=DEFAULT_FREE_RCA_DAILY_LIMIT
+        limit_service.get_aiu_usage_this_week = AsyncMock(
+            return_value=DEFAULT_FREE_AIU_WEEKLY
         )
 
-        stats = await limit_service.get_usage_stats(mock_db, "ws-123")
+        with patch("app.workspace.client_workspace_services.limit_service.is_byollm_workspace", new_callable=AsyncMock) as mock_byollm:
+            mock_byollm.return_value = False
+            stats = await limit_service.get_usage_stats(mock_db, "ws-123")
 
-        assert stats["can_start_rca"] is False
-        assert stats["rca_sessions_remaining"] == 0
+        assert stats["can_use_aiu"] is False
+        assert stats["aiu_remaining"] == 0

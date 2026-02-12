@@ -20,10 +20,11 @@ def free_plan():
         name="Free",
         plan_type=PlanType.FREE,
         stripe_price_id=None,
-        base_service_count=5,
+        base_service_count=2,
         base_price_cents=0,
         additional_service_price_cents=0,
-        rca_session_limit_daily=10,
+        aiu_limit_weekly_base=100_000,
+        aiu_limit_weekly_per_service=0,
         is_active=True,
         created_at=datetime.now(timezone.utc),
     )
@@ -37,10 +38,11 @@ def pro_plan():
         name="Pro",
         plan_type=PlanType.PRO,
         stripe_price_id="price_pro_monthly",
-        base_service_count=5,
+        base_service_count=3,
         base_price_cents=3000,
         additional_service_price_cents=500,
-        rca_session_limit_daily=100,
+        aiu_limit_weekly_base=3_000_000,
+        aiu_limit_weekly_per_service=500_000,
         is_active=True,
         created_at=datetime.now(timezone.utc),
     )
@@ -85,8 +87,10 @@ class TestPlanModel:
         """Test that Free plan has correct pricing."""
         assert free_plan.plan_type == PlanType.FREE
         assert free_plan.base_price_cents == 0
-        assert free_plan.base_service_count == 5
-        assert free_plan.rca_session_limit_daily == 10
+        assert free_plan.base_service_count == 2
+        assert free_plan.additional_service_price_cents == 0  # Cannot add services
+        assert free_plan.aiu_limit_weekly_base == 100_000  # 100K AIU/week
+        assert free_plan.aiu_limit_weekly_per_service == 0  # No scaling
         assert free_plan.stripe_price_id is None
 
     def test_pro_plan_has_correct_pricing(self, pro_plan):
@@ -94,8 +98,9 @@ class TestPlanModel:
         assert pro_plan.plan_type == PlanType.PRO
         assert pro_plan.base_price_cents == 3000  # $30
         assert pro_plan.additional_service_price_cents == 500  # $5
-        assert pro_plan.base_service_count == 5
-        assert pro_plan.rca_session_limit_daily == 100
+        assert pro_plan.base_service_count == 3
+        assert pro_plan.aiu_limit_weekly_base == 3_000_000  # 3M AIU/week
+        assert pro_plan.aiu_limit_weekly_per_service == 500_000  # 500K per service
         assert pro_plan.stripe_price_id is not None
 
 
@@ -221,19 +226,19 @@ class TestSubscriptionService:
 
     def test_billable_service_calculation(self, pro_plan):
         """Test calculating billable services above base count."""
-        base_count = pro_plan.base_service_count  # 5
+        base_count = pro_plan.base_service_count  # 3
 
-        # 3 services = 0 billable (under base)
+        # 2 services = 0 billable (under base)
+        assert max(0, 2 - base_count) == 0
+
+        # 3 services = 0 billable (at base)
         assert max(0, 3 - base_count) == 0
 
-        # 5 services = 0 billable (at base)
-        assert max(0, 5 - base_count) == 0
+        # 6 services = 3 billable (above base)
+        assert max(0, 6 - base_count) == 3
 
-        # 8 services = 3 billable (above base)
-        assert max(0, 8 - base_count) == 3
-
-        # 10 services = 5 billable
-        assert max(0, 10 - base_count) == 5
+        # 8 services = 5 billable
+        assert max(0, 8 - base_count) == 5
 
 
 class TestWebhookHandler:
@@ -317,7 +322,7 @@ class TestPricingCalculations:
 
     def test_pro_plan_base_monthly_cost(self, pro_plan):
         """Test Pro plan base monthly cost."""
-        services = 5  # At base
+        services = 3  # At base
         billable = max(0, services - pro_plan.base_service_count)
         monthly_cost = (
             pro_plan.base_price_cents
@@ -327,7 +332,7 @@ class TestPricingCalculations:
 
     def test_pro_plan_with_additional_services(self, pro_plan):
         """Test Pro plan with additional services."""
-        services = 10  # 5 additional
+        services = 8  # 5 additional (8 - 3 base = 5)
         billable = max(0, services - pro_plan.base_service_count)
         monthly_cost = (
             pro_plan.base_price_cents
