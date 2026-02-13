@@ -695,7 +695,23 @@ class AWSIntegrationService:
         if not integration:
             return False
 
-        await db.delete(integration)
+        # Delete the parent Integration control plane record.
+        # The child aws_integrations row is cascade-deleted automatically
+        # via ForeignKey("integrations.id", ondelete="CASCADE").
+        if integration.integration_id:
+            control_plane_result = await db.execute(
+                select(Integration).where(
+                    Integration.id == integration.integration_id,
+                )
+            )
+            control_plane_integration = control_plane_result.scalar_one_or_none()
+            if control_plane_integration:
+                await db.delete(control_plane_integration)
+            else:
+                await db.delete(integration)
+        else:
+            await db.delete(integration)
+
         await db.commit()
 
         # Clear any cached CloudWatch Logs clients for this workspace
