@@ -12,6 +12,7 @@ from app.chat.service import ChatService
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logging_config import clear_job_id, set_job_id
+from app.core.sentry import clear_sentry_context, set_sentry_context
 from app.core.otel_metrics import AGENT_METRICS, JOB_METRICS, LLM_METRICS
 from app.core.rca_metrics import record_rca_success_metrics
 from app.github.tools.router import list_repositories_graphql
@@ -450,6 +451,7 @@ class RCAOrchestratorWorker(BaseWorker):
         # Set job_id in context variables
         # Now ALL logs anywhere in this job will automatically have this job_id
         set_job_id(job_id)
+        set_sentry_context(job_id=job_id)
 
         try:
             async with AsyncSessionLocal() as db:
@@ -510,6 +512,7 @@ class RCAOrchestratorWorker(BaseWorker):
                     # Extract context from job
                     team_id = requested_context.get("team_id")
                     workspace_id = job.vm_workspace_id
+                    set_sentry_context(workspace_id=workspace_id)
                     channel_id = job.trigger_channel_id
                     thread_ts = job.trigger_thread_ts
                     thread_history = requested_context.get("thread_history")
@@ -1007,6 +1010,7 @@ class RCAOrchestratorWorker(BaseWorker):
         finally:
             # Clear the job_id from context after job completes
             clear_job_id()
+            clear_sentry_context()
 
 
 async def main():

@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.logging_config import clear_request_id, set_request_id
+from app.core.sentry import clear_sentry_context, set_sentry_context
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Set in context variables - THIS IS THE KEY!
         # Now ALL logs anywhere in the codebase will automatically have this request_id
         set_request_id(request_id)
+        set_sentry_context(request_id=request_id)
 
         try:
             # Log the incoming request
@@ -67,3 +69,4 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             # Clear the request_id from context after request completes
             clear_request_id()
+            clear_sentry_context()

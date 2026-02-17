@@ -193,6 +193,9 @@ class Settings(BaseSettings):
 
     # Sentry Configuration
     SENTRY_DSN: Optional[str] = None  # Sentry DSN for error tracking
+    SENTRY_ENABLED: bool = True  # Master switch for Sentry custom instrumentation (tags, metrics)
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1  # Trace sample rate (overridden to 1.0 in local)
+    SENTRY_METRICS_ENABLED: bool = True  # Enable Sentry metrics emission (beta feature)
 
     # Langfuse Configuration (Agent Observability)
     LANGFUSE_ENABLED: bool = True  # Enable/disable Langfuse tracing

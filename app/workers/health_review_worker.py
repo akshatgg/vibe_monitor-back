@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.sentry import clear_sentry_context, set_sentry_context
 from app.health_review_system.orchestrator import ReviewOrchestrator
 from app.health_review_system.orchestrator.schemas import ReviewGenerationRequest
 from app.models import ReviewStatus, ServiceReview
@@ -277,6 +278,12 @@ class HealthReviewWorker:
             )
             return
 
+        set_sentry_context(
+            job_id=review_id,
+            workspace_id=workspace_id,
+            service_id=service_id,
+        )
+
         logger.info(
             f"Processing health review job: review_id={review_id}, "
             f"service_id={service_id}, workspace_id={workspace_id}"
@@ -335,6 +342,8 @@ class HealthReviewWorker:
                     logger.exception(
                         f"Failed to update review {review_id} status to FAILED"
                     )
+            finally:
+                clear_sentry_context()
 
 
 async def publish_health_review_job(

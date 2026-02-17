@@ -2,7 +2,6 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-import sentry_sdk
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +15,7 @@ from app.core.database import engine
 from app.core.db_instrumentation import setup_database_instrumentation
 from app.core.logging_config import configure_logging
 from app.core.otel_config import setup_otel_logs, setup_otel_metrics, shutdown_otel
+from app.core.sentry import init_sentry, wrap_otel_metrics
 from app.core.otel_metrics import init_meter
 from app.core.redis import close_redis, get_redis
 from app.github.webhook.router import limiter
@@ -34,16 +34,8 @@ configure_logging()
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-# Initialize Sentry for error tracking
-if settings.SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=settings.SENTRY_DSN,
-        traces_sample_rate=1.0 if settings.is_local else 0.1,
-        environment=settings.ENVIRONMENT,
-        send_default_pii=False,
-        enable_logs=True,
-    )
-    logger.info("Sentry initialized")
+# Initialize Sentry for error tracking, metrics, and context
+init_sentry()
 
 
 @asynccontextmanager
@@ -126,6 +118,9 @@ async def lifespan(app: FastAPI):
                 logger.info("Metrics cache updater started")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenTelemetry: {e}")
+
+        # Wrap OTEL metrics with Sentry dual-write (works with both real and no-op metrics)
+        wrap_otel_metrics()
 
         # Start SQS worker
         await worker.start()
