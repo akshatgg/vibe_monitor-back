@@ -1,96 +1,38 @@
 """
-Java code parser using regex patterns.
+Java code parser using Tree-sitter.
 
-Extracts methods, classes, interfaces, and imports from Java source code.
+Extracts methods, classes, interfaces, enums, imports, and code facts from Java source code.
 """
 
-import re
-from typing import List
+import logging
+from typing import List, Optional
 
-from ..schemas import ClassInfo, FunctionInfo, ImportInfo, ParsedFileResult
+from tree_sitter_language_pack import get_parser
+
+from ..schemas import (
+    ClassInfo,
+    CodeFact,
+    ExtractedFacts,
+    FunctionInfo,
+    ImportInfo,
+    ParsedFileResult,
+)
 from .base import BaseLanguageParser
+from .call_patterns import (
+    is_external_io,
+    is_http_handler_decorator,
+    is_logging_call,
+    is_metrics_call,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class JavaParser(BaseLanguageParser):
-    """Parser for Java source files."""
+    """Parser for Java source files using Tree-sitter."""
 
-    # Method pattern
-    # Handles: public static void methodName(Type param1, Type param2) throws Exception {}
-    METHOD_PATTERN = re.compile(
-        r"^\s*"
-        r"(?P<annotations>(?:@\w+(?:\([^)]*\))?\s*)*)"  # Annotations
-        r"(?P<modifiers>(?:(?:public|private|protected|static|final|abstract|synchronized|native|strictfp)\s+)*)"
-        r"(?P<generics><[^>]+>\s*)?"  # Generic type parameters
-        r"(?P<return_type>[\w<>\[\],\s?]+)\s+"  # Return type
-        r"(?P<name>\w+)\s*"  # Method name
-        r"\((?P<params>[^)]*)\)"  # Parameters
-        r"(?:\s*throws\s+[\w,\s]+)?"  # Optional throws clause
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Constructor pattern (similar to method but no return type)
-    CONSTRUCTOR_PATTERN = re.compile(
-        r"^\s*"
-        r"(?P<annotations>(?:@\w+(?:\([^)]*\))?\s*)*)"
-        r"(?:public|private|protected)?\s*"
-        r"(?P<name>\w+)\s*"  # Constructor name (same as class name)
-        r"\((?P<params>[^)]*)\)"
-        r"(?:\s*throws\s+[\w,\s]+)?"
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Class pattern
-    CLASS_PATTERN = re.compile(
-        r"^\s*"
-        r"(?P<annotations>(?:@\w+(?:\([^)]*\))?\s*)*)"
-        r"(?P<modifiers>(?:(?:public|private|protected|static|final|abstract)\s+)*)"
-        r"class\s+"
-        r"(?P<name>\w+)"
-        r"(?P<generics><[^>]+>)?"  # Generic type parameters
-        r"(?:\s+extends\s+(?P<extends>[\w<>,\s]+))?"  # Extends clause
-        r"(?:\s+implements\s+(?P<implements>[\w<>,\s]+))?"  # Implements clause
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Interface pattern
-    INTERFACE_PATTERN = re.compile(
-        r"^\s*"
-        r"(?P<annotations>(?:@\w+(?:\([^)]*\))?\s*)*)"
-        r"(?P<modifiers>(?:(?:public|private|protected|static)\s+)*)"
-        r"interface\s+"
-        r"(?P<name>\w+)"
-        r"(?P<generics><[^>]+>)?"
-        r"(?:\s+extends\s+(?P<extends>[\w<>,\s]+))?"
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Enum pattern
-    ENUM_PATTERN = re.compile(
-        r"^\s*"
-        r"(?P<annotations>(?:@\w+(?:\([^)]*\))?\s*)*)"
-        r"(?P<modifiers>(?:(?:public|private|protected|static)\s+)*)"
-        r"enum\s+"
-        r"(?P<name>\w+)"
-        r"(?:\s+implements\s+(?P<implements>[\w<>,\s]+))?"
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Import pattern
-    IMPORT_PATTERN = re.compile(
-        r"^import\s+(?P<static>static\s+)?(?P<module>[\w.]+)(?:\.\*)?;",
-        re.MULTILINE,
-    )
-
-    # Package pattern
-    PACKAGE_PATTERN = re.compile(
-        r"^package\s+(?P<package>[\w.]+);",
-        re.MULTILINE,
-    )
+    def __init__(self):
+        self._parser = get_parser("java")
 
     @property
     def language(self) -> str:
@@ -101,11 +43,14 @@ class JavaParser(BaseLanguageParser):
         return [".java"]
 
     def parse(self, content: str, file_path: str) -> ParsedFileResult:
-        """Parse Java source code."""
+        """Parse Java source code into backward-compatible format."""
         try:
-            functions = self._extract_methods(content)
-            classes = self._extract_classes(content)
-            imports = self._extract_imports(content)
+            tree = self._parser.parse(content.encode())
+            root = tree.root_node
+
+            functions = self._extract_functions(root)
+            classes = self._extract_classes(root)
+            imports = self._extract_imports(root)
             line_count = self._count_lines(content)
 
             return ParsedFileResult(
@@ -120,297 +65,498 @@ class JavaParser(BaseLanguageParser):
                 parse_error=f"Java parse error: {str(e)}",
             )
 
-    def _extract_methods(self, content: str) -> List[FunctionInfo]:
-        """Extract method definitions from Java code."""
-        methods = []
-        seen = set()
-
-        for match in self.METHOD_PATTERN.finditer(content):
-            name = match.group("name")
-
-            # Skip common false positives (control structures)
-            if name in ("if", "while", "for", "switch", "catch", "synchronized"):
-                continue
-
-            line_start = content[: match.start()].count("\n") + 1
-
-            # Create unique key to avoid duplicates
-            key = (name, line_start)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            # Parse parameters
-            params = self._parse_params(match.group("params") or "")
-
-            # Extract annotations as decorators
-            annotations_str = match.group("annotations") or ""
-            decorators = self._extract_annotations(annotations_str)
-
-            # Check if async (Java doesn't have built-in async, but check for common patterns)
-            is_async = "CompletableFuture" in (match.group("return_type") or "")
-
-            # Get return type
-            return_type = match.group("return_type")
-            if return_type:
-                return_type = return_type.strip()
-
-            # Find method end
-            line_end = self._find_brace_block_end_line(content, match.end())
-
-            methods.append(
-                FunctionInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    params=params,
-                    decorators=decorators,
-                    is_async=is_async,
-                    return_type=return_type,
-                )
+    def extract_facts(self, content: str, file_path: str) -> ExtractedFacts:
+        """Extract structured code facts for the rule engine."""
+        try:
+            tree = self._parser.parse(content.encode())
+            root = tree.root_node
+            facts: List[CodeFact] = []
+            self._walk_for_facts(root, facts, file_path)
+            return ExtractedFacts(
+                file_path=file_path,
+                language="java",
+                facts=facts,
+                line_count=self._count_lines(content),
+            )
+        except Exception as e:
+            return ExtractedFacts(
+                file_path=file_path,
+                language="java",
+                line_count=self._count_lines(content),
+                parse_error=f"Java fact extraction error: {str(e)}",
             )
 
-        return methods
+    # ========== Fact Extraction ==========
 
-    def _extract_classes(self, content: str) -> List[ClassInfo]:
-        """Extract class, interface, and enum definitions from Java code."""
+    def _walk_for_facts(
+        self,
+        node,
+        facts: List[CodeFact],
+        file_path: str,
+        parent_func: Optional[str] = None,
+        parent_class: Optional[str] = None,
+    ):
+        """Recursively walk the AST to extract code facts."""
+
+        # Class declaration
+        if node.type == "class_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            annotations = self._get_annotations(node)
+            facts.append(CodeFact(
+                fact_type="class",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+                metadata={"kind": "class", "annotations": annotations},
+            ))
+            # Check for HTTP handler annotations on the class (e.g., @RestController)
+            for ann in annotations:
+                if ann in ("RestController", "Controller"):
+                    facts.append(CodeFact(
+                        fact_type="http_handler",
+                        name=name,
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="java",
+                        parent_class=parent_class,
+                        metadata={"kind": "controller_class"},
+                    ))
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=parent_func, parent_class=name)
+            return
+
+        # Interface declaration
+        if node.type == "interface_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            facts.append(CodeFact(
+                fact_type="class",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+                metadata={"kind": "interface"},
+            ))
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=parent_func, parent_class=name)
+            return
+
+        # Enum declaration
+        if node.type == "enum_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            facts.append(CodeFact(
+                fact_type="class",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+                metadata={"kind": "enum"},
+            ))
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=parent_func, parent_class=name)
+            return
+
+        # Method declaration
+        if node.type == "method_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            annotations = self._get_annotations(node)
+            facts.append(CodeFact(
+                fact_type="function",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+                metadata={
+                    "params": self._get_java_params(node),
+                    "return_type": self._get_field_text(node, "type"),
+                    "annotations": annotations,
+                },
+            ))
+            # Check for HTTP handler annotations
+            for ann in annotations:
+                if is_http_handler_decorator("java", ann):
+                    facts.append(CodeFact(
+                        fact_type="http_handler",
+                        name=name,
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="java",
+                        parent_class=parent_class,
+                        metadata={"annotation": ann},
+                    ))
+                    break
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=name, parent_class=parent_class)
+            return
+
+        # Constructor declaration
+        if node.type == "constructor_declaration":
+            name = self._get_field_text(node, "name") or "<constructor>"
+            facts.append(CodeFact(
+                fact_type="function",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+                metadata={
+                    "params": self._get_java_params(node),
+                    "is_constructor": True,
+                },
+            ))
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=name, parent_class=parent_class)
+            return
+
+        # Try-catch statement
+        if node.type == "try_statement":
+            facts.append(CodeFact(
+                fact_type="try_except",
+                name="try_catch",
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+            ))
+
+        # Try-with-resources statement
+        if node.type == "try_with_resources_statement":
+            facts.append(CodeFact(
+                fact_type="try_except",
+                name="try_with_resources",
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="java",
+                parent_function=parent_func,
+                parent_class=parent_class,
+            ))
+
+        # Method invocation (call expression)
+        if node.type == "method_invocation":
+            obj_name, method_name = self._resolve_java_call(node)
+            if method_name:
+                if is_logging_call("java", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="logging_call",
+                        name=f"{obj_name}.{method_name}" if obj_name else method_name,
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="java",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                        metadata={"log_level": method_name.lower()},
+                    ))
+                elif is_metrics_call("java", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="metrics_call",
+                        name=f"{obj_name}.{method_name}" if obj_name else method_name,
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="java",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                    ))
+                elif is_external_io("java", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="external_io",
+                        name=f"{obj_name}.{method_name}" if obj_name else method_name,
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="java",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                    ))
+
+        # Import declaration
+        if node.type == "import_declaration":
+            module = self._get_import_path(node)
+            if module:
+                is_static = any(
+                    child.type == "static" or (hasattr(child, "text") and child.text == b"static")
+                    for child in node.children
+                )
+                facts.append(CodeFact(
+                    fact_type="import",
+                    name=module,
+                    file_path=file_path,
+                    line_start=node.start_point[0] + 1,
+                    line_end=node.end_point[0] + 1,
+                    language="java",
+                    metadata={"is_static": is_static},
+                ))
+
+        # Default: recurse
+        for child in node.named_children:
+            self._walk_for_facts(child, facts, file_path, parent_func, parent_class)
+
+    # ========== Backward-Compatible Extraction ==========
+
+    def _extract_functions(self, root) -> List[FunctionInfo]:
+        """Extract method and constructor declarations."""
+        functions = []
+        self._collect_functions(root, functions)
+        return functions
+
+    def _collect_functions(self, node, functions: List[FunctionInfo], class_name: Optional[str] = None):
+        if node.type == "method_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            params = self._get_java_params(node)
+            return_type = self._get_field_text(node, "type")
+            annotations = self._get_annotations(node)
+            is_async = return_type and "CompletableFuture" in return_type
+
+            functions.append(FunctionInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                params=params,
+                return_type=return_type,
+                decorators=annotations,
+                is_async=is_async,
+            ))
+
+        elif node.type == "constructor_declaration":
+            name = self._get_field_text(node, "name") or "<constructor>"
+            params = self._get_java_params(node)
+            functions.append(FunctionInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                params=params,
+                decorators=self._get_annotations(node),
+            ))
+
+        elif node.type in ("class_declaration", "interface_declaration", "enum_declaration"):
+            cn = self._get_field_text(node, "name")
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._collect_functions(child, functions, class_name=cn)
+            return
+
+        for child in node.named_children:
+            self._collect_functions(child, functions, class_name)
+
+    def _extract_classes(self, root) -> List[ClassInfo]:
+        """Extract class, interface, and enum declarations."""
         classes = []
-
-        # Classes
-        for match in self.CLASS_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-
-            # Extract base classes
-            bases = []
-            if match.group("extends"):
-                bases.append(match.group("extends").strip())
-            if match.group("implements"):
-                for impl in match.group("implements").split(","):
-                    impl = impl.strip()
-                    if impl:
-                        bases.append(impl)
-
-            # Extract annotations as decorators
-            annotations_str = match.group("annotations") or ""
-            decorators = self._extract_annotations(annotations_str)
-
-            # Find class end and extract methods
-            line_end = self._find_brace_block_end_line(content, match.end())
-            class_body = content[match.end() : self._find_brace_block_end_pos(content, match.end())]
-            methods = self._extract_class_method_names(class_body)
-
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    methods=methods,
-                    bases=bases,
-                    decorators=decorators,
-                )
-            )
-
-        # Interfaces
-        for match in self.INTERFACE_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-
-            bases = []
-            if match.group("extends"):
-                for ext in match.group("extends").split(","):
-                    ext = ext.strip()
-                    if ext:
-                        bases.append(ext)
-
-            annotations_str = match.group("annotations") or ""
-            decorators = self._extract_annotations(annotations_str)
-            decorators.append("interface")
-
-            line_end = self._find_brace_block_end_line(content, match.end())
-            interface_body = content[match.end() : self._find_brace_block_end_pos(content, match.end())]
-            methods = self._extract_interface_method_names(interface_body)
-
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    methods=methods,
-                    bases=bases,
-                    decorators=decorators,
-                )
-            )
-
-        # Enums
-        for match in self.ENUM_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-
-            bases = []
-            if match.group("implements"):
-                for impl in match.group("implements").split(","):
-                    impl = impl.strip()
-                    if impl:
-                        bases.append(impl)
-
-            annotations_str = match.group("annotations") or ""
-            decorators = self._extract_annotations(annotations_str)
-            decorators.append("enum")
-
-            line_end = self._find_brace_block_end_line(content, match.end())
-
-            classes.append(
-                ClassInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    bases=bases,
-                    decorators=decorators,
-                )
-            )
-
+        self._collect_classes(root, classes)
         return classes
 
-    def _extract_imports(self, content: str) -> List[ImportInfo]:
-        """Extract import statements from Java code."""
+    def _collect_classes(self, node, classes: List[ClassInfo]):
+        if node.type == "class_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            bases = self._get_class_bases(node)
+            annotations = self._get_annotations(node)
+            methods = self._get_method_names_from_body(node)
+
+            classes.append(ClassInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                methods=methods,
+                bases=bases,
+                decorators=annotations,
+            ))
+
+        elif node.type == "interface_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            bases = self._get_interface_extends(node)
+            annotations = self._get_annotations(node)
+            methods = self._get_method_names_from_body(node)
+
+            classes.append(ClassInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                methods=methods,
+                bases=bases,
+                decorators=annotations + ["interface"],
+            ))
+
+        elif node.type == "enum_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            annotations = self._get_annotations(node)
+
+            classes.append(ClassInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                decorators=annotations + ["enum"],
+            ))
+
+        for child in node.named_children:
+            self._collect_classes(child, classes)
+
+    def _extract_imports(self, root) -> List[ImportInfo]:
+        """Extract import declarations."""
         imports = []
+        self._collect_imports(root, imports)
+        return imports
 
-        for match in self.IMPORT_PATTERN.finditer(content):
-            module = match.group("module")
-            is_static = bool(match.group("static"))
-
-            # Extract the simple class name
-            parts = module.split(".")
-            names = [parts[-1]] if parts else []
-
-            imports.append(
-                ImportInfo(
+    def _collect_imports(self, node, imports: List[ImportInfo]):
+        if node.type == "import_declaration":
+            module = self._get_import_path(node)
+            if module:
+                is_static = any(
+                    child.type == "static" or (hasattr(child, "text") and child.text == b"static")
+                    for child in node.children
+                )
+                parts = module.split(".")
+                names = [parts[-1]] if parts else []
+                imports.append(ImportInfo(
                     module=module,
                     names=names,
                     alias="static" if is_static else None,
-                )
-            )
+                ))
 
-        return imports
+        for child in node.named_children:
+            self._collect_imports(child, imports)
 
-    def _parse_params(self, params_str: str) -> List[str]:
-        """Parse Java method parameters."""
-        if not params_str.strip():
-            return []
+    # ========== Helpers ==========
 
+    def _get_field_text(self, node, field: str) -> Optional[str]:
+        child = node.child_by_field_name(field)
+        return child.text.decode() if child else None
+
+    def _get_java_params(self, node) -> List[str]:
+        """Extract parameter names from a method/constructor."""
         params = []
-        depth = 0
-        current = ""
-
-        for char in params_str:
-            if char in "<([{":
-                depth += 1
-                current += char
-            elif char in ">)]}":
-                depth -= 1
-                current += char
-            elif char == "," and depth == 0:
-                param = self._extract_java_param_name(current.strip())
-                if param:
-                    params.append(param)
-                current = ""
-            else:
-                current += char
-
-        param = self._extract_java_param_name(current.strip())
-        if param:
-            params.append(param)
-
+        params_node = node.child_by_field_name("parameters")
+        if not params_node:
+            return params
+        for child in params_node.named_children:
+            if child.type == "formal_parameter" or child.type == "spread_parameter":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    params.append(name_node.text.decode())
         return params
 
-    def _extract_java_param_name(self, param: str) -> str | None:
-        """Extract parameter name from Java parameter declaration."""
-        if not param:
-            return None
-
-        # Handle annotations: @NotNull String name
-        param = re.sub(r"@\w+(?:\([^)]*\))?\s*", "", param)
-
-        # Handle final modifier: final String name
-        param = re.sub(r"\bfinal\s+", "", param)
-
-        # Java params are: Type name or Type... name (varargs)
-        parts = param.split()
-        if len(parts) >= 2:
-            # Last part is the name, second-to-last might have ... for varargs
-            return parts[-1]
-        elif len(parts) == 1:
-            # Might just be the name if type is implicit (rare in Java)
-            return parts[0]
-
-        return None
-
-    def _extract_annotations(self, annotations_str: str) -> List[str]:
-        """Extract annotation names from annotations string."""
-        if not annotations_str:
-            return []
-
+    def _get_annotations(self, node) -> List[str]:
+        """Extract annotation names from a node's children (siblings before the declaration)."""
         annotations = []
-        for match in re.finditer(r"@(\w+)", annotations_str):
-            annotations.append(match.group(1))
-
+        # In Java tree-sitter, annotations are children with type "marker_annotation" or "annotation"
+        for child in node.children:
+            if child.type == "marker_annotation":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    annotations.append(name_node.text.decode())
+            elif child.type == "annotation":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    annotations.append(name_node.text.decode())
+            elif child.type == "modifiers":
+                for mod_child in child.named_children:
+                    if mod_child.type in ("marker_annotation", "annotation"):
+                        name_node = mod_child.child_by_field_name("name")
+                        if name_node:
+                            annotations.append(name_node.text.decode())
         return annotations
 
-    def _extract_class_method_names(self, body: str) -> List[str]:
-        """Extract method names from class body."""
+    def _get_class_bases(self, node) -> List[str]:
+        """Extract superclass and implemented interfaces."""
+        bases = []
+        superclass = node.child_by_field_name("superclass")
+        if superclass:
+            # superclass node contains the type
+            for child in superclass.named_children:
+                bases.append(child.text.decode())
+        interfaces = node.child_by_field_name("interfaces")
+        if interfaces:
+            # interfaces node: type_list containing types
+            for child in interfaces.named_children:
+                if child.type == "type_list":
+                    for inner in child.named_children:
+                        bases.append(inner.text.decode())
+                else:
+                    bases.append(child.text.decode())
+        return bases
+
+    def _get_interface_extends(self, node) -> List[str]:
+        """Extract extended interfaces."""
+        bases = []
+        extends = node.child_by_field_name("extends_interfaces")
+        if extends:
+            for child in extends.named_children:
+                if child.type == "type_list":
+                    for inner in child.named_children:
+                        bases.append(inner.text.decode())
+                else:
+                    bases.append(child.text.decode())
+        return bases
+
+    def _get_method_names_from_body(self, node) -> List[str]:
+        """Get method names from a class/interface body."""
         methods = []
-
-        method_pattern = re.compile(
-            r"(?:public|private|protected|static|final|abstract|synchronized|native)?\s*"
-            r"(?:[\w<>\[\],\s?]+)\s+"
-            r"(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{",
-            re.MULTILINE,
-        )
-
-        for match in method_pattern.finditer(body):
-            name = match.group(1)
-            if name and name not in ("if", "while", "for", "switch", "catch", "synchronized"):
-                methods.append(name)
-
+        body = node.child_by_field_name("body")
+        if not body:
+            return methods
+        for child in body.named_children:
+            if child.type in ("method_declaration", "constructor_declaration"):
+                name = self._get_field_text(child, "name")
+                if name:
+                    methods.append(name)
         return methods
 
-    def _extract_interface_method_names(self, body: str) -> List[str]:
-        """Extract method signatures from interface body."""
-        methods = []
-
-        # Interface methods don't have body (unless default)
-        method_pattern = re.compile(
-            r"(?:default\s+)?(?:[\w<>\[\],\s?]+)\s+"
-            r"(\w+)\s*\([^)]*\)",
-            re.MULTILINE,
-        )
-
-        for match in method_pattern.finditer(body):
-            name = match.group(1)
-            if name:
-                methods.append(name)
-
-        return methods
-
-    def _find_brace_block_end_pos(self, content: str, start_pos: int) -> int:
-        """Find the position of the closing brace for a block."""
-        depth = 1
-        pos = start_pos
-
-        while pos < len(content) and depth > 0:
-            char = content[pos]
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-            pos += 1
-
-        return pos
-
-    def _find_brace_block_end_line(self, content: str, start_pos: int) -> int | None:
-        """Find the line number of the closing brace for a block."""
-        end_pos = self._find_brace_block_end_pos(content, start_pos)
-        if end_pos and end_pos <= len(content):
-            return content[:end_pos].count("\n") + 1
+    def _get_import_path(self, node) -> Optional[str]:
+        """Extract the full import path from an import_declaration node."""
+        # In Java tree-sitter, the import path can be a scoped_identifier or identifier
+        for child in node.named_children:
+            if child.type in ("scoped_identifier", "identifier"):
+                return child.text.decode()
+            elif child.type == "asterisk":
+                # Wildcard import: already captured by scoped_identifier parent
+                continue
         return None
+
+    def _resolve_java_call(self, call_node) -> tuple[Optional[str], Optional[str]]:
+        """Resolve a method_invocation to (object_name, method_name)."""
+        name_node = call_node.child_by_field_name("name")
+        method_name = name_node.text.decode() if name_node else None
+
+        obj_node = call_node.child_by_field_name("object")
+        if obj_node:
+            # Could be chained: System.out.println -> obj=System.out, method=println
+            # For pattern matching we take the last identifier before the method
+            if obj_node.type == "field_access":
+                field = obj_node.child_by_field_name("field")
+                obj_name = field.text.decode() if field else obj_node.text.decode()
+            elif obj_node.type == "identifier":
+                obj_name = obj_node.text.decode()
+            else:
+                obj_name = obj_node.text.decode()
+            return obj_name, method_name
+
+        return None, method_name

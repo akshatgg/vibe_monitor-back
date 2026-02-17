@@ -1,60 +1,38 @@
 """
-Go code parser using regex patterns.
+Go code parser using Tree-sitter.
 
-Extracts functions, structs, interfaces, and imports from Go source code.
+Extracts functions, structs, interfaces, imports, and code facts from Go source code.
 """
 
-import re
-from typing import List
+import logging
+from typing import List, Optional
 
-from ..schemas import ClassInfo, FunctionInfo, ImportInfo, ParsedFileResult
+from tree_sitter_language_pack import get_parser
+
+from ..schemas import (
+    ClassInfo,
+    CodeFact,
+    ExtractedFacts,
+    FunctionInfo,
+    ImportInfo,
+    ParsedFileResult,
+)
 from .base import BaseLanguageParser
+from .call_patterns import (
+    is_external_io,
+    is_http_handler_registration,
+    is_logging_call,
+    is_metrics_call,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class GolangParser(BaseLanguageParser):
-    """Parser for Go source files."""
+    """Parser for Go source files using Tree-sitter."""
 
-    # Function pattern: func name(params) return_type {}
-    # Also handles receiver: func (r *Receiver) name(params) return_type {}
-    FUNCTION_PATTERN = re.compile(
-        r"^func\s+"
-        r"(?:\((?P<receiver>[^)]+)\)\s+)?"  # Optional receiver
-        r"(?P<name>\w+)\s*"
-        r"\((?P<params>[^)]*)\)"
-        r"(?:\s*\((?P<returns_multi>[^)]+)\))?"  # Multiple return values
-        r"(?:\s+(?P<returns_single>\w+(?:\s*\*?\w+)*))?"  # Single return value
-        r"\s*\{",
-        re.MULTILINE,
-    )
-
-    # Struct pattern
-    STRUCT_PATTERN = re.compile(
-        r"^type\s+(?P<name>\w+)\s+struct\s*\{",
-        re.MULTILINE,
-    )
-
-    # Interface pattern
-    INTERFACE_PATTERN = re.compile(
-        r"^type\s+(?P<name>\w+)\s+interface\s*\{",
-        re.MULTILINE,
-    )
-
-    # Type alias pattern
-    TYPE_ALIAS_PATTERN = re.compile(
-        r"^type\s+(?P<name>\w+)\s+(?!struct|interface)(?P<type>\w+)",
-        re.MULTILINE,
-    )
-
-    # Import patterns
-    SINGLE_IMPORT_PATTERN = re.compile(
-        r'^import\s+"(?P<module>[^"]+)"',
-        re.MULTILINE,
-    )
-
-    MULTI_IMPORT_PATTERN = re.compile(
-        r"^import\s*\(\s*(?P<imports>[\s\S]*?)\s*\)",
-        re.MULTILINE,
-    )
+    def __init__(self):
+        self._parser = get_parser("go")
 
     @property
     def language(self) -> str:
@@ -65,11 +43,14 @@ class GolangParser(BaseLanguageParser):
         return [".go"]
 
     def parse(self, content: str, file_path: str) -> ParsedFileResult:
-        """Parse Go source code."""
+        """Parse Go source code into backward-compatible format."""
         try:
-            functions = self._extract_functions(content)
-            classes = self._extract_types(content)
-            imports = self._extract_imports(content)
+            tree = self._parser.parse(content.encode())
+            root = tree.root_node
+
+            functions = self._extract_functions(root)
+            classes = self._extract_types(root)
+            imports = self._extract_imports(root)
             line_count = self._count_lines(content)
 
             return ParsedFileResult(
@@ -84,245 +65,434 @@ class GolangParser(BaseLanguageParser):
                 parse_error=f"Go parse error: {str(e)}",
             )
 
-    def _extract_functions(self, content: str) -> List[FunctionInfo]:
-        """Extract function definitions from Go code."""
-        functions = []
-
-        for match in self.FUNCTION_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-
-            # Parse parameters
-            params = self._parse_params(match.group("params") or "")
-
-            # Determine return type
-            return_type = None
-            if match.group("returns_multi"):
-                return_type = f"({match.group('returns_multi')})"
-            elif match.group("returns_single"):
-                return_type = match.group("returns_single")
-
-            # Check if it's a method (has receiver)
-            receiver = match.group("receiver")
-            decorators = []
-            if receiver:
-                # Extract receiver type for context
-                receiver_type = receiver.split()[-1].strip("*")
-                decorators.append(f"method:{receiver_type}")
-
-            # Find function end
-            line_end = self._find_brace_block_end_line(content, match.end())
-
-            functions.append(
-                FunctionInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    params=params,
-                    return_type=return_type,
-                    decorators=decorators,
-                )
+    def extract_facts(self, content: str, file_path: str) -> ExtractedFacts:
+        """Extract structured code facts for the rule engine."""
+        try:
+            tree = self._parser.parse(content.encode())
+            root = tree.root_node
+            facts: List[CodeFact] = []
+            self._walk_for_facts(root, facts, file_path)
+            return ExtractedFacts(
+                file_path=file_path,
+                language="go",
+                facts=facts,
+                line_count=self._count_lines(content),
+            )
+        except Exception as e:
+            return ExtractedFacts(
+                file_path=file_path,
+                language="go",
+                line_count=self._count_lines(content),
+                parse_error=f"Go fact extraction error: {str(e)}",
             )
 
+    # ========== Fact Extraction ==========
+
+    def _walk_for_facts(
+        self,
+        node,
+        facts: List[CodeFact],
+        file_path: str,
+        parent_func: Optional[str] = None,
+        parent_class: Optional[str] = None,
+    ):
+        """Recursively walk the AST to extract code facts."""
+
+        # Function declaration
+        if node.type == "function_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            facts.append(CodeFact(
+                fact_type="function",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="go",
+                parent_function=parent_func,
+                metadata={
+                    "params": self._get_go_params(node),
+                    "return_type": self._get_go_return_type(node),
+                },
+            ))
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=name)
+            return
+
+        # Method declaration (has receiver)
+        if node.type == "method_declaration":
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            receiver_type = self._get_receiver_type(node)
+            facts.append(CodeFact(
+                fact_type="function",
+                name=name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="go",
+                parent_function=parent_func,
+                parent_class=receiver_type,
+                metadata={
+                    "receiver_type": receiver_type,
+                    "is_method": True,
+                    "params": self._get_go_params(node),
+                },
+            ))
+
+            # Check if this is an HTTP handler by parameter types
+            if self._is_go_http_handler(node):
+                facts.append(CodeFact(
+                    fact_type="http_handler",
+                    name=name,
+                    file_path=file_path,
+                    line_start=node.start_point[0] + 1,
+                    line_end=node.end_point[0] + 1,
+                    language="go",
+                    parent_class=receiver_type,
+                    metadata={"receiver_type": receiver_type},
+                ))
+
+            body = node.child_by_field_name("body")
+            if body:
+                for child in body.named_children:
+                    self._walk_for_facts(child, facts, file_path, parent_func=name, parent_class=receiver_type)
+            return
+
+        # Type declaration (struct, interface)
+        if node.type == "type_declaration":
+            for child in node.named_children:
+                if child.type == "type_spec":
+                    name = self._get_field_text(child, "name") or "<anonymous>"
+                    type_node = child.child_by_field_name("type")
+                    if type_node:
+                        kind = "struct" if type_node.type == "struct_type" else (
+                            "interface" if type_node.type == "interface_type" else "type_alias"
+                        )
+                        facts.append(CodeFact(
+                            fact_type="class",
+                            name=name,
+                            file_path=file_path,
+                            line_start=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            language="go",
+                            parent_function=parent_func,
+                            metadata={"kind": kind},
+                        ))
+
+        # If statement (for Go error handling: if err != nil)
+        if node.type == "if_statement":
+            if self._is_error_check(node):
+                facts.append(CodeFact(
+                    fact_type="try_except",
+                    name="if_err",
+                    file_path=file_path,
+                    line_start=node.start_point[0] + 1,
+                    line_end=node.end_point[0] + 1,
+                    language="go",
+                    parent_function=parent_func,
+                    parent_class=parent_class,
+                ))
+
+        # Defer statement
+        if node.type == "defer_statement":
+            facts.append(CodeFact(
+                fact_type="defer",
+                name="defer",
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language="go",
+                parent_function=parent_func,
+                parent_class=parent_class,
+            ))
+
+        # Call expression
+        if node.type == "call_expression":
+            obj_name, method_name = self._resolve_go_call(node)
+            if obj_name and method_name:
+                if is_logging_call("go", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="logging_call",
+                        name=f"{obj_name}.{method_name}",
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="go",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                        metadata={"log_level": method_name.lower()},
+                    ))
+                elif is_metrics_call("go", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="metrics_call",
+                        name=f"{obj_name}.{method_name}",
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="go",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                    ))
+                elif is_external_io("go", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="external_io",
+                        name=f"{obj_name}.{method_name}",
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="go",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                    ))
+                elif is_http_handler_registration("go", obj_name, method_name):
+                    facts.append(CodeFact(
+                        fact_type="http_handler",
+                        name=f"{obj_name}.{method_name}",
+                        file_path=file_path,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        language="go",
+                        parent_function=parent_func,
+                        parent_class=parent_class,
+                    ))
+
+        # Import declaration
+        if node.type == "import_declaration":
+            for child in node.named_children:
+                if child.type == "import_spec":
+                    path_node = child.child_by_field_name("path")
+                    if path_node:
+                        module = self._strip_quotes(path_node.text.decode())
+                        facts.append(CodeFact(
+                            fact_type="import",
+                            name=module,
+                            file_path=file_path,
+                            line_start=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            language="go",
+                            parent_function=parent_func,
+                        ))
+                elif child.type == "import_spec_list":
+                    for spec in child.named_children:
+                        if spec.type == "import_spec":
+                            path_node = spec.child_by_field_name("path")
+                            if path_node:
+                                module = self._strip_quotes(path_node.text.decode())
+                                facts.append(CodeFact(
+                                    fact_type="import",
+                                    name=module,
+                                    file_path=file_path,
+                                    line_start=spec.start_point[0] + 1,
+                                    line_end=spec.end_point[0] + 1,
+                                    language="go",
+                                    parent_function=parent_func,
+                                ))
+                elif child.type == "interpreted_string_literal":
+                    module = self._strip_quotes(child.text.decode())
+                    facts.append(CodeFact(
+                        fact_type="import",
+                        name=module,
+                        file_path=file_path,
+                        line_start=child.start_point[0] + 1,
+                        line_end=child.end_point[0] + 1,
+                        language="go",
+                        parent_function=parent_func,
+                    ))
+
+        # Default: recurse
+        for child in node.named_children:
+            self._walk_for_facts(child, facts, file_path, parent_func, parent_class)
+
+    # ========== Backward-Compatible Extraction ==========
+
+    def _extract_functions(self, root) -> List[FunctionInfo]:
+        """Extract function and method declarations."""
+        functions = []
+        self._collect_functions(root, functions)
         return functions
 
-    def _extract_types(self, content: str) -> List[ClassInfo]:
-        """Extract struct and interface definitions from Go code."""
+    def _collect_functions(self, node, functions: List[FunctionInfo]):
+        if node.type in ("function_declaration", "method_declaration"):
+            name = self._get_field_text(node, "name") or "<anonymous>"
+            params = self._get_go_params(node)
+            return_type = self._get_go_return_type(node)
+            decorators = []
+            if node.type == "method_declaration":
+                receiver_type = self._get_receiver_type(node)
+                if receiver_type:
+                    decorators.append(f"method:{receiver_type}")
+
+            functions.append(FunctionInfo(
+                name=name,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                params=params,
+                return_type=return_type,
+                decorators=decorators,
+            ))
+
+        for child in node.named_children:
+            self._collect_functions(child, functions)
+
+    def _extract_types(self, root) -> List[ClassInfo]:
+        """Extract struct and interface definitions."""
         types = []
-
-        # Structs
-        for match in self.STRUCT_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-            line_end = self._find_brace_block_end_line(content, match.end())
-
-            # Extract struct methods (functions with this type as receiver)
-            methods = self._extract_struct_methods(content, name)
-
-            types.append(
-                ClassInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    methods=methods,
-                    decorators=["struct"],
-                )
-            )
-
-        # Interfaces
-        for match in self.INTERFACE_PATTERN.finditer(content):
-            name = match.group("name")
-            line_start = content[: match.start()].count("\n") + 1
-            line_end = self._find_brace_block_end_line(content, match.end())
-
-            # Extract interface method signatures
-            interface_body = content[match.end() : self._find_brace_block_end_pos(content, match.end())]
-            methods = self._extract_interface_methods(interface_body)
-
-            types.append(
-                ClassInfo(
-                    name=name,
-                    line_start=line_start,
-                    line_end=line_end,
-                    methods=methods,
-                    decorators=["interface"],
-                )
-            )
-
+        self._collect_types(root, types)
         return types
 
-    def _extract_imports(self, content: str) -> List[ImportInfo]:
-        """Extract import statements from Go code."""
+    def _collect_types(self, node, types: List[ClassInfo]):
+        if node.type == "type_declaration":
+            for child in node.named_children:
+                if child.type == "type_spec":
+                    name = self._get_field_text(child, "name") or "<anonymous>"
+                    type_node = child.child_by_field_name("type")
+                    if type_node and type_node.type == "struct_type":
+                        types.append(ClassInfo(
+                            name=name,
+                            line_start=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            decorators=["struct"],
+                        ))
+                    elif type_node and type_node.type == "interface_type":
+                        methods = self._get_interface_methods(type_node)
+                        types.append(ClassInfo(
+                            name=name,
+                            line_start=child.start_point[0] + 1,
+                            line_end=child.end_point[0] + 1,
+                            methods=methods,
+                            decorators=["interface"],
+                        ))
+
+        for child in node.named_children:
+            self._collect_types(child, types)
+
+    def _extract_imports(self, root) -> List[ImportInfo]:
+        """Extract import declarations."""
         imports = []
-
-        # Single imports
-        for match in self.SINGLE_IMPORT_PATTERN.finditer(content):
-            module = match.group("module")
-            imports.append(
-                ImportInfo(
-                    module=module,
-                    names=[module.split("/")[-1]],  # Package name is last part of path
-                )
-            )
-
-        # Multi-line imports
-        for match in self.MULTI_IMPORT_PATTERN.finditer(content):
-            imports_block = match.group("imports")
-            for line in imports_block.split("\n"):
-                line = line.strip()
-                if not line or line.startswith("//"):
-                    continue
-
-                # Handle aliased imports: alias "path/to/pkg"
-                alias_match = re.match(r'(\w+)\s+"([^"]+)"', line)
-                if alias_match:
-                    alias = alias_match.group(1)
-                    module = alias_match.group(2)
-                    imports.append(
-                        ImportInfo(
-                            module=module,
-                            names=[module.split("/")[-1]],
-                            alias=alias if alias != "_" else None,
-                        )
-                    )
-                else:
-                    # Simple import: "path/to/pkg"
-                    simple_match = re.match(r'"([^"]+)"', line)
-                    if simple_match:
-                        module = simple_match.group(1)
-                        imports.append(
-                            ImportInfo(
-                                module=module,
-                                names=[module.split("/")[-1]],
-                            )
-                        )
-
+        self._collect_imports(root, imports)
         return imports
 
-    def _parse_params(self, params_str: str) -> List[str]:
-        """Parse Go function parameters."""
-        if not params_str.strip():
-            return []
+    def _collect_imports(self, node, imports: List[ImportInfo]):
+        if node.type == "import_declaration":
+            for child in node.named_children:
+                if child.type == "import_spec":
+                    self._add_import_spec(child, imports)
+                elif child.type == "import_spec_list":
+                    for spec in child.named_children:
+                        if spec.type == "import_spec":
+                            self._add_import_spec(spec, imports)
+                elif child.type == "interpreted_string_literal":
+                    module = self._strip_quotes(child.text.decode())
+                    imports.append(ImportInfo(
+                        module=module,
+                        names=[module.split("/")[-1]],
+                    ))
 
+        for child in node.named_children:
+            self._collect_imports(child, imports)
+
+    def _add_import_spec(self, spec_node, imports: List[ImportInfo]):
+        path_node = spec_node.child_by_field_name("path")
+        if not path_node:
+            return
+        module = self._strip_quotes(path_node.text.decode())
+        alias_node = spec_node.child_by_field_name("name")
+        alias = None
+        if alias_node:
+            alias_text = alias_node.text.decode()
+            alias = alias_text if alias_text != "_" else None
+        imports.append(ImportInfo(
+            module=module,
+            names=[module.split("/")[-1]],
+            alias=alias,
+        ))
+
+    # ========== Helpers ==========
+
+    def _get_field_text(self, node, field: str) -> Optional[str]:
+        child = node.child_by_field_name(field)
+        return child.text.decode() if child else None
+
+    def _get_go_params(self, node) -> List[str]:
+        """Extract parameter names from a function/method."""
         params = []
-        # Go params can be grouped: (a, b int, c string)
-        # Split by comma but handle complex types
-        current = ""
-        depth = 0
-
-        for char in params_str:
-            if char in "([{":
-                depth += 1
-                current += char
-            elif char in ")]}":
-                depth -= 1
-                current += char
-            elif char == "," and depth == 0:
-                param = self._extract_go_param_name(current.strip())
-                if param:
-                    params.extend(param)
-                current = ""
-            else:
-                current += char
-
-        param = self._extract_go_param_name(current.strip())
-        if param:
-            params.extend(param)
-
+        params_node = node.child_by_field_name("parameters")
+        if not params_node:
+            return params
+        for child in params_node.named_children:
+            if child.type == "parameter_declaration":
+                for inner in child.named_children:
+                    if inner.type == "identifier":
+                        params.append(inner.text.decode())
         return params
 
-    def _extract_go_param_name(self, param: str) -> List[str]:
-        """Extract parameter name(s) from Go parameter declaration."""
-        if not param:
-            return []
-
-        # Go allows grouped params: a, b int
-        # The type is at the end, names are at the beginning
-        parts = param.split()
-        if not parts:
-            return []
-
-        # If last part looks like a type, the rest are names
-        # Types typically start with *, [], map, chan, func, or are identifiers
-        names = []
-        for i, part in enumerate(parts[:-1]):
-            # Clean up the name (remove commas)
-            name = part.rstrip(",")
-            if name and not name.startswith("*") and not name.startswith("["):
-                names.append(name)
-
-        # If we only have one part, it might be just the type (empty param name)
-        # or it might be a single named param without explicit type
-        if len(parts) == 1:
-            # Could be variadic: ...Type or just a type name
-            if not parts[0].startswith("...") and not parts[0].startswith("*"):
-                return [parts[0]]
-
-        return names if names else []
-
-    def _extract_struct_methods(self, content: str, struct_name: str) -> List[str]:
-        """Extract methods for a given struct type."""
-        methods = []
-        pattern = re.compile(
-            rf"^func\s+\([^)]*\*?{struct_name}\)\s+(\w+)\s*\(",
-            re.MULTILINE,
-        )
-
-        for match in pattern.finditer(content):
-            methods.append(match.group(1))
-
-        return methods
-
-    def _extract_interface_methods(self, body: str) -> List[str]:
-        """Extract method signatures from interface body."""
-        methods = []
-        method_pattern = re.compile(r"^\s*(\w+)\s*\([^)]*\)", re.MULTILINE)
-
-        for match in method_pattern.finditer(body):
-            name = match.group(1)
-            if name:
-                methods.append(name)
-
-        return methods
-
-    def _find_brace_block_end_pos(self, content: str, start_pos: int) -> int:
-        """Find the position of the closing brace for a block."""
-        depth = 1
-        pos = start_pos
-
-        while pos < len(content) and depth > 0:
-            char = content[pos]
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-            pos += 1
-
-        return pos
-
-    def _find_brace_block_end_line(self, content: str, start_pos: int) -> int | None:
-        """Find the line number of the closing brace for a block."""
-        end_pos = self._find_brace_block_end_pos(content, start_pos)
-        if end_pos and end_pos <= len(content):
-            return content[:end_pos].count("\n") + 1
+    def _get_go_return_type(self, node) -> Optional[str]:
+        """Extract return type from a function."""
+        result = node.child_by_field_name("result")
+        if result:
+            return result.text.decode()
         return None
+
+    def _get_receiver_type(self, node) -> Optional[str]:
+        """Extract receiver type from a method declaration."""
+        receiver = node.child_by_field_name("receiver")
+        if not receiver:
+            return None
+        # Get the type from receiver parameter list
+        text = receiver.text.decode()
+        # Clean up: (r *Receiver) -> Receiver
+        text = text.strip("()")
+        parts = text.split()
+        if parts:
+            return parts[-1].strip("*")
+        return None
+
+    def _get_interface_methods(self, interface_node) -> List[str]:
+        """Extract method names from an interface_type node."""
+        methods = []
+        for child in interface_node.named_children:
+            if child.type == "method_spec":
+                name_node = child.child_by_field_name("name")
+                if name_node:
+                    methods.append(name_node.text.decode())
+        return methods
+
+    def _is_error_check(self, if_node) -> bool:
+        """Check if an if_statement is a Go error check (if err != nil)."""
+        condition = if_node.child_by_field_name("condition")
+        if not condition:
+            return False
+        text = condition.text.decode()
+        return "err" in text and "nil" in text
+
+    def _is_go_http_handler(self, node) -> bool:
+        """Check if a function/method matches Go HTTP handler signature."""
+        params_node = node.child_by_field_name("parameters")
+        if not params_node:
+            return False
+        text = params_node.text.decode()
+        return "http.ResponseWriter" in text and "http.Request" in text
+
+    def _resolve_go_call(self, call_node) -> tuple[Optional[str], Optional[str]]:
+        """Resolve a call_expression to (object_name, method_name)."""
+        func = call_node.child_by_field_name("function")
+        if not func:
+            return None, None
+
+        if func.type == "selector_expression":
+            operand = func.child_by_field_name("operand")
+            field = func.child_by_field_name("field")
+            obj_name = operand.text.decode() if operand and operand.type == "identifier" else None
+            method_name = field.text.decode() if field else None
+            return obj_name, method_name
+
+        if func.type == "identifier":
+            return None, func.text.decode()
+
+        return None, None
+
+    def _strip_quotes(self, s: str) -> str:
+        if len(s) >= 2 and s[0] in ('"', '`') and s[-1] in ('"', '`'):
+            return s[1:-1]
+        return s

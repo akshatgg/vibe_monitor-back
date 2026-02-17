@@ -94,6 +94,7 @@ class ParsedRepositoryRepository:
         repo_full_name: str,
         commit_sha: str,
         default_branch: Optional[str] = None,
+        service_id: Optional[str] = None,
     ) -> ParsedRepository:
         """
         Create a new parsed repository record.
@@ -103,6 +104,7 @@ class ParsedRepositoryRepository:
             repo_full_name: Full repository name (owner/repo)
             commit_sha: Git commit SHA
             default_branch: Default branch name
+            service_id: Service ID (for cascade delete on service removal)
 
         Returns:
             Created ParsedRepository
@@ -110,6 +112,7 @@ class ParsedRepositoryRepository:
         parsed_repo = ParsedRepository(
             id=str(uuid.uuid4()),
             workspace_id=workspace_id,
+            service_id=service_id,
             repo_full_name=repo_full_name,
             commit_sha=commit_sha,
             default_branch=default_branch,
@@ -265,6 +268,22 @@ class ParsedFileRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_file_tree(self, repository_id: str) -> list:
+        """Get lightweight file tree: path, language, line_count only (no content)."""
+        result = await self.db.execute(
+            select(
+                ParsedFile.file_path,
+                ParsedFile.language,
+                ParsedFile.line_count,
+            )
+            .where(ParsedFile.repository_id == repository_id)
+            .order_by(ParsedFile.file_path)
+        )
+        return [
+            {"file_path": row[0], "language": row[1], "line_count": row[2]}
+            for row in result.fetchall()
+        ]
 
     async def get_by_repository(
         self,

@@ -74,8 +74,8 @@ pypdf2 = "^3.0.1"
 presidio-analyzer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
 presidio-anonymizer = {version = ">=2.2.360,<3.0.0", markers = "python_version < \"3.14\""}
 en-core-web-lg = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"}
+tree-sitter-language-pack = "^0.13.0"
 tree-sitter-languages = "^1.10.2"
-
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

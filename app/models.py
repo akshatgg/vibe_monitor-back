@@ -189,6 +189,22 @@ class InvestigationStatus(enum.Enum):
     COMPLETED = "COMPLETED"
 
 
+class GapResolutionStatus(enum.Enum):
+    """Resolution status of a gap across reviews."""
+
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+
+
+class VerificationVerdict(enum.Enum):
+    """Verdict from LLM verification of a gap."""
+
+    GENUINE = "GENUINE"
+    FALSE_ALARM = "FALSE_ALARM"
+    COVERED_GLOBALLY = "COVERED_GLOBALLY"
+
+
 # ========== Code Parser Enums ==========
 
 
@@ -1746,10 +1762,12 @@ class ServiceReview(Base):
         "ReviewError", back_populates="review", cascade="all, delete-orphan"
     )
     logging_gaps = relationship(
-        "ReviewLoggingGap", back_populates="review", cascade="all, delete-orphan"
+        "ReviewLoggingGap", back_populates="review", cascade="all, delete-orphan",
+        foreign_keys="[ReviewLoggingGap.review_id]",
     )
     metrics_gaps = relationship(
-        "ReviewMetricsGap", back_populates="review", cascade="all, delete-orphan"
+        "ReviewMetricsGap", back_populates="review", cascade="all, delete-orphan",
+        foreign_keys="[ReviewMetricsGap.review_id]",
     )
     slis = relationship(
         "ReviewSLI", back_populates="review", cascade="all, delete-orphan"
@@ -1944,6 +1962,22 @@ class ReviewLoggingGap(Base):
     pr_created_at = Column(DateTime(timezone=True), nullable=True)
     pr_branch_name = Column(String(255), nullable=True)
 
+    # Verification (LLM-based gap validation)
+    gap_fingerprint = Column(String(64), nullable=True)  # Stable hash for cross-review tracking
+    resolution_status = Column(
+        Enum(GapResolutionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+        default=GapResolutionStatus.OPEN,
+    )
+    resolved_in_review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="SET NULL"), nullable=True
+    )
+    verification_verdict = Column(
+        Enum(VerificationVerdict, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )
+    verification_evidence = Column(JSON, nullable=True)  # {evidence_file, reason}
+
     # Human acknowledgment
     acknowledged = Column(Boolean, default=False, nullable=False)
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
@@ -1956,7 +1990,10 @@ class ReviewLoggingGap(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    review = relationship("ServiceReview", back_populates="logging_gaps")
+    review = relationship(
+        "ServiceReview", back_populates="logging_gaps",
+        foreign_keys="[ReviewLoggingGap.review_id]",
+    )
     acknowledged_by = relationship("User", backref="acknowledged_logging_gaps")
 
     # Indexes
@@ -1964,6 +2001,8 @@ class ReviewLoggingGap(Base):
         Index("idx_review_logging_gaps_review", "review_id"),
         Index("idx_review_logging_gaps_priority", "priority"),
         Index("idx_review_logging_gaps_acknowledged", "acknowledged"),
+        Index("idx_review_logging_gaps_fingerprint", "gap_fingerprint"),
+        Index("idx_review_logging_gaps_resolution", "resolution_status"),
     )
 
 
@@ -2016,6 +2055,22 @@ class ReviewMetricsGap(Base):
     pr_created_at = Column(DateTime(timezone=True), nullable=True)
     pr_branch_name = Column(String(255), nullable=True)
 
+    # Verification (LLM-based gap validation)
+    gap_fingerprint = Column(String(64), nullable=True)  # Stable hash for cross-review tracking
+    resolution_status = Column(
+        Enum(GapResolutionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+        default=GapResolutionStatus.OPEN,
+    )
+    resolved_in_review_id = Column(
+        String, ForeignKey("service_reviews.id", ondelete="SET NULL"), nullable=True
+    )
+    verification_verdict = Column(
+        Enum(VerificationVerdict, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )
+    verification_evidence = Column(JSON, nullable=True)  # {evidence_file, reason}
+
     # Human acknowledgment
     acknowledged = Column(Boolean, default=False, nullable=False)
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
@@ -2028,7 +2083,10 @@ class ReviewMetricsGap(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    review = relationship("ServiceReview", back_populates="metrics_gaps")
+    review = relationship(
+        "ServiceReview", back_populates="metrics_gaps",
+        foreign_keys="[ReviewMetricsGap.review_id]",
+    )
     acknowledged_by = relationship("User", backref="acknowledged_metrics_gaps")
 
     # Indexes
@@ -2036,6 +2094,8 @@ class ReviewMetricsGap(Base):
         Index("idx_review_metrics_gaps_review", "review_id"),
         Index("idx_review_metrics_gaps_priority", "priority"),
         Index("idx_review_metrics_gaps_acknowledged", "acknowledged"),
+        Index("idx_review_metrics_gaps_fingerprint", "gap_fingerprint"),
+        Index("idx_review_metrics_gaps_resolution", "resolution_status"),
     )
 
 
@@ -2106,8 +2166,8 @@ class ParsedRepository(Base):
     Used by the health review system to analyze codebase structure
     and detect logging/metrics gaps.
 
-    Note: No FK to services - repositories can be shared across services.
-    Link via (workspace_id, repo_full_name) when needed.
+    Linked to a service via service_id (CASCADE delete).
+    When a service is deleted, its parsed repos, files, and code facts are cleaned up.
     """
 
     __tablename__ = "parsed_repositories"
@@ -2115,6 +2175,9 @@ class ParsedRepository(Base):
     id = Column(String, primary_key=True)  # UUID
     workspace_id = Column(
         String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    service_id = Column(
+        String, ForeignKey("services.id", ondelete="CASCADE"), nullable=True
     )
     repo_full_name = Column(String(255), nullable=False)  # e.g., "owner/repo-name"
     default_branch = Column(String(255), nullable=True)  # e.g., "main"
@@ -2152,6 +2215,9 @@ class ParsedRepository(Base):
     workspace = relationship(
         "Workspace", backref=backref("parsed_repositories", cascade="all, delete-orphan")
     )
+    service = relationship(
+        "Service", backref=backref("parsed_repositories", cascade="all, delete-orphan")
+    )
     files = relationship(
         "ParsedFile", back_populates="repository", cascade="all, delete-orphan"
     )
@@ -2166,6 +2232,7 @@ class ParsedRepository(Base):
         Index("idx_parsed_repositories_repo_name", "repo_full_name"),
         Index("idx_parsed_repositories_status", "status"),
         Index("idx_parsed_repositories_commit", "commit_sha"),
+        Index("idx_parsed_repositories_service", "service_id"),
     )
 
 
@@ -2216,4 +2283,80 @@ class ParsedFile(Base):
         Index("idx_parsed_files_path", "file_path"),
         Index("idx_parsed_files_content_hash", "content_hash"),
         Index("idx_parsed_files_repo_path", "repository_id", "file_path"),
+    )
+
+
+class CodebaseContext(Base):
+    """
+    Persistent LLM-generated understanding of a repository's observability architecture.
+
+    Captures global instrumentation patterns (middleware, event listeners, tracing)
+    so the rule engine can suppress false-alarm findings on subsequent reviews.
+    """
+
+    __tablename__ = "codebase_contexts"
+
+    id = Column(String, primary_key=True)  # UUID
+    workspace_id = Column(
+        String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name = Column(String(255), nullable=False)
+    commit_sha = Column(String(40), nullable=False)
+
+    # Structured architecture understanding
+    context_json = Column(JSON, nullable=False)
+    # List of files providing global coverage (for staleness checks)
+    infrastructure_files = Column(JSON, nullable=True)
+    # Human-readable architecture summary
+    summary_text = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    workspace = relationship(
+        "Workspace", backref=backref("codebase_contexts", cascade="all, delete-orphan")
+    )
+
+    __table_args__ = (
+        Index("idx_codebase_contexts_workspace", "workspace_id"),
+        Index("idx_codebase_contexts_repo", "repo_full_name"),
+        Index("idx_codebase_contexts_workspace_repo", "workspace_id", "repo_full_name"),
+    )
+
+
+class CodeFactCache(Base):
+    """
+    Cached code facts extracted by Tree-sitter parsers.
+
+    Avoids re-extracting facts for unchanged files. The content_hash
+    is compared with ParsedFile.content_hash to detect staleness.
+    This is a cache — if corrupted, re-extract from ParsedFile.content.
+    """
+
+    __tablename__ = "code_facts"
+
+    id = Column(String, primary_key=True)  # UUID
+    repository_id = Column(
+        String, ForeignKey("parsed_repositories.id", ondelete="CASCADE"), nullable=False
+    )
+    file_path = Column(String(500), nullable=False)
+    content_hash = Column(String(64), nullable=False)  # SHA-256 of source content
+    facts_json = Column(JSON, nullable=False)  # Serialized List[CodeFact]
+    language = Column(String(50), nullable=False)
+    line_count = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    repository = relationship(
+        "ParsedRepository", backref=backref("code_facts", cascade="all, delete-orphan")
+    )
+
+    __table_args__ = (
+        Index("idx_code_facts_repository", "repository_id"),
+        Index("idx_code_facts_repo_path", "repository_id", "file_path"),
+        Index("idx_code_facts_content_hash", "repository_id", "content_hash"),
     )

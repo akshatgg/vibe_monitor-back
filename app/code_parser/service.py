@@ -111,6 +111,7 @@ class CodeParserService:
         commit_sha: str,
         default_branch: Optional[str] = None,
         concurrency: int = 10,
+        service_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Parse a repository and cache the results.
@@ -121,6 +122,7 @@ class CodeParserService:
             commit_sha: Git commit SHA to parse
             default_branch: Default branch name (will be fetched if not provided)
             concurrency: Number of concurrent file fetches
+            service_id: Service ID (for cascade delete on service removal)
 
         Returns:
             Parsed repository data
@@ -147,6 +149,7 @@ class CodeParserService:
             repo_full_name=repo_full_name,
             commit_sha=commit_sha,
             default_branch=default_branch,
+            service_id=service_id,
         )
 
         try:
@@ -346,6 +349,7 @@ class CodeParserService:
         installation_id: str,
         repo_full_name: str,
         commit_sha: str,
+        service_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get cached parse or trigger new parse if needed.
@@ -357,6 +361,7 @@ class CodeParserService:
             installation_id: GitHub installation ID (not used directly, kept for compatibility)
             repo_full_name: Repository full name (owner/repo)
             commit_sha: Current HEAD commit SHA
+            service_id: Service ID (for cascade delete on service removal)
 
         Returns:
             Parsed codebase data with 'changed' flag
@@ -373,7 +378,7 @@ class CodeParserService:
 
         # Parse and cache
         logger.info(f"No cache found, parsing {repo_full_name}@{commit_sha[:8]}")
-        parsed = await self.parse_repository(workspace_id, repo_full_name, commit_sha)
+        parsed = await self.parse_repository(workspace_id, repo_full_name, commit_sha, service_id=service_id)
 
         return {
             **parsed,

@@ -1,43 +1,37 @@
 """
-LLMAnalyzerService - Gap detection using LLM analysis.
+LLM Analyzer Service.
 
-Supports both mock and real LLM implementations via provider pattern.
-Use USE_MOCK_LLM_ANALYZER config flag to switch between them.
+Two modes controlled by USE_MOCK_LLM_ANALYZER in config:
+- True:  MockLLMAnalyzer returns hardcoded demo data (for demos/testing)
+- False: LLMEnrichmentService enriches rule engine results via single LLM call
 """
 
+import json
 import logging
-from abc import ABC, abstractmethod
 from typing import Optional
 
-from app.core.config import settings
 from app.health_review_system.codebase_sync.schemas import ParsedCodebaseInfo
 from app.health_review_system.data_collector.schemas import CollectedData
 from app.health_review_system.llm_analyzer.schemas import (
     AnalysisResult,
     AnalyzedError,
+    EnrichmentResult,
+    GapEnrichment,
     LoggingGap,
     MetricsGap,
 )
+from app.health_review_system.rule_engine.schemas import RuleEngineResult
 from app.models import Service
 
 logger = logging.getLogger(__name__)
 
 
-class BaseLLMAnalyzer(ABC):
-    """Abstract base class for LLM analyzers."""
-
-    @abstractmethod
-    async def analyze(
-        self,
-        codebase: ParsedCodebaseInfo,
-        collected_data: CollectedData,
-        service: Service,
-    ) -> AnalysisResult:
-        """Analyze codebase and data to detect gaps."""
-        pass
+# =============================================================================
+# Mock Analyzer (for demos) — used when USE_MOCK_LLM_ANALYZER=True
+# =============================================================================
 
 
-class MockLLMAnalyzer(BaseLLMAnalyzer):
+class MockLLMAnalyzer:
     """
     Fully mocked LLM analyzer that returns static, hardcoded data.
 
@@ -334,102 +328,153 @@ class MockLLMAnalyzer(BaseLLMAnalyzer):
         )
 
 
-class LLMAnalyzerService:
-    """
-    Service for LLM-based analysis.
+# =============================================================================
+# LLM Enrichment Service — used when USE_MOCK_LLM_ANALYZER=False
+# =============================================================================
 
-    Uses provider protocol pattern - can swap MockLLMAnalyzer
-    with real LangGraph implementation.
 
-    Configuration:
-    - USE_MOCK_LLM_ANALYZER=true: Use mock analyzer (default for testing)
-    - USE_MOCK_LLM_ANALYZER=false: Use real LangGraph analyzer
-    """
+class LLMEnrichmentService:
+    """Single-turn LLM for enriching rule engine results with rationale and suggestions."""
 
-    def __init__(
-        self,
-        analyzer: Optional[BaseLLMAnalyzer] = None,
-        use_mock: Optional[bool] = None,
-    ):
-        """
-        Initialize the LLM analyzer service.
-
-        Args:
-            analyzer: Custom analyzer implementation (overrides use_mock)
-            use_mock: Force mock mode. If None, reads from settings.
-        """
-        self._analyzer = analyzer
-        self._use_mock = use_mock
-        self._langgraph_agent = None
+    def __init__(self, provider=None):
+        self._provider = provider
 
     @property
-    def use_mock(self) -> bool:
-        """Determine whether to use mock analyzer."""
-        if self._use_mock is not None:
-            return self._use_mock
+    def provider(self):
+        if self._provider is None:
+            from app.health_review_system.llm_analyzer.providers import (
+                get_default_provider,
+            )
 
-        # Check settings - default to mock if not configured
-        return getattr(settings, "USE_MOCK_LLM_ANALYZER", True)
+            self._provider = get_default_provider()
+        return self._provider
 
-    @property
-    def analyzer(self) -> BaseLLMAnalyzer:
-        """Get the analyzer instance."""
-        if self._analyzer is not None:
-            return self._analyzer
-
-        if self.use_mock:
-            self._analyzer = MockLLMAnalyzer()
-        else:
-            # Use LangGraph agent wrapped as BaseLLMAnalyzer
-            self._analyzer = LangGraphAnalyzerWrapper()
-
-        return self._analyzer
-
-    async def analyze(
+    async def enrich(
         self,
-        codebase: ParsedCodebaseInfo,
+        rule_result: RuleEngineResult,
         collected_data: CollectedData,
         service: Service,
-    ) -> AnalysisResult:
-        """
-        Analyze codebase and collected data.
-
-        Args:
-            codebase: Parsed codebase info
-            collected_data: Logs, metrics, errors from integrations
-            service: Service model
-
-        Returns:
-            AnalysisResult with gaps, analyzed errors, summary
-        """
-        logger.info(
-            f"Running LLM analysis for service {service.name} "
-            f"(mock={self.use_mock})"
+        callbacks: list = None,
+    ) -> EnrichmentResult:
+        """Generate summary, recommendations, and per-gap enrichments via a single LLM call."""
+        from app.health_review_system.llm_analyzer.prompts import (
+            ENRICHMENT_SYSTEM_PROMPT,
+            ENRICHMENT_USER_PROMPT,
+            format_errors_for_prompt,
+            format_gaps_for_prompt,
+            format_metrics_overview,
         )
-        return await self.analyzer.analyze(codebase, collected_data, service)
 
+        facts = rule_result.facts_summary
+        user_prompt = ENRICHMENT_USER_PROMPT.format(
+            service_name=service.name or "Unknown",
+            repository_name=service.repository_name or "Unknown",
+            total_files=facts.get("total_files", 0),
+            total_functions=facts.get("total_functions", 0),
+            total_classes=facts.get("total_classes", 0),
+            total_try_blocks=facts.get("total_try_blocks", 0),
+            total_logging_calls=facts.get("total_logging_calls", 0),
+            total_metrics_calls=facts.get("total_metrics_calls", 0),
+            total_http_handlers=facts.get("total_http_handlers", 0),
+            total_external_io=facts.get("total_external_io", 0),
+            logging_gaps_text=format_gaps_for_prompt(rule_result.logging_gaps),
+            metrics_gaps_text=format_gaps_for_prompt(rule_result.metrics_gaps),
+            error_summary=format_errors_for_prompt(collected_data.errors),
+            metrics_overview=format_metrics_overview(collected_data.metrics),
+        )
 
-class LangGraphAnalyzerWrapper(BaseLLMAnalyzer):
-    """
-    Wrapper that adapts HealthAnalysisAgent to BaseLLMAnalyzer interface.
-    """
+        try:
+            # Use callbacks from graph pipeline if provided, otherwise create own
+            effective_callbacks = list(callbacks) if callbacks else []
+            if not effective_callbacks:
+                from app.services.rca.langfuse_handler import get_langfuse_callback
 
-    def __init__(self):
-        self._agent = None
+                langfuse_cb = get_langfuse_callback(
+                    session_id=str(service.id),
+                    metadata={
+                        "service_name": service.name,
+                        "repository_name": service.repository_name,
+                        "agent_version": "health-review-enrichment",
+                    },
+                    tags=["health-review", "enrichment"],
+                )
+                if langfuse_cb:
+                    effective_callbacks.append(langfuse_cb)
 
-    @property
-    def agent(self):
-        """Lazy initialization of LangGraph agent."""
-        if self._agent is None:
-            from app.health_review_system.llm_analyzer.agent import HealthAnalysisAgent
-            self._agent = HealthAnalysisAgent()
-        return self._agent
+            response = await self.provider.invoke(
+                system_prompt=ENRICHMENT_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                callbacks=effective_callbacks or None,
+            )
+            return self._parse_response(response, rule_result)
+        except Exception as e:
+            logger.exception("LLM enrichment failed: %s", e)
+            return self._fallback_enrich(rule_result)
 
-    async def analyze(
-        self,
-        codebase: ParsedCodebaseInfo,
-        collected_data: CollectedData,
-        service: Service,
-    ) -> AnalysisResult:
-        """Run analysis using LangGraph agent."""
-        return await self.agent.analyze(codebase, collected_data, service)
+    def _parse_response(
+        self, response: str, rule_result: RuleEngineResult
+    ) -> EnrichmentResult:
+        """Parse the LLM JSON response into EnrichmentResult."""
+        try:
+            text = response.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+
+            data = json.loads(text)
+
+            enrichments = []
+            for ge in data.get("gap_enrichments", []):
+                enrichments.append(
+                    GapEnrichment(
+                        rule_id=ge.get("rule_id", ""),
+                        rationale=ge.get("rationale"),
+                        suggested_log_statement=ge.get("suggested_log_statement"),
+                        implementation_guide=ge.get("implementation_guide"),
+                        example_code=ge.get("example_code"),
+                    )
+                )
+
+            return EnrichmentResult(
+                summary=data.get("summary", ""),
+                recommendations=data.get("recommendations", ""),
+                gap_enrichments=enrichments,
+            )
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning("Failed to parse LLM enrichment response: %s", e)
+            return self._fallback_enrich(rule_result)
+
+    def _fallback_enrich(self, rule_result: RuleEngineResult) -> EnrichmentResult:
+        """Generate basic enrichment from rule data when LLM fails."""
+        enrichments = []
+        all_gaps = rule_result.logging_gaps + rule_result.metrics_gaps
+
+        for gap in all_gaps:
+            enrichments.append(
+                GapEnrichment(
+                    rule_id=gap.rule_id,
+                    rationale=f"{gap.title}. Detected in: {', '.join(gap.affected_functions[:3]) or ', '.join(gap.affected_files[:3])}.",
+                )
+            )
+
+        facts = rule_result.facts_summary
+        summary = (
+            f"Analyzed {facts.get('total_files', 0)} files with "
+            f"{facts.get('total_functions', 0)} functions. "
+            f"Found {len(rule_result.logging_gaps)} logging gaps and "
+            f"{len(rule_result.metrics_gaps)} metrics gaps."
+        )
+
+        rec_lines = []
+        for i, gap in enumerate(sorted(all_gaps, key=lambda g: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(g.severity, 1)), 1):
+            rec_lines.append(f"{i}. [{gap.severity}] {gap.title}")
+            if i >= 6:
+                break
+
+        return EnrichmentResult(
+            summary=summary,
+            recommendations="\n".join(rec_lines),
+            gap_enrichments=enrichments,
+        )

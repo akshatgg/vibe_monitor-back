@@ -31,3 +31,7 @@ class CodebaseSyncResult(BaseModel):
     commit_sha: str
     changed: bool
     parsed_codebase: Optional[ParsedCodebaseInfo] = None
+    changed_files: List[str] = Field(
+        default_factory=list,
+        description="File paths that changed between previous and current commit",
+    )

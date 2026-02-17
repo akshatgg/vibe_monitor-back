@@ -201,6 +201,7 @@ class Settings(BaseSettings):
     LANGFUSE_HOST: str = (
         "https://us.cloud.langfuse.com"  # Langfuse host URL (US region)
     )
+    LANGFUSE_LOG_LEVEL: str = "ERROR"  # Log level for Langfuse SDK (DEBUG, INFO, WARNING, ERROR)
 
     # RCA Service Discovery Settings
     RCA_MAX_REPOS_TO_FETCH: int = (
@@ -279,14 +280,35 @@ class Settings(BaseSettings):
     RCA_SYNTHESIS_EVIDENCE_MAX_LENGTH: int = (
         8000  # Max chars for evidence board in synthesis
     )
-    # Health Review LLM Analyzer Settings
-    USE_MOCK_LLM_ANALYZER: bool = (
-        True  # Use mock analyzer for testing (set False for real LLM)
-    )
-    HEALTH_REVIEW_LLM_TEMPERATURE: float = (
-        0.2  # Low temperature for consistent analysis
-    )
-    HEALTH_REVIEW_LLM_MAX_TOKENS: int = 4096  # Max tokens for analysis responses
+    # =================================================================
+    # Health Review System Settings
+    # =================================================================
+
+    # Pipeline mode
+    USE_MOCK_LLM_ANALYZER: bool = False  # True = mock data for demos, False = real LLM pipeline
+    HEALTH_REVIEW_USE_LANGGRAPH: bool = True  # True = LangGraph pipeline, False = sequential pipeline
+
+    # LLM configuration
+    HEALTH_REVIEW_LLM_TEMPERATURE: float = 0.2  # Temperature for all health review LLM calls
+
+    # Global LLM budget (both enforced; either one exceeded = review FAILED)
+    HEALTH_REVIEW_LLM_MAX_ITERATIONS: int = 500  # Max LLM API calls across entire pipeline run
+    HEALTH_REVIEW_LLM_MAX_TOKEN_BUDGET: int = 50000000  # Max total tokens (prompt + completion) across entire pipeline run
+
+    # Verification agent settings
+    HEALTH_REVIEW_VERIFICATION_SAMPLE_SIZE: int = 20  # Gaps sampled per rule type for LLM verification
+    HEALTH_REVIEW_VERIFICATION_CONFIDENCE_THRESHOLD: float = 0.75  # ≥75% of samples must pass for group to be marked false_alarm
+    HEALTH_REVIEW_VERIFICATION_DELAY_SECONDS: float = 2.0  # Pause between rule-type verifications (rate limit)
+
+    # LangGraph safety cap — counts graph node executions (most are free, non-LLM steps).
+    # This does NOT limit LLM calls or tokens; LLMBudgetCallback handles that.
+    # A single node (e.g. verify_gaps) can make 20+ LLM calls internally,
+    # but counts as 1 node execution here. Set high to avoid false stops.
+    HEALTH_REVIEW_LANGGRAPH_RECURSION_LIMIT: int = 500
+
+    # Tool and data limits
+    HEALTH_REVIEW_SEARCH_RESULTS_LIMIT: int = 10  # Max files returned by search_files tool
+    HEALTH_REVIEW_MAX_FACTS_PER_FILE: int = 5000  # Max files to extract tree-sitter facts from
 
     # SSE Staleness Detection Settings
     MAX_JOB_PROCESSING_MINUTES: int = (

@@ -65,6 +65,45 @@ class ParsedFileResult(BaseModel):
         extra = "ignore"
 
 
+class CodeFact(BaseModel):
+    """A single structural fact extracted from code via Tree-sitter."""
+
+    fact_type: str = Field(
+        ...,
+        description=(
+            "Type of fact: function, class, try_except, logging_call, "
+            "metrics_call, http_handler, external_io, import, decorator"
+        ),
+    )
+    name: str = Field(..., description="Function/class/call name")
+    file_path: str = Field(..., description="File path in the repository")
+    line_start: int = Field(..., description="Starting line number (1-indexed)")
+    line_end: Optional[int] = Field(None, description="Ending line number (1-indexed)")
+    language: str = Field(..., description="Source language")
+    parent_function: Optional[str] = Field(None, description="Enclosing function name")
+    parent_class: Optional[str] = Field(None, description="Enclosing class name")
+    metadata: dict = Field(
+        default_factory=dict,
+        description="Language-specific extras (is_async, decorators, log_level, etc.)",
+    )
+
+    class Config:
+        extra = "ignore"
+
+
+class ExtractedFacts(BaseModel):
+    """All facts extracted from a single file."""
+
+    file_path: str = Field(..., description="File path in the repository")
+    language: str = Field(..., description="Source language")
+    facts: List[CodeFact] = Field(default_factory=list)
+    line_count: int = Field(default=0, description="Total lines in file")
+    parse_error: Optional[str] = Field(None, description="Error message if extraction failed")
+
+    class Config:
+        extra = "ignore"
+
+
 class ParsedFileData(BaseModel):
     """Complete data for a parsed file, including content."""
 

@@ -32,6 +32,7 @@ class BaseLLMProvider(ABC):
         system_prompt: str,
         user_prompt: str,
         tools: Optional[List[Any]] = None,
+        callbacks: Optional[List[Any]] = None,
     ) -> str:
         """
         Invoke the LLM with prompts.
@@ -40,6 +41,7 @@ class BaseLLMProvider(ABC):
             system_prompt: System instructions
             user_prompt: User query/context
             tools: Optional list of tools for tool calling
+            callbacks: Optional LangChain callbacks (e.g. Langfuse)
 
         Returns:
             LLM response as string
@@ -56,15 +58,10 @@ class BaseLLMProvider(ABC):
 class GroqProvider(BaseLLMProvider):
     """Groq LLM provider using Llama models."""
 
-    def __init__(
-        self,
-        model: Optional[str] = None,
-        temperature: float = 0.2,
-        max_tokens: int = 4096,
-    ):
-        self.model = model or settings.GROQ_LLM_MODEL or "llama-3.3-70b-versatile"
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+    def __init__(self, model: Optional[str] = None):
+        self.model = model or settings.GROQ_LLM_MODEL
+        if not self.model:
+            raise ValueError("GROQ_LLM_MODEL not configured. Please set it in environment variables.")
         self._llm: Optional[ChatGroq] = None
 
     def get_llm(self) -> ChatGroq:
@@ -76,8 +73,7 @@ class GroqProvider(BaseLLMProvider):
                 )
             self._llm = ChatGroq(
                 model=self.model,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
+                temperature=settings.HEALTH_REVIEW_LLM_TEMPERATURE,
             )
             logger.info(f"GroqProvider initialized with model: {self.model}")
         return self._llm
@@ -87,6 +83,7 @@ class GroqProvider(BaseLLMProvider):
         system_prompt: str,
         user_prompt: str,
         tools: Optional[List[Any]] = None,
+        callbacks: Optional[List[Any]] = None,
     ) -> str:
         """Invoke Groq LLM."""
         llm = self.get_llm()
@@ -96,11 +93,13 @@ class GroqProvider(BaseLLMProvider):
             HumanMessage(content=user_prompt),
         ]
 
+        config = {"callbacks": callbacks} if callbacks else {}
+
         if tools:
             llm_with_tools = llm.bind_tools(tools)
-            response = await llm_with_tools.ainvoke(messages)
+            response = await llm_with_tools.ainvoke(messages, config=config)
         else:
-            response = await llm.ainvoke(messages)
+            response = await llm.ainvoke(messages, config=config)
 
         return response.content
 
@@ -112,15 +111,10 @@ class GroqProvider(BaseLLMProvider):
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini LLM provider."""
 
-    def __init__(
-        self,
-        model: Optional[str] = None,
-        temperature: float = 0.2,
-        max_tokens: int = 4096,
-    ):
-        self.model = model or settings.GEMINI_LLM_MODEL or "gemini-1.5-flash"
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+    def __init__(self, model: Optional[str] = None):
+        self.model = model or settings.GEMINI_LLM_MODEL
+        if not self.model:
+            raise ValueError("GEMINI_LLM_MODEL not configured. Please set it in environment variables.")
         self._llm: Optional[ChatGoogleGenerativeAI] = None
 
     def get_llm(self) -> ChatGoogleGenerativeAI:
@@ -133,8 +127,7 @@ class GeminiProvider(BaseLLMProvider):
             self._llm = ChatGoogleGenerativeAI(
                 model=self.model,
                 google_api_key=settings.GEMINI_API_KEY,
-                temperature=self.temperature,
-                max_output_tokens=self.max_tokens,
+                temperature=settings.HEALTH_REVIEW_LLM_TEMPERATURE,
             )
             logger.info(f"GeminiProvider initialized with model: {self.model}")
         return self._llm
@@ -144,6 +137,7 @@ class GeminiProvider(BaseLLMProvider):
         system_prompt: str,
         user_prompt: str,
         tools: Optional[List[Any]] = None,
+        callbacks: Optional[List[Any]] = None,
     ) -> str:
         """Invoke Gemini LLM."""
         llm = self.get_llm()
@@ -153,11 +147,13 @@ class GeminiProvider(BaseLLMProvider):
             HumanMessage(content=user_prompt),
         ]
 
+        config = {"callbacks": callbacks} if callbacks else {}
+
         if tools:
             llm_with_tools = llm.bind_tools(tools)
-            response = await llm_with_tools.ainvoke(messages)
+            response = await llm_with_tools.ainvoke(messages, config=config)
         else:
-            response = await llm.ainvoke(messages)
+            response = await llm.ainvoke(messages, config=config)
 
         return response.content
 

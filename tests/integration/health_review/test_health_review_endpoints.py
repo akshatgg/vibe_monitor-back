@@ -424,8 +424,7 @@ class TestGetReviewEndpoint:
         response = await auth_client.get(f"/api/v1/health-reviews/reviews/{review_id}")
         assert response.status_code == 200
         data = response.json()
-        assert data["logging_gaps"] is None
-        assert data["metrics_gaps"] is None
+        assert data["errors"] is None
         assert data["slis"] is None
 
         # Get review with include=all - should have child arrays (empty but present)
@@ -434,8 +433,7 @@ class TestGetReviewEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["logging_gaps"] == []  # Empty list, not None
-        assert data["metrics_gaps"] == []
+        assert data["errors"] == []  # Empty list, not None
         assert data["slis"] == []
 
 

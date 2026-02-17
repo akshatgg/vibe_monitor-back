@@ -62,8 +62,6 @@ class ReviewDetail(BaseModel):
 
     # Inline child records (populated when include=all)
     errors: Optional[List["ReviewErrorResponse"]] = None
-    logging_gaps: Optional[List["LoggingGapResponse"]] = None
-    metrics_gaps: Optional[List["MetricsGapResponse"]] = None
     slis: Optional[List["SLIResponse"]] = None
 
 
@@ -174,6 +172,48 @@ class BulkCreateReviewResponse(BaseModel):
     skipped_count: int
     reviews: List[BulkReviewItem]
     message: str
+
+
+# ========== Gap Category Labels ==========
+
+LOGGING_GAP_CATEGORY_LABELS = {
+    "error_handling": "Error Handling",
+    "observability": "Observability",
+    "external_calls": "External Calls",
+}
+
+METRICS_GAP_CATEGORY_LABELS = {
+    "observability": "Observability",
+    "performance": "Performance",
+    "error_tracking": "Error Tracking",
+}
+
+
+# ========== Paginated Gap Schemas ==========
+
+
+class GapCategoryInfo(BaseModel):
+    """Info about a gap category with count."""
+
+    value: str
+    label: str
+    count: int
+
+
+class PaginatedLoggingGapsResponse(BaseModel):
+    """Paginated logging gaps with category filters."""
+
+    gaps: List[LoggingGapResponse]
+    total: int
+    categories: List[GapCategoryInfo]
+
+
+class PaginatedMetricsGapsResponse(BaseModel):
+    """Paginated metrics gaps with category filters."""
+
+    gaps: List[MetricsGapResponse]
+    total: int
+    categories: List[GapCategoryInfo]
 
 
 # ========== Workspace Reviews Schemas (for Frontend) ==========

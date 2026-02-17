@@ -244,6 +244,11 @@ def configure_logging(otel_handler: Optional[logging.Handler] = None):
     # The groq._base_client logger was causing TypeError due to incompatible log formatting
     logging.getLogger("groq._base_client").setLevel(logging.WARNING)
 
+    # Suppress Langfuse size limit warnings (state objects exceed per-item limits)
+    logging.getLogger("langfuse").setLevel(
+        getattr(logging, settings.LANGFUSE_LOG_LEVEL.upper(), logging.ERROR)
+    )
+
     logging.info("Logging configured successfully with stdlib logging")
 
 

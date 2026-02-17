@@ -65,6 +65,12 @@ def get_langfuse_callback(
             tags=tags or [],
         )
 
+        # Re-apply log level suppression — the Langfuse client constructor
+        # resets the "langfuse" logger to WARNING, overriding our configure_logging() setting.
+        logging.getLogger("langfuse").setLevel(
+            getattr(logging, settings.LANGFUSE_LOG_LEVEL.upper(), logging.ERROR)
+        )
+
         logger.debug(
             f"Created Langfuse callback handler (session={session_id}, user={user_id})"
         )

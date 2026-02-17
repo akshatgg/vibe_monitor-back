@@ -53,3 +53,28 @@ class AnalysisResult(BaseModel):
     analyzed_errors: List[AnalyzedError] = Field(default_factory=list)
     summary: str = ""
     recommendations: str = ""
+
+
+class GapEnrichment(BaseModel):
+    """LLM-generated enrichment for a single detected gap."""
+
+    rule_id: str
+    rationale: Optional[str] = None
+    suggested_log_statement: Optional[str] = None
+    implementation_guide: Optional[str] = None
+    example_code: Optional[str] = None
+
+
+class EnrichmentResult(BaseModel):
+    """Output from LLM enrichment of rule engine results."""
+
+    summary: str = ""
+    recommendations: str = ""
+    gap_enrichments: List[GapEnrichment] = Field(default_factory=list)
+
+    def get_enrichment(self, rule_id: str) -> Optional[GapEnrichment]:
+        """Get enrichment for a specific rule_id."""
+        for e in self.gap_enrichments:
+            if e.rule_id == rule_id:
+                return e
+        return None

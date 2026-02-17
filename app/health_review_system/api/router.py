@@ -24,8 +24,13 @@ from app.health_review_system.api.schemas import (
     BulkReviewItem,
     CreateReviewRequest,
     CreateReviewResponse,
+    GapCategoryInfo,
+    LOGGING_GAP_CATEGORY_LABELS,
     LoggingGapResponse,
+    METRICS_GAP_CATEGORY_LABELS,
     MetricsGapResponse,
+    PaginatedLoggingGapsResponse,
+    PaginatedMetricsGapsResponse,
     ReviewDetail,
     ReviewErrorResponse,
     ReviewListResponse,
@@ -351,6 +356,7 @@ async def get_review(
     )
 
     # Include child records if requested
+    # Note: logging_gaps and metrics_gaps are now served via their own paginated endpoints
     if include and include.lower() == "all":
         # Fetch errors
         errors_stmt = select(ReviewError).where(ReviewError.review_id == review_id)
@@ -366,55 +372,6 @@ async def get_review(
                 stack_trace_sample=err.stack_trace_sample,
             )
             for err in errors
-        ]
-
-        # Fetch logging gaps
-        logging_gaps_stmt = select(ReviewLoggingGap).where(
-            ReviewLoggingGap.review_id == review_id
-        )
-        logging_gaps_result = await db.execute(logging_gaps_stmt)
-        logging_gaps = logging_gaps_result.scalars().all()
-        response.logging_gaps = [
-            LoggingGapResponse(
-                id=gap.id,
-                gap_description=gap.gap_description,
-                gap_category=gap.gap_category,
-                priority=gap.priority.value,
-                affected_files=gap.affected_files,
-                affected_functions=gap.affected_functions,
-                suggested_log_statement=gap.suggested_log_statement,
-                rationale=gap.rationale,
-                pr_status=gap.pr_status.value,
-                acknowledged=gap.acknowledged,
-                acknowledged_at=gap.acknowledged_at,
-                acknowledged_by_user_id=gap.acknowledged_by_user_id,
-            )
-            for gap in logging_gaps
-        ]
-
-        # Fetch metrics gaps
-        metrics_gaps_stmt = select(ReviewMetricsGap).where(
-            ReviewMetricsGap.review_id == review_id
-        )
-        metrics_gaps_result = await db.execute(metrics_gaps_stmt)
-        metrics_gaps = metrics_gaps_result.scalars().all()
-        response.metrics_gaps = [
-            MetricsGapResponse(
-                id=gap.id,
-                gap_description=gap.gap_description,
-                gap_category=gap.gap_category,
-                metric_type=gap.metric_type,
-                priority=gap.priority.value,
-                affected_components=gap.affected_components,
-                suggested_metric_names=gap.suggested_metric_names,
-                implementation_guide=gap.implementation_guide,
-                example_code=gap.example_code,
-                pr_status=gap.pr_status.value,
-                acknowledged=gap.acknowledged,
-                acknowledged_at=gap.acknowledged_at,
-                acknowledged_by_user_id=gap.acknowledged_by_user_id,
-            )
-            for gap in metrics_gaps
         ]
 
         # Fetch SLIs
@@ -442,69 +399,161 @@ async def get_review(
 
 @router.get(
     "/reviews/{review_id}/logging-gaps",
-    response_model=List[LoggingGapResponse],
+    response_model=PaginatedLoggingGapsResponse,
 )
 async def get_logging_gaps(
     review_id: str,
+    category: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    """Get logging gaps for a review."""
-    stmt = select(ReviewLoggingGap).where(ReviewLoggingGap.review_id == review_id)
-    result = await db.execute(stmt)
+    """Get paginated logging gaps for a review, filtered by category."""
+    # Get all categories with counts for this review
+    cat_stmt = (
+        select(
+            ReviewLoggingGap.gap_category,
+            func.count().label("cnt"),
+        )
+        .where(ReviewLoggingGap.review_id == review_id)
+        .group_by(ReviewLoggingGap.gap_category)
+        .order_by(ReviewLoggingGap.gap_category)
+    )
+    cat_result = await db.execute(cat_stmt)
+    cat_rows = cat_result.all()
+
+    categories = [
+        GapCategoryInfo(
+            value=row[0] or "uncategorized",
+            label=LOGGING_GAP_CATEGORY_LABELS.get(row[0], row[0] or "Uncategorized"),
+            count=row[1],
+        )
+        for row in cat_rows
+    ]
+
+    # Auto-select first category if none specified
+    if not category and categories:
+        category = categories[0].value
+
+    # Query filtered + paginated gaps
+    gaps_stmt = (
+        select(ReviewLoggingGap)
+        .where(ReviewLoggingGap.review_id == review_id)
+    )
+    if category:
+        gaps_stmt = gaps_stmt.where(ReviewLoggingGap.gap_category == category)
+
+    # Total count for this filter
+    count_stmt = select(func.count()).select_from(gaps_stmt.subquery())
+    total = await db.scalar(count_stmt)
+
+    # Fetch page
+    gaps_stmt = gaps_stmt.order_by(ReviewLoggingGap.priority).offset(offset).limit(limit)
+    result = await db.execute(gaps_stmt)
     gaps = result.scalars().all()
 
-    return [
-        LoggingGapResponse(
-            id=gap.id,
-            gap_description=gap.gap_description,
-            gap_category=gap.gap_category,
-            priority=gap.priority.value,
-            affected_files=gap.affected_files,
-            affected_functions=gap.affected_functions,
-            suggested_log_statement=gap.suggested_log_statement,
-            rationale=gap.rationale,
-            pr_status=gap.pr_status.value,
-            acknowledged=gap.acknowledged,
-            acknowledged_at=gap.acknowledged_at,
-            acknowledged_by_user_id=gap.acknowledged_by_user_id,
-        )
-        for gap in gaps
-    ]
+    return PaginatedLoggingGapsResponse(
+        gaps=[
+            LoggingGapResponse(
+                id=gap.id,
+                gap_description=gap.gap_description,
+                gap_category=gap.gap_category,
+                priority=gap.priority.value,
+                affected_files=gap.affected_files,
+                affected_functions=gap.affected_functions,
+                suggested_log_statement=gap.suggested_log_statement,
+                rationale=gap.rationale,
+                pr_status=gap.pr_status.value,
+                acknowledged=gap.acknowledged,
+                acknowledged_at=gap.acknowledged_at,
+                acknowledged_by_user_id=gap.acknowledged_by_user_id,
+            )
+            for gap in gaps
+        ],
+        total=total,
+        categories=categories,
+    )
 
 
 @router.get(
     "/reviews/{review_id}/metrics-gaps",
-    response_model=List[MetricsGapResponse],
+    response_model=PaginatedMetricsGapsResponse,
 )
 async def get_metrics_gaps(
     review_id: str,
+    category: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    """Get metrics gaps for a review."""
-    stmt = select(ReviewMetricsGap).where(ReviewMetricsGap.review_id == review_id)
-    result = await db.execute(stmt)
+    """Get paginated metrics gaps for a review, filtered by category."""
+    # Get all categories with counts for this review
+    cat_stmt = (
+        select(
+            ReviewMetricsGap.gap_category,
+            func.count().label("cnt"),
+        )
+        .where(ReviewMetricsGap.review_id == review_id)
+        .group_by(ReviewMetricsGap.gap_category)
+        .order_by(ReviewMetricsGap.gap_category)
+    )
+    cat_result = await db.execute(cat_stmt)
+    cat_rows = cat_result.all()
+
+    categories = [
+        GapCategoryInfo(
+            value=row[0] or "uncategorized",
+            label=METRICS_GAP_CATEGORY_LABELS.get(row[0], row[0] or "Uncategorized"),
+            count=row[1],
+        )
+        for row in cat_rows
+    ]
+
+    # Auto-select first category if none specified
+    if not category and categories:
+        category = categories[0].value
+
+    # Query filtered + paginated gaps
+    gaps_stmt = (
+        select(ReviewMetricsGap)
+        .where(ReviewMetricsGap.review_id == review_id)
+    )
+    if category:
+        gaps_stmt = gaps_stmt.where(ReviewMetricsGap.gap_category == category)
+
+    # Total count for this filter
+    count_stmt = select(func.count()).select_from(gaps_stmt.subquery())
+    total = await db.scalar(count_stmt)
+
+    # Fetch page
+    gaps_stmt = gaps_stmt.order_by(ReviewMetricsGap.priority).offset(offset).limit(limit)
+    result = await db.execute(gaps_stmt)
     gaps = result.scalars().all()
 
-    return [
-        MetricsGapResponse(
-            id=gap.id,
-            gap_description=gap.gap_description,
-            gap_category=gap.gap_category,
-            metric_type=gap.metric_type,
-            priority=gap.priority.value,
-            affected_components=gap.affected_components,
-            suggested_metric_names=gap.suggested_metric_names,
-            implementation_guide=gap.implementation_guide,
-            example_code=gap.example_code,
-            pr_status=gap.pr_status.value,
-            acknowledged=gap.acknowledged,
-            acknowledged_at=gap.acknowledged_at,
-            acknowledged_by_user_id=gap.acknowledged_by_user_id,
-        )
-        for gap in gaps
-    ]
+    return PaginatedMetricsGapsResponse(
+        gaps=[
+            MetricsGapResponse(
+                id=gap.id,
+                gap_description=gap.gap_description,
+                gap_category=gap.gap_category,
+                metric_type=gap.metric_type,
+                priority=gap.priority.value,
+                affected_components=gap.affected_components,
+                suggested_metric_names=gap.suggested_metric_names,
+                implementation_guide=gap.implementation_guide,
+                example_code=gap.example_code,
+                pr_status=gap.pr_status.value,
+                acknowledged=gap.acknowledged,
+                acknowledged_at=gap.acknowledged_at,
+                acknowledged_by_user_id=gap.acknowledged_by_user_id,
+            )
+            for gap in gaps
+        ],
+        total=total,
+        categories=categories,
+    )
 
 
 # ========== Acknowledge Gap Endpoints ==========

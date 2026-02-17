@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.code_parser import CodeParserService
 from app.github.tools.router import get_branch_recent_commits
-from app.github.tools.service import get_default_branch
+from app.github.tools.service import execute_github_rest_api, get_default_branch, get_github_integration_with_token
 from app.health_review_system.codebase_sync.schemas import (
     CodebaseSyncResult,
     ParsedCodebaseInfo,
@@ -79,6 +79,7 @@ class CodebaseSyncService:
                 installation_id=service.repository_id,  # Can be None, not used internally
                 repo_full_name=service.repository_name,
                 commit_sha=current_sha,
+                service_id=service.id,
             )
 
             if parsed_data:
@@ -96,10 +97,21 @@ class CodebaseSyncService:
                     languages=parsed_data.get("languages", {}),
                 )
 
+        # Get changed files if code changed and we have a previous SHA
+        changed_files = []
+        if changed and previous_sha:
+            changed_files = await self._get_changed_files(
+                workspace_id=workspace_id,
+                service=service,
+                base_sha=previous_sha,
+                head_sha=current_sha,
+            )
+
         return CodebaseSyncResult(
             commit_sha=current_sha,
             changed=changed,
             parsed_codebase=parsed_codebase,
+            changed_files=changed_files,
         )
 
     async def _get_head_sha(
@@ -168,6 +180,52 @@ class CodebaseSyncService:
                 f"Failed to get HEAD SHA for {service.repository_name}: {e}"
             )
             return None
+
+    async def _get_changed_files(
+        self,
+        workspace_id: str,
+        service: Service,
+        base_sha: str,
+        head_sha: str,
+    ) -> list[str]:
+        """Get list of changed files between two commits using GitHub Compare API."""
+        if not service.repository_name:
+            return []
+
+        parts = service.repository_name.split("/")
+        if len(parts) != 2:
+            return []
+
+        owner, repo_name = parts
+
+        try:
+            integration, access_token = await get_github_integration_with_token(
+                workspace_id=workspace_id, db=self.db
+            )
+            if not integration or not access_token:
+                logger.warning("No GitHub access token available for compare API")
+                return []
+            endpoint = f"/repos/{owner}/{repo_name}/compare/{base_sha}...{head_sha}"
+
+            data = await execute_github_rest_api(
+                endpoint=endpoint,
+                method="GET",
+                access_token=access_token,
+            )
+
+            if not data or "files" not in data:
+                return []
+
+            changed_files = [f["filename"] for f in data["files"] if "filename" in f]
+            logger.info(
+                f"Found {len(changed_files)} changed files between "
+                f"{base_sha[:8]}..{head_sha[:8]}"
+            )
+            return changed_files
+
+        except Exception as e:
+            logger.warning(f"Failed to get changed files via compare API: {e}")
+            return []
 
     async def _get_parsed_files(
         self,
