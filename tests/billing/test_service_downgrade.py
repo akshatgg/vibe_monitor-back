@@ -20,7 +20,7 @@ from app.billing.services.service_downgrade import (
 )
 from app.billing.services.subscription_service import subscription_service
 from app.billing.services.stripe_service import stripe_service
-from app.models import Subscription, SubscriptionStatus
+from app.models import Subscription, SubscriptionStatus, Plan, PlanType
 
 
 # ============================================================================
@@ -34,6 +34,20 @@ def mock_db_session():
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
     return session
+
+
+@pytest.fixture
+def mock_pro_plan():
+    """Mock Pro plan with pricing information."""
+    return Plan(
+        id="pro-plan-id",
+        name="Pro",
+        plan_type=PlanType.PRO,
+        base_service_count=5,
+        base_price_cents=3000,  # $30.00
+        additional_service_price_cents=500,  # $5.00
+        is_active=True,
+    )
 
 
 @pytest.fixture
@@ -144,7 +158,7 @@ class TestDowngradeServices:
     """Test suite for downgrade_services function."""
 
     async def test_downgrade_success_no_existing_schedule(
-        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule,
+        self, mock_db_session, base_subscription, mock_pro_plan, mock_stripe_subscription, mock_stripe_schedule,
         mock_stripe_settings
     ):
         """Test successful downgrade when no schedule exists."""
@@ -160,6 +174,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=15,  # 10 billable + 5 base
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
 
             # Assertions
@@ -188,7 +203,7 @@ class TestDowngradeServices:
             mock_db_session.commit.assert_called()
 
     async def test_downgrade_success_with_existing_schedule(
-        self, mock_db_session, subscription_with_pending_downgrade,
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test downgrade when a schedule already exists (updates it)."""
@@ -206,6 +221,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=20,  # 15 billable + 5 base
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
 
             # Assertions
@@ -218,7 +234,7 @@ class TestDowngradeServices:
             mock_stripe.create_subscription_schedule.assert_not_called()
 
     async def test_downgrade_to_base_plan(
-        self, mock_db_session, base_subscription, mock_stripe_subscription, mock_stripe_schedule,
+        self, mock_db_session, base_subscription, mock_pro_plan, mock_stripe_subscription, mock_stripe_schedule,
         mock_stripe_settings
     ):
         """Test downgrade to base plan (5 services only, 0 billable)."""
@@ -237,6 +253,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=5,  # Base plan only
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is True
@@ -249,7 +266,7 @@ class TestDowngradeServices:
             assert len(phase2_items) == 1  # Only base plan item
             assert phase2_items[0]["price"] == "price_pro_plan"
 
-    async def test_downgrade_no_stripe_subscription(self, mock_db_session, base_subscription):
+    async def test_downgrade_no_stripe_subscription(self, mock_db_session, base_subscription, mock_pro_plan):
         """Test downgrade fails when no Stripe subscription exists."""
         base_subscription.stripe_subscription_id = None
 
@@ -258,13 +275,14 @@ class TestDowngradeServices:
             workspace_id="workspace-456",
             new_service_count=15,
             subscription=base_subscription,
+            plan=mock_pro_plan,
         )
 
         assert result["success"] is False
         assert "No active Stripe subscription" in result["message"]
 
     async def test_downgrade_stripe_subscription_not_found(
-        self, mock_db_session, base_subscription
+        self, mock_db_session, base_subscription, mock_pro_plan
     ):
         """Test downgrade fails when Stripe subscription doesn't exist in Stripe."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -275,13 +293,14 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=15,
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is False
             assert "error" in result
 
     async def test_downgrade_stripe_error(
-        self, mock_db_session, base_subscription, mock_stripe_subscription,
+        self, mock_db_session, base_subscription, mock_pro_plan, mock_stripe_subscription,
         mock_stripe_settings
     ):
         """Test downgrade handles Stripe API errors gracefully."""
@@ -297,13 +316,14 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=15,
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is False
             assert "Failed to schedule downgrade" in result["message"]
 
     async def test_downgrade_update_fails_fallback_to_create(
-        self, mock_db_session, subscription_with_pending_downgrade,
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test that if updating existing schedule fails, it cancels and creates new one."""
@@ -326,6 +346,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=20,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is True
@@ -333,7 +354,7 @@ class TestDowngradeServices:
             mock_stripe.create_subscription_schedule.assert_called_once()
 
     async def test_downgrade_stale_schedule_id_in_db(
-        self, mock_db_session, subscription_with_pending_downgrade,
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test that if DB has stale schedule ID, it gets updated from Stripe."""
@@ -352,6 +373,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=20,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
 
             # Verify DB was updated with correct schedule ID
@@ -359,7 +381,7 @@ class TestDowngradeServices:
             mock_db_session.commit.assert_called()
 
     async def test_downgrade_multiple_changes_same_period(
-        self, mock_db_session, subscription_with_pending_downgrade,
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test multiple downgrades in same billing period - last one wins."""
@@ -376,6 +398,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=20,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
             assert result1["success"] is True
             assert result1["new_service_count"] == 20
@@ -386,6 +409,7 @@ class TestDowngradeServices:
                 workspace_id="workspace-456",
                 new_service_count=10,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
             assert result2["success"] is True
             assert result2["new_service_count"] == 10
@@ -403,7 +427,7 @@ class TestCancelPendingDowngrade:
     """Test suite for cancel_pending_downgrade function."""
 
     async def test_cancel_success(
-        self, mock_db_session, subscription_with_pending_downgrade
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan
     ):
         """Test successfully canceling a pending downgrade."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -412,6 +436,7 @@ class TestCancelPendingDowngrade:
             result = await cancel_pending_downgrade(
                 db=mock_db_session,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is True
@@ -427,18 +452,19 @@ class TestCancelPendingDowngrade:
             assert subscription_with_pending_downgrade.pending_change_date is None
             mock_db_session.commit.assert_called()
 
-    async def test_cancel_no_pending_downgrade(self, mock_db_session, base_subscription):
+    async def test_cancel_no_pending_downgrade(self, mock_db_session, base_subscription, mock_pro_plan):
         """Test cancel when there's no pending downgrade."""
         result = await cancel_pending_downgrade(
             db=mock_db_session,
             subscription=base_subscription,
+            plan=mock_pro_plan,
         )
 
         assert result["success"] is False
         assert "No pending downgrade" in result["message"]
 
     async def test_cancel_no_schedule_id(
-        self, mock_db_session, subscription_with_pending_downgrade
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan
     ):
         """Test cancel when pending count exists but no schedule ID."""
         subscription_with_pending_downgrade.subscription_schedule_id = None
@@ -446,13 +472,14 @@ class TestCancelPendingDowngrade:
         result = await cancel_pending_downgrade(
             db=mock_db_session,
             subscription=subscription_with_pending_downgrade,
+            plan=mock_pro_plan,
         )
 
         assert result["success"] is False
         assert "No subscription schedule found" in result["message"]
 
     async def test_cancel_stripe_error(
-        self, mock_db_session, subscription_with_pending_downgrade
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan
     ):
         """Test cancel handles Stripe API errors gracefully."""
         with patch("app.billing.services.service_downgrade.stripe_service") as mock_stripe:
@@ -463,6 +490,7 @@ class TestCancelPendingDowngrade:
             result = await cancel_pending_downgrade(
                 db=mock_db_session,
                 subscription=subscription_with_pending_downgrade,
+                plan=mock_pro_plan,
             )
 
             assert result["success"] is False
@@ -477,9 +505,9 @@ class TestCancelPendingDowngrade:
 class TestGetPendingChanges:
     """Test suite for get_pending_changes function."""
 
-    async def test_get_pending_changes_exists(self, subscription_with_pending_downgrade):
+    async def test_get_pending_changes_exists(self, subscription_with_pending_downgrade, mock_pro_plan):
         """Test getting pending changes when they exist."""
-        result = await get_pending_changes(subscription_with_pending_downgrade)
+        result = await get_pending_changes(subscription_with_pending_downgrade, mock_pro_plan)
 
         assert result is not None
         assert result["type"] == "downgrade"
@@ -487,20 +515,20 @@ class TestGetPendingChanges:
         assert result["new_service_count"] == 15  # 10 billable + 5 base
         assert result["takes_effect"] == subscription_with_pending_downgrade.current_period_end
 
-    async def test_get_pending_changes_none(self, base_subscription):
+    async def test_get_pending_changes_none(self, base_subscription, mock_pro_plan):
         """Test getting pending changes when none exist."""
-        result = await get_pending_changes(base_subscription)
+        result = await get_pending_changes(base_subscription, mock_pro_plan)
 
         assert result is None
 
-    async def test_get_pending_changes_error_handling(self):
+    async def test_get_pending_changes_error_handling(self, mock_pro_plan):
         """Test error handling in get_pending_changes."""
         # Create a subscription mock that raises an error
         bad_subscription = Mock()
         bad_subscription.pending_billable_service_count = None
         bad_subscription.billable_service_count = Mock(side_effect=Exception("DB Error"))
 
-        result = await get_pending_changes(bad_subscription)
+        result = await get_pending_changes(bad_subscription, mock_pro_plan)
 
         # Should handle error gracefully
         assert result is None
@@ -709,7 +737,7 @@ class TestDowngradeIntegration:
     """Integration tests for complete downgrade flow."""
 
     async def test_complete_downgrade_flow(
-        self, mock_db_session, base_subscription,
+        self, mock_db_session, base_subscription, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test complete flow: schedule downgrade -> verify pending -> cancel -> verify cleared."""
@@ -726,11 +754,12 @@ class TestDowngradeIntegration:
                 workspace_id="workspace-456",
                 new_service_count=15,
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
             assert result["success"] is True
 
             # Step 2: Verify pending changes
-            pending = await get_pending_changes(base_subscription)
+            pending = await get_pending_changes(base_subscription, mock_pro_plan)
             assert pending is not None
             assert pending["new_service_count"] == 15
 
@@ -738,15 +767,16 @@ class TestDowngradeIntegration:
             cancel_result = await cancel_pending_downgrade(
                 db=mock_db_session,
                 subscription=base_subscription,
+                plan=mock_pro_plan,
             )
             assert cancel_result["success"] is True
 
             # Step 4: Verify no pending changes
-            pending_after = await get_pending_changes(base_subscription)
+            pending_after = await get_pending_changes(base_subscription, mock_pro_plan)
             assert pending_after is None
 
     async def test_multiple_downgrades_then_cancel(
-        self, mock_db_session, subscription_with_pending_downgrade,
+        self, mock_db_session, subscription_with_pending_downgrade, mock_pro_plan,
         mock_stripe_subscription, mock_stripe_schedule, mock_stripe_settings
     ):
         """Test changing mind multiple times, then canceling."""
@@ -759,16 +789,16 @@ class TestDowngradeIntegration:
             mock_stripe.cancel_subscription_schedule = AsyncMock(return_value=Mock())
 
             # Downgrade to 20
-            await downgrade_services(mock_db_session, "workspace-456", 20, subscription_with_pending_downgrade)
+            await downgrade_services(mock_db_session, "workspace-456", 20, subscription_with_pending_downgrade, mock_pro_plan)
 
             # Change to 25
-            await downgrade_services(mock_db_session, "workspace-456", 25, subscription_with_pending_downgrade)
+            await downgrade_services(mock_db_session, "workspace-456", 25, subscription_with_pending_downgrade, mock_pro_plan)
 
             # Change to 30
-            await downgrade_services(mock_db_session, "workspace-456", 30, subscription_with_pending_downgrade)
+            await downgrade_services(mock_db_session, "workspace-456", 30, subscription_with_pending_downgrade, mock_pro_plan)
 
             # Cancel
-            result = await cancel_pending_downgrade(mock_db_session, subscription_with_pending_downgrade)
+            result = await cancel_pending_downgrade(mock_db_session, subscription_with_pending_downgrade, mock_pro_plan)
             assert result["success"] is True
 
             # Verify schedule was updated 3 times and canceled once

@@ -367,13 +367,20 @@ class SubscriptionService:
 
         # Update local record
         subscription.billable_service_count = new_billable_count
+
+        # Clear any pending downgrade since we're creating a new subscription
+        # (old subscription with schedule is being deleted)
+        subscription.pending_billable_service_count = None
+        subscription.pending_change_date = None
+        subscription.subscription_schedule_id = None
+
         await db.commit()
         await db.refresh(subscription)
 
         logger.info(
             f"Reset subscription for workspace {workspace_id}: "
             f"{new_service_count} total services, {new_billable_count} billable. "
-            f"New billing cycle starts today."
+            f"New billing cycle starts today. Cleared any pending downgrades."
         )
         return subscription
 
@@ -400,6 +407,27 @@ class SubscriptionService:
 
         # Cancel in Stripe if there's an active subscription
         if subscription.stripe_subscription_id:
+            # If there's a subscription schedule (pending downgrade), release it first.
+            # Stripe won't allow canceling a subscription managed by a schedule directly.
+            if subscription.subscription_schedule_id:
+                try:
+                    await stripe_service.cancel_subscription_schedule(
+                        subscription.subscription_schedule_id
+                    )
+                    logger.info(
+                        f"Released subscription schedule {subscription.subscription_schedule_id} "
+                        f"before canceling subscription for workspace {workspace_id}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to release schedule {subscription.subscription_schedule_id}: {e}. "
+                        f"Continuing with cancellation."
+                    )
+                # Clear pending downgrade fields
+                subscription.pending_billable_service_count = None
+                subscription.pending_change_date = None
+                subscription.subscription_schedule_id = None
+
             await stripe_service.cancel_subscription(
                 subscription_id=subscription.stripe_subscription_id,
                 immediate=immediate,
@@ -803,6 +831,17 @@ class SubscriptionService:
                     f"Updated billable service count to {subscription.billable_service_count} "
                     f"(total: {new_service_count}, base: {plan.base_service_count})"
                 )
+
+            # Clear any pending downgrade since we're creating a new subscription
+            # (old subscription with schedule will be deleted below)
+            if subscription.pending_billable_service_count is not None:
+                logger.info(
+                    f"Clearing pending downgrade (was scheduled for "
+                    f"{subscription.pending_billable_service_count + (plan.base_service_count if plan else 5)} services)"
+                )
+                subscription.pending_billable_service_count = None
+                subscription.pending_change_date = None
+                subscription.subscription_schedule_id = None
 
             # IMPORTANT: Commit BEFORE deleting old subscription to avoid race condition.
             # The delete triggers a customer.subscription.deleted webhook. If the DB still

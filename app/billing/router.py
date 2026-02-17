@@ -396,8 +396,15 @@ async def schedule_service_downgrade(
             status_code=404, detail="No subscription found for this workspace"
         )
 
+    # Get plan for pricing and service count information
+    plan = await subscription_service.get_plan_by_id(db, subscription.plan_id)
+    if not plan:
+        raise HTTPException(
+            status_code=404, detail="Plan not found for this subscription"
+        )
+
     # Check if it's actually a downgrade
-    current_service_count = subscription.billable_service_count + 5
+    current_service_count = subscription.billable_service_count + plan.base_service_count
     if request.service_count >= current_service_count:
         raise HTTPException(
             status_code=400,
@@ -405,7 +412,7 @@ async def schedule_service_downgrade(
         )
 
     # Perform downgrade
-    result = await downgrade_services(db, workspace_id, request.service_count, subscription)
+    result = await downgrade_services(db, workspace_id, request.service_count, subscription, plan)
 
     if not result.get("success"):
         raise HTTPException(
@@ -438,8 +445,15 @@ async def cancel_service_downgrade(
             status_code=404, detail="No subscription found for this workspace"
         )
 
+    # Get plan for service count information
+    plan = await subscription_service.get_plan_by_id(db, subscription.plan_id)
+    if not plan:
+        raise HTTPException(
+            status_code=404, detail="Plan not found for this subscription"
+        )
+
     # Cancel downgrade
-    result = await cancel_pending_downgrade(db, subscription)
+    result = await cancel_pending_downgrade(db, subscription, plan)
 
     if not result.get("success"):
         raise HTTPException(
@@ -471,13 +485,20 @@ async def get_pending_service_changes(
             status_code=404, detail="No subscription found for this workspace"
         )
 
+    # Get plan for service count information
+    plan = await subscription_service.get_plan_by_id(db, subscription.plan_id)
+    if not plan:
+        raise HTTPException(
+            status_code=404, detail="Plan not found for this subscription"
+        )
+
     # Get pending changes
-    pending = await get_pending_changes(subscription)
+    pending = await get_pending_changes(subscription, plan)
 
     if not pending:
         return {
             "has_pending_changes": False,
-            "current_service_count": subscription.billable_service_count + 5,
+            "current_service_count": subscription.billable_service_count + plan.base_service_count,
         }
 
     return {

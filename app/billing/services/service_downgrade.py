@@ -21,6 +21,7 @@ async def downgrade_services(
     workspace_id: str,
     new_service_count: int,
     subscription: Subscription,
+    plan,  # Plan object
 ) -> dict:
     """
     Downgrade services - takes effect at next billing cycle.
@@ -31,8 +32,9 @@ async def downgrade_services(
     Args:
         db: Database session
         workspace_id: Workspace ID
-        new_service_count: New total service count (including base 5)
+        new_service_count: New total service count (including base services)
         subscription: Current subscription
+        plan: Plan object for pricing information
 
     Returns:
         dict with downgrade details
@@ -45,8 +47,8 @@ async def downgrade_services(
                 "message": "No active Stripe subscription found. Upgrade to Pro first.",
             }
 
-        # Calculate new billable service count (subtract base 5)
-        new_billable_count = max(0, new_service_count - 5)
+        # Calculate new billable service count (subtract base services from plan)
+        new_billable_count = max(0, new_service_count - plan.base_service_count)
 
         # Get current subscription from Stripe
         stripe_sub = await stripe_service.get_subscription(
@@ -180,19 +182,20 @@ async def downgrade_services(
         # Verify it was saved
         logger.info(f"Verified schedule_id in DB: {subscription.subscription_schedule_id}")
 
-        # Calculate new price
-        new_price = 30 + (new_billable_count * 5)  # $30 base + $5 per additional service
+        # Calculate new price using plan pricing
+        new_price_cents = plan.base_price_cents + (new_billable_count * plan.additional_service_price_cents)
+        new_price = new_price_cents / 100  # Convert cents to dollars
 
         return {
             "success": True,
             "type": "downgrade",
-            "current_service_count": subscription.billable_service_count + 5,  # Keep current
+            "current_service_count": subscription.billable_service_count + plan.base_service_count,  # Keep current
             "new_service_count": new_service_count,  # What it will be
             "takes_effect": subscription.current_period_end.isoformat(),
             "next_billing_amount": new_price,
             "message": (
                 f"Downgrade scheduled. Starting {subscription.current_period_end.strftime('%b %d, %Y')}, "
-                f"you'll be charged ${new_price}/month for {new_service_count} services."
+                f"you'll be charged ${new_price:.2f}/month for {new_service_count} services."
             ),
         }
 
@@ -215,6 +218,7 @@ async def downgrade_services(
 async def cancel_pending_downgrade(
     db: AsyncSession,
     subscription: Subscription,
+    plan,  # Plan object
 ) -> dict:
     """
     Cancel a pending downgrade by canceling the Stripe Subscription Schedule.
@@ -222,6 +226,7 @@ async def cancel_pending_downgrade(
     Args:
         db: Database session
         subscription: Current subscription
+        plan: Plan object for service count information
 
     Returns:
         dict with cancellation details
@@ -246,7 +251,7 @@ async def cancel_pending_downgrade(
             subscription.subscription_schedule_id
         )
 
-        current_service_count = subscription.billable_service_count + 5
+        current_service_count = subscription.billable_service_count + plan.base_service_count
 
         # Clear pending downgrade and schedule ID
         subscription.subscription_schedule_id = None
@@ -281,12 +286,13 @@ async def cancel_pending_downgrade(
         }
 
 
-async def get_pending_changes(subscription: Subscription) -> Optional[dict]:
+async def get_pending_changes(subscription: Subscription, plan) -> Optional[dict]:
     """
     Check if there's a pending downgrade stored in the database.
 
     Args:
         subscription: Current subscription
+        plan: Plan object for service count information
 
     Returns:
         dict with pending change details or None
@@ -296,11 +302,11 @@ async def get_pending_changes(subscription: Subscription) -> Optional[dict]:
         if subscription.pending_billable_service_count is None:
             return None
 
-        new_service_count = subscription.pending_billable_service_count + 5
+        new_service_count = subscription.pending_billable_service_count + plan.base_service_count
 
         return {
             "type": "downgrade",
-            "current_service_count": subscription.billable_service_count + 5,
+            "current_service_count": subscription.billable_service_count + plan.base_service_count,
             "new_service_count": new_service_count,
             "takes_effect": subscription.pending_change_date,
         }
