@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.logging_config import clear_job_id, set_job_id
 from app.core.sentry import clear_sentry_context, set_sentry_context
 from app.health_review_system.orchestrator import ReviewOrchestrator
 from app.health_review_system.orchestrator.schemas import ReviewGenerationRequest
@@ -283,6 +284,10 @@ class HealthReviewWorker:
             workspace_id=workspace_id,
             service_id=service_id,
         )
+        # Propagate review_id into the logging context so all logs emitted
+        # during this review job automatically include the review_id field,
+        # enabling full log tracing by review_id.
+        set_job_id(review_id)
 
         logger.info(
             f"Processing health review job: review_id={review_id}, "
@@ -343,6 +348,7 @@ class HealthReviewWorker:
                         f"Failed to update review {review_id} status to FAILED"
                     )
             finally:
+                clear_job_id()
                 clear_sentry_context()
 
 
