@@ -44,10 +44,7 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
                 response_size = len(response.body)
 
             if HTTP_METRICS:
-                HTTP_METRICS["http_requests_total"].add(1, {
-                    "method": method,
-                    "status_class": f"{response.status_code // 100}xx"
-                })
+
 
                 HTTP_METRICS["http_request_duration_seconds"].record(duration, {
                     "method": method,
