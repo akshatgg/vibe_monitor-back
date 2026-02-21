@@ -255,7 +255,7 @@ class ReviewOrchestrator:
         # Phase 2: Fact Extraction (Tree-sitter)
         logger.info(f"Phase 2: Fact extraction for review {review.id}")
 
-        all_facts, repository_id = await self._extract_facts(
+        all_facts, repository_id, file_contents = await self._extract_facts(
             workspace_id=request.workspace_id,
             repo_full_name=service.repository_name,
         )
@@ -265,11 +265,12 @@ class ReviewOrchestrator:
         # Phase 3: Rule Engine (deterministic gap detection)
         logger.info(f"Phase 3: Rule engine for review {review.id}")
 
-        rule_result = self.rule_engine.evaluate(all_facts)
+        rule_result = self.rule_engine.evaluate(all_facts, file_contents=file_contents)
 
         logger.info(
             f"Phase 3 complete: {len(rule_result.logging_gaps)} logging gaps, "
-            f"{len(rule_result.metrics_gaps)} metrics gaps"
+            f"{len(rule_result.metrics_gaps)} metrics gaps, "
+            f"{len(rule_result.red_gaps)} RED gaps"
         )
 
         # Phase 3.5: Verification (LLM agent checks for global instrumentation)
@@ -875,11 +876,12 @@ class ReviewOrchestrator:
 
     async def _extract_facts(
         self, workspace_id: str, repo_full_name: str
-    ) -> tuple[List[ExtractedFacts], str]:
+    ) -> tuple[List[ExtractedFacts], str, dict[str, str]]:
         """Extract code facts from all stored parsed files using Tree-sitter.
 
         Returns:
-            Tuple of (all_facts, repository_id).
+            Tuple of (all_facts, repository_id, file_contents).
+            file_contents maps file paths to their content (used by RED rules).
         """
         repo_crud = ParsedRepositoryRepository(self.db)
         file_crud = ParsedFileRepository(self.db)
@@ -887,14 +889,18 @@ class ReviewOrchestrator:
         parsed_repo = await repo_crud.get_latest(workspace_id, repo_full_name)
         if not parsed_repo:
             logger.warning(f"No parsed repository found for {repo_full_name}")
-            return [], ""
+            return [], "", {}
 
         db_files = await file_crud.get_by_repository(parsed_repo.id, limit=5000)
 
         all_facts: List[ExtractedFacts] = []
+        file_contents: dict[str, str] = {}
         for db_file in db_files:
             if not db_file.content or not db_file.language:
                 continue
+
+            # Store file contents for RED rules (content-based analysis)
+            file_contents[db_file.file_path] = db_file.content
 
             parser = self.parser_registry.get_parser(db_file.language)
             if not parser:
@@ -903,7 +909,7 @@ class ReviewOrchestrator:
             facts = parser.extract_facts(db_file.content, db_file.file_path)
             all_facts.append(facts)
 
-        return all_facts, parsed_repo.id
+        return all_facts, parsed_repo.id, file_contents
 
     async def _get_previous_review(
         self, service_id: str, current_review_id: str

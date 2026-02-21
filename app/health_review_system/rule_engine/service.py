@@ -4,10 +4,11 @@ Rule engine service — runs all rules against extracted facts.
 
 import logging
 from collections import defaultdict
-from typing import List
+from typing import Dict, List, Optional
 
 from app.code_parser.schemas import CodeFact, ExtractedFacts
 
+from .red_rules import evaluate_red_readiness
 from .rules import (
     rule_error_no_counter,
     rule_error_path_no_error_log,
@@ -27,8 +28,18 @@ logger = logging.getLogger(__name__)
 class RuleEngineService:
     """Deterministic gap detection via structural rules over code facts."""
 
-    def evaluate(self, all_facts: List[ExtractedFacts]) -> RuleEngineResult:
-        """Run all rules against extracted facts from all files."""
+    def evaluate(
+        self,
+        all_facts: List[ExtractedFacts],
+        file_contents: Optional[Dict[str, str]] = None,
+    ) -> RuleEngineResult:
+        """Run all rules against extracted facts from all files.
+
+        Args:
+            all_facts: Extracted code facts from all files.
+            file_contents: Optional dict mapping file paths to their content.
+                           Required for RED method gap detection.
+        """
         # Flatten all facts across files
         flat_facts: List[CodeFact] = []
         for ef in all_facts:
@@ -60,6 +71,13 @@ class RuleEngineService:
         logging_gaps = self._deduplicate(logging_gaps)
         metrics_gaps = self._deduplicate(metrics_gaps)
 
+        # Run RED method rules (content-based, separate from LOG/MET rules)
+        red_gaps: List[DetectedProblem] = []
+        red_readiness = None
+        if file_contents:
+            red_gaps, red_readiness = evaluate_red_readiness(file_contents)
+            red_gaps = self._deduplicate(red_gaps)
+
         facts_summary = {
             "total_functions": len(facts_by_type.get("function", [])),
             "total_classes": len(facts_by_type.get("class", [])),
@@ -73,16 +91,20 @@ class RuleEngineService:
         }
 
         logger.info(
-            "Rule engine evaluated %d facts across %d files: %d logging gaps, %d metrics gaps",
+            "Rule engine evaluated %d facts across %d files: "
+            "%d logging gaps, %d metrics gaps, %d RED gaps",
             len(flat_facts),
             len(facts_by_file),
             len(logging_gaps),
             len(metrics_gaps),
+            len(red_gaps),
         )
 
         return RuleEngineResult(
             logging_gaps=logging_gaps,
             metrics_gaps=metrics_gaps,
+            red_gaps=red_gaps,
+            red_readiness=red_readiness,
             facts_summary=facts_summary,
         )
 
