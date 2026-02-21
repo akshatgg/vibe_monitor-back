@@ -17,6 +17,7 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
     """
     Middleware to collect HTTP request/response metrics.
     """
+    
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         start_time = time.time()
