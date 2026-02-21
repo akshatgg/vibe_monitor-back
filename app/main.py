@@ -244,6 +244,8 @@ if settings.OTEL_ENABLED:
 # Include all API routes
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
+
+
 # Mount static files for assets (logos, images, etc.)
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
